@@ -13,9 +13,10 @@ from app.ui import server
 def srv(tmp_path, monkeypatch):
     st = config.load_settings()
     st["paths"] = {**st["paths"], "data_dir": str(tmp_path), "database": str(tmp_path / "d.sqlite3"), "logs_dir": str(tmp_path / "l")}
-    calls = []
+    calls, engines = [], []
     def fake(settings, level=None, formats=None, publish=True, **k):
         import logging
+        engines.append(settings["engine"])
         logging.getLogger("piano.director").info("🎬 étape test")
         calls.append((level, tuple(formats), publish))
         time.sleep(0.2)
@@ -25,6 +26,7 @@ def srv(tmp_path, monkeypatch):
     logging_ = __import__("logging"); logging_.getLogger("piano").setLevel("INFO")
     s = ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(lambda: st))
     threading.Thread(target=s.serve_forever, daemon=True).start()
+    monkeypatch.setattr(server.stock, "refill_in_background", lambda *_: None)
     yield f"http://127.0.0.1:{s.server_address[1]}", calls
     s.shutdown()
 
@@ -74,3 +76,17 @@ def test_rejects_unknown_choices_foreign_origin_and_parallel(srv):
         assert False
     except urllib.error.HTTPError as e:
         assert e.code == 404
+
+
+def test_synthesia_is_forced_unless_switched_off(srv, monkeypatch):
+    base, calls = srv
+    seen = []
+    orig = server.RUNNER
+    monkeypatch.setattr(server, "RUNNER", lambda settings, **k: seen.append(settings["engine"]) or orig(settings, **k))
+    for synth in (True, False):
+        req = urllib.request.Request(base + "/api/run", json.dumps({"synthesia": synth}).encode(), {"Content-Type": "application/json"})
+        urllib.request.urlopen(req)
+        for _ in range(40):
+            if get(base + "/api/status")["status"] != "running": break
+            time.sleep(0.1)
+    assert seen == ["synthesia", "builtin"]

@@ -27,7 +27,7 @@ score_weights:
 engine: auto            # auto = Synthesia si le Mac est prêt, sinon rendu intégré | synthesia | builtin
 synthesia:
   app_path: /Applications/Synthesia.app
-  calibrated: false     # passer à true après `piano mac-check` + vérification visuelle d'une vidéo test
+  calibrated: true      # Synthesia validé sur le Mac de l'utilisateur (clics, enregistrement, montage OK)
   load_seconds: 6       # attente du chargement du MIDI
   lead_in_seconds: 8    # délai (s) entre le début de la capture et la 1re note, à étalonner
   tail_seconds: 2

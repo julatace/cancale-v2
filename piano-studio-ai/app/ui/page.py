@@ -83,6 +83,7 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
   <div class="grid g2" id="formats" aria-label="Formats"></div>
 
   <div class="row">
+    <label class="sw"><input type="checkbox" id="synth" checked> Utiliser mon application Synthesia (sinon rendu intégré)</label>
     <label class="sw"><input type="checkbox" id="publish"> Publier ensuite (YouTube si configuré)</label>
     <span class="est" id="est"></span>
   </div>
@@ -145,7 +146,7 @@ function poll(){api('/api/status?since='+since).then(s=>{
 $('#go').onclick=()=>{
   $('#job').hidden=false;$('#log').textContent='';$('#res').innerHTML='';$('#err').hidden=true;since=0;cur=-1;fmtLabel='';stepper();$('#now').textContent='Démarrage…';
   $('#job').scrollIntoView({behavior:'smooth',block:'start'});
-  api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked})})
+  api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked,synthesia:$('#synth').checked})})
    .then(r=>{if(r.error){$('#now').textContent=r.error;return}if(!timer)timer=setInterval(poll,1500);poll()})};
 api('/api/options').then(o=>{opts=o;level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
 info();vids();setInterval(info,20000);

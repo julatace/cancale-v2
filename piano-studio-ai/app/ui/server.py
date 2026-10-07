@@ -193,6 +193,10 @@ def make_handler(settings_loader):
             if not formats or not all(f in {x["key"] for x in opt["formats"]} for f in formats):
                 return self._json({"error": "format inconnu"}, 400)
             count = max(1, min(int(body.get("count", 1) or 1), 5))
+            if body.get("synthesia", True):
+                s = {**s, "engine": "synthesia"}              # Synthesia obligatoire : une erreur s'affiche, pas de repli silencieux
+            else:
+                s = {**s, "engine": "builtin"}
             if not JOB.start(s, level, formats, bool(body.get("publish", False)), count):
                 return self._json({"error": "une vidéo est déjà en cours de création"}, 409)
             self._json({"ok": True})
