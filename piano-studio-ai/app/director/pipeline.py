@@ -1,4 +1,5 @@
 """Director : une vidéo de bout en bout, déterministe, avec retry et sans jamais bloquer sur une plateforme."""
+import json
 import logging
 import random
 import tempfile
@@ -408,9 +409,11 @@ def _finalize(s, conn, sid, level, fmt_name, F, out, sec, content, report, publi
     """Contrôle qualité déjà fait : enregistre la vidéo en base et publie."""
     ok = result is not None and result["score"] >= s["qc"]["publish_min"]
     log.info("✔ [%s] Score qualité : %s/100 -> %s", fmt_name, result["score"] if result else 0, "OK" if ok else "REFUSÉE")
-    vid = conn.execute("INSERT INTO videos(song_id,style,duration,output_path,quality_score,status,title,created_at) VALUES(?,?,?,?,?,?,?,?)",
+    post = {k: content.get(k) for k in ("title", "description", "tiktok_caption", "instagram_caption", "youtube_title", "pinned_comment", "hashtags")}
+    vid = conn.execute("INSERT INTO videos(song_id,style,duration,output_path,quality_score,status,title,meta,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
                        (sid, f"{level}|{fmt_name}", sec["duration"], str(out), result["score"] if result else 0,
-                        "READY" if ok else "FAILED", content["title"], db.now())).lastrowid
+                        "READY" if ok else "FAILED", content["title"], json.dumps(post, ensure_ascii=False), db.now())).lastrowid
+    report["post"] = post
     conn.commit()
     report.update(video=str(out), qc=result, status="READY" if ok else "FAILED", publications=[])
     if last_err and not ok:

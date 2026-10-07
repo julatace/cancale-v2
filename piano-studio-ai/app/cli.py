@@ -156,6 +156,17 @@ def cmd_ui(s, a):
     return 0
 
 
+def cmd_youtube_login(s, a):
+    from .publisher import youtube_auth
+    try:
+        youtube_auth.login(config.ROOT / ".env", port=a.port)
+    except RuntimeError as e:
+        print(f"❌ {e}")
+        return 1
+    print("✅ YouTube est connecté : les vidéos seront envoyées automatiquement (cochez « Publier ensuite »).")
+    return 0
+
+
 def cmd_mac_install(s, a):
     from .scheduler import launchd
     p = launchd.install(s["publish_times"], config.ROOT)
@@ -182,6 +193,7 @@ def main(argv=None):
     cmds["fetch-midi"] = cmd_fetch_midi
     cmds["mac-rec-test"] = cmd_mac_rec_test
     cmds["ui"] = cmd_ui
+    cmds["youtube-login"] = cmd_youtube_login
     cmds["mac-setup"] = cmd_mac_setup
     cmds["auto"] = cmds["run"] = cmds["dry-run"] = cmd_run
     for n in cmds:
@@ -191,11 +203,14 @@ def main(argv=None):
             sp.add_argument("--source", required=True); sp.add_argument("--license-proof")
         if n in ("auto", "run", "dry-run"):
             sp.add_argument("--count", type=int, default=1); sp.add_argument("--dry-run", action="store_true", default=(n == "dry-run")); sp.add_argument("--force-synthesia", action="store_true")
+        if n == "youtube-login":
+            sp.add_argument("--port", type=int, default=8085)
         if n == "ui":
             sp.add_argument("--port", type=int, default=8765); sp.add_argument("--no-browser", action="store_true")
         if n == "analyze":
             sp.add_argument("file"); sp.add_argument("--duration", type=float)
     a = p.parse_args(argv)
+    config.load_env()
     s = config.load_settings()
     setup_logging(config.resolve(s, "logs_dir"))
     return cmds[a.cmd](s, a)

@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS songs(
 CREATE TABLE IF NOT EXISTS videos(
   id INTEGER PRIMARY KEY, song_id INTEGER REFERENCES songs(id), style TEXT,
   duration REAL, output_path TEXT, quality_score REAL, status TEXT, video_hash TEXT UNIQUE,
-  title TEXT, created_at TEXT NOT NULL);
+  title TEXT, meta TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS publications(
   id INTEGER PRIMARY KEY, video_id INTEGER REFERENCES videos(id), platform TEXT,
   post_id TEXT, status TEXT, published_at TEXT,
@@ -47,6 +47,10 @@ def connect(path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(videos)")}
+    if "meta" not in cols:                                   # bases créées avant l'ajout des textes de publication
+        conn.execute("ALTER TABLE videos ADD COLUMN meta TEXT")
+        conn.commit()
     return conn
 
 

@@ -1,5 +1,6 @@
 """Interface locale : choisir le niveau (facile / moyen / difficile) et le format (vertical court / horizontal long), puis créer la vidéo."""
 import json
+import os
 import logging
 import threading
 import time
@@ -137,7 +138,8 @@ def info(s) -> dict:
     if time.time() - _ENGINE["at"] > 60 and not _ENGINE["busy"]:
         _ENGINE["busy"] = True
         threading.Thread(target=_probe_engine, args=(s,), daemon=True).start()
-    return {"stock": stock.count(s), "stock_target": s.get("stock", {}).get("target", 3), "engine": _ENGINE["value"], "version": VERSION}
+    return {"stock": stock.count(s), "stock_target": s.get("stock", {}).get("target", 3), "engine": _ENGINE["value"], "version": VERSION,
+            "youtube": all(os.environ.get(k) for k in ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"))}
 
 
 def _origin(src: str) -> str:
@@ -178,13 +180,14 @@ def import_upload(s, name: str, data: bytes, title: str = "", artist: str = "") 
 
 def videos(s, limit=12) -> list[dict]:
     conn = db.connect(config.resolve(s, "database"))
-    rows = conn.execute("SELECT id,title,style,duration,quality_score,status,output_path,created_at FROM videos ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    rows = conn.execute("SELECT id,title,style,duration,quality_score,status,output_path,meta,created_at FROM videos ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     out = []
     for r in rows:
         lvl, _, fmt = (r["style"] or "").partition("|")
         p = Path(r["output_path"] or "")
         out.append({"id": r["id"], "title": r["title"], "level": lvl, "format": fmt, "duration": round(r["duration"] or 0),
-                    "quality": r["quality_score"], "status": r["status"], "file": p.name if p.exists() else None, "at": r["created_at"][:16]})
+                    "quality": r["quality_score"], "status": r["status"], "file": p.name if p.exists() else None, "at": r["created_at"][:16],
+                    "post": json.loads(r["meta"]) if r["meta"] else None})
     return out
 
 

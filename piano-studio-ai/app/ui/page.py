@@ -94,6 +94,9 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 .tr{display:flex;gap:12px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}.tr:first-child{border-top:0}
 .tr .rk{width:28px;font-weight:800;color:var(--mute);text-align:right;flex:none}.tr .n{flex:1;min-width:0}.tr .n b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tr small{color:var(--mute)}
 .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}.filters .sel{flex:1;min-width:140px}
+.pub{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.pub button,.pub a{font:inherit;font-size:13px;font-weight:600;padding:7px 11px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;text-decoration:none}
+.pub button:hover,.pub a:hover{border-color:var(--brand);color:var(--brand)}.pub .done{border-color:var(--ok);color:var(--ok)}
+.pubnote{font-size:12.5px;color:var(--mute);margin:6px 0 0}
 [hidden]{display:none!important}
 </style></head><body><div class="wrap">
 
@@ -126,7 +129,7 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
   <div class="row">
     <label class="sw">Langue des textes <select id="lang" class="sel" style="flex:none;padding:6px 10px"></select></label>
     <label class="sw"><input type="checkbox" id="synth" checked> Utiliser mon application Synthesia (sinon rendu intégré)</label>
-    <label class="sw"><input type="checkbox" id="publish"> Publier ensuite (YouTube si configuré)</label>
+    <label class="sw"><input type="checkbox" id="publish"> <span id="pubtxt">Publier ensuite sur YouTube</span></label>
     <span class="est" id="est"></span>
   </div>
 </section>
@@ -221,16 +224,26 @@ $('#tgo').onclick=()=>{$('#tgo').disabled=true;$('#tres').innerHTML='<p class="e
     $('#tres').innerHTML=r.items.length?r.items.map(i=>`<div class="tr"><span class="rk">${i.rank}</span><span class="n"><b>${esc(i.title)}</b><small>${esc(i.artist)}</small></span><button class="btn alt" data-q="${esc(i.title)}">MIDI libre</button><a class="btn alt" target="_blank" rel="noopener" href="${webUrl(i.title+' '+i.artist)}">🔎 Web</a></div>`).join(''):`<p class="note bad">${esc(r.message||'Aucune tendance disponible.')}</p>`
   }).catch(()=>{$('#tres').innerHTML='<p class="note bad">Impossible de charger les tendances.</p>'}).finally(()=>{$('#tgo').disabled=false})};
 $('#tres').onclick=e=>{const b=e.target.closest('[data-q]');if(b){$('#q').scrollIntoView({behavior:'smooth',block:'center'});runSearch(b.dataset.q)}};
-function info(){api('/api/info').then(i=>{$('#ver').innerHTML=`version <b>${esc(i.version||'?')}</b>`;$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'');
+function info(){api('/api/info').then(i=>{$('#pubtxt').innerHTML=i.youtube?'Publier ensuite sur YouTube <b style="color:var(--ok)">(connecté ✓)</b>':'Publier ensuite sur YouTube <b style="color:var(--bad)">(non connecté)</b>';$('#ver').innerHTML=`version <b>${esc(i.version||'?')}</b>`;$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'');
   $('#engine').innerHTML=`Moteur : <b>${i.engine==='synthesia'?'Synthesia':i.engine?'rendu intégré':'vérification…'}</b>`;$('#engine').title=i.engine==='synthesia'?'Votre application Synthesia pilotée automatiquement':'Synthesia non prêt : rendu intégré utilisé'})}
-function vids(){api('/api/videos').then(v=>{if(!v.length)return;$('#vids').innerHTML=v.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${esc(x.level)} · ${esc(x.format)} · ${x.duration}s · qualité ${x.quality??'-'}/100 · ${esc(x.status)} · ${esc(x.at)}</small></div>${x.file?`<button data-f="${esc(x.file)}">Voir</button>`:''}</div>`).join('')})}
+function vids(){api('/api/videos').then(v=>{if(!v.length)return;$('#vids').innerHTML=v.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${esc(x.level)} · ${esc(x.format)} · ${x.duration}s · qualité ${x.quality??'-'}/100 · ${esc(x.status)} · ${esc(x.at)}</small></div>${x.file?`<button data-f="${esc(x.file)}">Voir</button>`:''}</div>${x.post&&x.file?pubBox(x.post):''}`).join('')})}
 $('#vids').onclick=e=>{const f=e.target.dataset.f;if(f){$('#player').innerHTML=`<video controls autoplay playsinline style="width:100%;max-height:70vh;border-radius:12px;background:#000;margin-top:12px" src="/files/${encodeURIComponent(f)}"></video>`;$('#player').scrollIntoView({behavior:'smooth',block:'center'})}};
+const POSTS=[];
+function pubBox(post,wide){
+  if(!post)return '';const i=POSTS.push(post)-1;
+  const b=(k,l)=>post[k]?`<button data-post="${i}" data-k="${k}">${l}</button>`:'';
+  return `<div class="pub">${b('tiktok_caption','Copier le texte TikTok')}${b('instagram_caption','Copier le texte Instagram')}${b('youtube_title','Copier le titre YouTube')}${b('description','Copier la description YouTube')}${b('pinned_comment','Copier le commentaire épinglé')}</div>`+
+   `<div class="pub"><a href="https://www.tiktok.com/upload" target="_blank" rel="noopener">Ouvrir TikTok</a><a href="https://studio.youtube.com" target="_blank" rel="noopener">Ouvrir YouTube Studio</a><a href="https://business.facebook.com/latest/reels_composer" target="_blank" rel="noopener">Ouvrir Facebook</a><a href="https://www.instagram.com/" target="_blank" rel="noopener">Ouvrir Instagram</a></div>`}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-post]');if(!b)return;
+  const txt=(POSTS[+b.dataset.post]||{})[b.dataset.k];if(!txt)return;
+  const ok=()=>{const o=b.textContent;b.textContent='Copié ✓';b.classList.add('done');setTimeout(()=>{b.textContent=o;b.classList.remove('done')},1600)};
+  (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject()).then(ok).catch(()=>{const a=document.createElement('textarea');a.value=txt;document.body.appendChild(a);a.select();try{document.execCommand('copy');ok()}catch(_){}a.remove()})});
 function stepper(){$('#stepper').innerHTML=STEPS.map((s,i)=>`<li class="${i<cur?'done':i===cur?'cur':''}">${i<cur?'✓ ':''}${s}</li>`).join('')}
 function track(line){const m=line.match(/\[(vertical|horizontal)\]/);if(m)fmtLabel=m[1]==='vertical'?'Vertical':'Horizontal';
   const k=line.startsWith('♪')?0:/^[🔎✂]/u.test(line)?1:line.startsWith('🎬')?2:line.startsWith('✔')?3:line.startsWith('📤')?4:null;
   if(line.startsWith('✂'))cur=1;else if(k!==null&&k>cur)cur=k}
 function results(r){const list=r.videos||[r];$('#res').innerHTML=list.filter(x=>x&&x.video).map(x=>{const f=x.video.split('/').pop(),bad=x.status==='FAILED';
-  return `<div class="vid"><div class="meta"><span>${x.format==='horizontal'?'Horizontal long':'Vertical court'} ${x.engine?`<span class="tag ${x.engine==='synthesia'?'mine':''}">${x.engine==='synthesia'?'Fait avec Synthesia':'Rendu intégré'}</span>`:''}</span><span class="chip ${bad?'bad':'ok'}">${bad?'Échec':'Qualité '+(x.qc?x.qc.score:'-')+'/100'}</span></div>${bad?`<p class="err">${esc(x.error||'La fabrication a échoué')}</p>`:`<video controls playsinline preload="metadata" src="/files/${encodeURIComponent(f)}"></video><a href="/files/${encodeURIComponent(f)}" download="${esc(f)}">⬇ Télécharger</a>`}</div>`}).join('')}
+  return `<div class="vid"><div class="meta"><span>${x.format==='horizontal'?'Horizontal long':'Vertical court'} ${x.engine?`<span class="tag ${x.engine==='synthesia'?'mine':''}">${x.engine==='synthesia'?'Fait avec Synthesia':'Rendu intégré'}</span>`:''}</span><span class="chip ${bad?'bad':'ok'}">${bad?'Échec':'Qualité '+(x.qc?x.qc.score:'-')+'/100'}</span></div>${bad?`<p class="err">${esc(x.error||'La fabrication a échoué')}</p>`:`<video controls playsinline preload="metadata" src="/files/${encodeURIComponent(f)}"></video><a href="/files/${encodeURIComponent(f)}" download="${esc(f)}">⬇ Télécharger</a>${pubBox(x.post)}`}</div>`}).join('')}
 function poll(){api('/api/status?since='+since).then(s=>{
   since=s.last;const L=$('#log');s.logs.forEach(l=>track(l));
   if(s.logs.length){L.textContent+=s.logs.join('\n')+'\n';L.scrollTop=L.scrollHeight;const last=s.logs[s.logs.length-1];$('#now').textContent=(fmtLabel&&s.status==='running'?fmtLabel+' · ':'')+last.replace(/\s*\[(vertical|horizontal)\]\s*/,' ').trim()}
