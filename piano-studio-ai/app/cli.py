@@ -129,6 +129,23 @@ def cmd_mac_rec_test(s, a):
     return 0 if ok else 1
 
 
+def cmd_mac_setup(s, a):
+    """Prépare le Mac : ouvre directement les réglages d'autorisation, déclenche la demande macOS, vérifie."""
+    import time
+    from .synthesia_controller import mac
+    print("1/3 Ouverture de Réglages > Enregistrement de l'écran : cochez Terminal (et quittez/relancez le Terminal si demandé).")
+    mac.sh(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"])
+    time.sleep(1)
+    mac.sh(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"])
+    print("2/3 Test de l'enregistrement d'écran (macOS peut afficher « Autoriser » : cliquez dessus)...")
+    dbg = config.resolve(s, "data_dir") / "debug"
+    dbg.mkdir(parents=True, exist_ok=True)
+    ok, msg = mac.rec_test(dbg / "rec_test.mp4", seconds=3)
+    print(("✅ " if ok else "❌ ") + msg)
+    print("3/3 Diagnostic complet :")
+    return cmd_mac_check(s, a) if ok else 1
+
+
 def cmd_mac_install(s, a):
     from .scheduler import launchd
     p = launchd.install(s["publish_times"], config.ROOT)
@@ -154,6 +171,7 @@ def main(argv=None):
     cmds["mac-check"], cmds["mac-install"], cmds["mac-test"] = cmd_mac_check, cmd_mac_install, cmd_mac_test
     cmds["fetch-midi"] = cmd_fetch_midi
     cmds["mac-rec-test"] = cmd_mac_rec_test
+    cmds["mac-setup"] = cmd_mac_setup
     cmds["auto"] = cmds["run"] = cmds["dry-run"] = cmd_run
     for n in cmds:
         sp = sub.add_parser(n)
