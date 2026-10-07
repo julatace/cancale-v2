@@ -120,6 +120,15 @@ def cmd_fetch_midi(s, a):
     return 0
 
 
+def cmd_mac_rec_test(s, a):
+    from .synthesia_controller import mac
+    dbg = config.resolve(s, "data_dir") / "debug"
+    dbg.mkdir(parents=True, exist_ok=True)
+    ok, msg = mac.rec_test(dbg / "rec_test.mp4")
+    print(("✅ " if ok else "❌ ") + "Enregistrement d'écran : " + msg)
+    return 0 if ok else 1
+
+
 def cmd_mac_install(s, a):
     from .scheduler import launchd
     p = launchd.install(s["publish_times"], config.ROOT)
@@ -144,6 +153,7 @@ def main(argv=None):
     cmds["import"], cmds["analyze"] = cmd_import, cmd_analyze
     cmds["mac-check"], cmds["mac-install"], cmds["mac-test"] = cmd_mac_check, cmd_mac_install, cmd_mac_test
     cmds["fetch-midi"] = cmd_fetch_midi
+    cmds["mac-rec-test"] = cmd_mac_rec_test
     cmds["auto"] = cmds["run"] = cmds["dry-run"] = cmd_run
     for n in cmds:
         sp = sub.add_parser(n)

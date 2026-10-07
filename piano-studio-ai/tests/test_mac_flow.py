@@ -40,8 +40,7 @@ def test_clicks_listen_card_then_continue(monkeypatch):
     monkeypatch.setattr(mac, "click", lambda x, y, run=None: clicks.append((x, y)) or True)
     out = mac.start_playback({**CFG, "start_mode": "click"}, fake_run(log), sleep=lambda s: None)
     k = 1280 / 2000
-    assert clicks[0] == (100 + int(165 * k), 50 + int(256 * k))        # carte « Regarder et écouter seulement »
-    assert clicks[1] == (100 + 1000 - int(88 * k), 50 + int(71 * k))   # bouton « Continuer »
+    assert clicks == [(100 + 1000 - int(88 * k), 50 + int(71 * k))]    # seulement « Continuer » (la carte est déjà sélectionnée)
     assert out.startswith("click")
 
 
@@ -80,3 +79,16 @@ def test_content_has_hook_cta_and_platform_captions():
     from app.content_generator.generate import generate
     c = generate({"title": "Für Elise", "artist": "Beethoven"}, "Facile", 4, set())
     assert c["hook"] and c["cta"] and c["tiktok_caption"] and c["instagram_caption"] and "#" in c["description"]
+
+
+def test_rec_test_reports_black_screen(tmp_path):
+    out = tmp_path / "r.mp4"
+    def run(cmd, **k):
+        if "list_devices" in cmd:
+            return NS(returncode=0, stdout="", stderr="[AVFoundation indev] AVFoundation video devices:\n[AVFoundation indev] [1] Capture screen 0\n[AVFoundation indev] AVFoundation audio devices:\n")
+        if "signalstats,metadata=print" in cmd:
+            return NS(returncode=0, stdout="", stderr="lavfi.signalstats.YAVG=0.0\nlavfi.signalstats.YAVG=0.0")
+        out.write_bytes(b"x" * 5000)
+        return NS(returncode=0, stdout="", stderr="")
+    ok, msg = mac.rec_test(out, run=run)
+    assert not ok and "noire" in msg

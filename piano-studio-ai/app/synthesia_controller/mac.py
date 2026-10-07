@@ -1,11 +1,15 @@
 """Pilotage de l'app Synthesia achetée par l'utilisateur (macOS) : ouverture du MIDI, lecture, capture d'écran.
 Aucune API Synthesia n'existe : AppleScript/System Events + ffmpeg avfoundation. Étalonné par `piano mac-check`."""
+import logging
 import platform
 import shutil
 import re
 import subprocess
 import time
 from pathlib import Path
+
+
+log = logging.getLogger("piano.mac")
 
 
 def sh(cmd, timeout=60):
@@ -92,11 +96,14 @@ def start_playback(cfg: dict, run=sh, sleep=time.sleep) -> str:
         k = screen_points(run)[0] / 2000.0          # px de capture -> points écran
         card = (x + int(cfg["listen_card_from_left_px"] * k), y + int(cfg["listen_card_from_top_px"] * k))
         cont = (x + w - int(cfg["continue_from_right_px"] * k), y + int(cfg["continue_from_top_px"] * k))
-        ok1 = click(*card, run=run)
-        sleep(0.7)
+        ok1 = True
+        if cfg.get("click_listen_card", False):
+            ok1 = click(*card, run=run)
+            sleep(0.7)
         ok2 = click(*cont, run=run)
+        log.info("clic « Continuer » en %s (fenêtre %s)", cont, (x, y, w, _h))
         if ok1 and ok2:
-            return f"click{card}+click{cont}"
+            return f"click{cont}"
     r = osa('tell application "System Events" to key code 36', run)
     if r.returncode != 0:
         raise RuntimeError("impossible de piloter Synthesia : " + (r.stderr or "").strip()[:150])
@@ -142,24 +149,29 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
         raise RuntimeError(f"Accessibilité non autorisée : {why}")
     screen = screen_devices(run)[0][0]
     total = duration + cfg["lead_in_seconds"] + cfg["tail_seconds"]
+    log.info("1/5 relance de Synthesia et ouverture du MIDI")
     osa('tell application "Synthesia" to quit', run)   # état propre à chaque vidéo
     sleep(2)
     run(["open", "-a", str(cfg["app_path"]), str(midi)])
     sleep(cfg["load_seconds"])
+    log.info("2/5 démarrage de l'enregistrement d'écran (%.0f s)", total)
     cap = subprocess.Popen(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "avfoundation", "-framerate", "30",
                             "-capture_cursor", "0", "-i", f"{screen}:none", "-t", str(total), "-c:v", "libx264",
                             "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p", str(out)], stderr=subprocess.PIPE)
     sleep(1.0)
     try:
+        log.info("3/5 lancement de la lecture")
         start_playback(cfg, run)            # la lecture démarre dans la fenêtre large (disposition connue)
         crop = None
         if cfg.get("portrait", True):
             try:
+                log.info("4/5 fenêtre en portrait (gros plan)")
                 arrange_window_portrait(cfg, run)   # gros plan : fenêtre verticale
                 sleep(1.5)
-            except Exception:
-                pass                                # repli : fenêtre telle quelle
+            except Exception as e:
+                log.warning("redimensionnement impossible (%s) : fenêtre gardée telle quelle", e)
         crop = crop_fractions(cfg, run)
+        log.info("5/5 enregistrement en cours...")
         cap.wait(timeout=total + 30)
     except Exception:
         cap.kill()
@@ -167,5 +179,22 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
         raise
     osa('tell application "Synthesia" to quit', run)
     if cap.returncode != 0 or not out.exists() or out.stat().st_size < 100_000:
-        raise RuntimeError("capture Synthesia échouée")
+        err = (cap.stderr.read().decode()[-300:] if cap.stderr else "")
+        raise RuntimeError(f"capture écran échouée (autorisation « Enregistrement de l'écran » pour le Terminal ?) {err}")
     return out, crop
+
+
+def rec_test(out: Path, seconds=3, run=sh) -> tuple[bool, str]:
+    """Teste uniquement l'enregistrement d'écran : fichier créé, taille, image non noire."""
+    dev = screen_devices(run)
+    if not dev:
+        return False, "aucun écran capturable (ffmpeg avfoundation)"
+    r = run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "avfoundation", "-framerate", "30",
+             "-i", f"{dev[0][0]}:none", "-t", str(seconds), "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(out)])
+    if r.returncode != 0 or not out.exists():
+        return False, "ffmpeg a échoué : " + r.stderr.strip()[-300:] + " -> autorisez le Terminal dans Enregistrement de l'écran"
+    s = run(["ffmpeg", "-hide_banner", "-i", str(out), "-vf", "signalstats,metadata=print", "-f", "null", "-"]).stderr
+    ys = [float(v) for v in re.findall(r"lavfi.signalstats.YAVG=([\d.]+)", s)]
+    if ys and max(ys) < 3:
+        return False, "image entièrement noire -> l'autorisation « Enregistrement de l'écran » manque pour le Terminal (quittez-le avec Cmd+Q puis relancez)"
+    return True, f"OK ({out.stat().st_size // 1000} ko)"

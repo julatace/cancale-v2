@@ -33,6 +33,7 @@ synthesia:
   tail_seconds: 2
   start_mode: click      # click = bouton Continuer de l'écran « Regarder et écouter seulement » ; return = touche Entrée
   # positions relevées sur vos captures (px d'une capture plein écran de 2000 px de large), converties selon votre écran
+  click_listen_card: false          # la carte est déjà sélectionnée par défaut ; ne cliquer que sur « Continuer »
   listen_card_from_left_px: 165    # carte « Regarder et écouter seulement » (depuis le bord gauche de la fenêtre)
   listen_card_from_top_px: 256
   continue_from_right_px: 88       # bouton « Continuer »
