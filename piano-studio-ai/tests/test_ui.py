@@ -90,3 +90,44 @@ def test_synthesia_is_forced_unless_switched_off(srv, monkeypatch):
             if get(base + "/api/status")["status"] != "running": break
             time.sleep(0.1)
     assert seen == ["synthesia", "builtin"]
+
+
+def _upload(base, name, data, rights="1"):
+    req = urllib.request.Request(base + "/api/upload", data, {"X-Filename": name, "X-Rights": rights, "Content-Type": "application/octet-stream"})
+    try:
+        r = urllib.request.urlopen(req)
+        return r.status, json.load(r)
+    except urllib.error.HTTPError as e:
+        return e.code, json.load(e)
+
+
+def test_upload_own_midi_then_listed_and_selectable(srv):
+    from tests.helpers import song
+    base, _ = srv
+    code, r = _upload(base, "Ma%20valse.mid", song())
+    assert code == 200 and r["status"] == "LEGAL_CONFIRMED"
+    lst = get(base + "/api/songs")
+    mine = [x for x in lst if x["origin"] == "mine"]
+    assert mine and mine[0]["title"] == "Ma valse"
+    assert _upload(base, "Ma%20valse.mid", song())[1]["status"] == "DUPLICATE"
+
+
+def test_upload_requires_rights_and_real_midi(srv):
+    from tests.helpers import song
+    base, _ = srv
+    assert _upload(base, "a.mid", song(), rights="0")[0] == 400           # droits non confirmés
+    assert _upload(base, "a.mp3", b"ID3....")[0] == 400                    # pas un MIDI
+    assert _upload(base, "a.mid", b"not a midi at all")[0] == 400          # MIDI invalide
+
+
+def test_chosen_song_is_used_by_pipeline(tmp_path):
+    from app import config
+    from app.director import pipeline
+    from app.database import db
+    from app.ui import server
+    from tests.helpers import song
+    st = config.load_settings()
+    st["paths"] = {**st["paths"], "data_dir": str(tmp_path), "database": str(tmp_path / "d.sqlite3"), "logs_dir": str(tmp_path / "l")}
+    r = server.import_upload(st, "Ma chanson.mid", song(), "Ma chanson", "Moi")
+    out = pipeline.run_one(st, seed=1, dry_run=True, song_id=r["song_id"])
+    assert out["song"] == "Ma chanson"

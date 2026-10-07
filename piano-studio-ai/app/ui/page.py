@@ -66,6 +66,19 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 .hist .v{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--line)}.hist .v:first-child{border-top:0}
 .hist small{color:var(--mute)}.hist button{background:var(--brand-soft);color:var(--brand);border:0;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
 .empty{color:var(--mute);margin:0}
+.drop{border:2px dashed var(--line);border-radius:16px;padding:18px;text-align:center;color:var(--mute);cursor:pointer;transition:.12s;margin-top:12px}
+.drop:hover,.drop.over{border-color:var(--brand);background:var(--brand-soft);color:var(--ink)}
+.drop b{display:block;color:var(--ink);font-size:16px}
+.rights{display:flex;gap:10px;align-items:flex-start;margin-top:10px;font-size:14px;color:var(--mute);cursor:pointer}
+.rights input{margin-top:4px;width:18px;height:18px;flex:none}
+.songs{display:grid;gap:8px;margin-top:4px;max-height:260px;overflow:auto}
+.song{display:flex;align-items:center;gap:12px;padding:10px 14px;border:2px solid var(--line);border-radius:12px;cursor:pointer;background:var(--surface);text-align:left;width:100%}
+.song[aria-checked=true]{border-color:var(--brand);background:var(--brand-soft)}
+.song .n{flex:1;min-width:0}.song .n b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.song .n small{color:var(--mute)}
+.tag{font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--bg);color:var(--mute);border:1px solid var(--line)}
+.tag.mine{background:var(--brand-soft);color:var(--brand);border-color:transparent}
+.x{background:none;border:0;color:var(--mute);cursor:pointer;font-size:18px;padding:2px 8px;border-radius:8px}.x:hover{color:var(--bad)}
+#msg{margin:8px 0 0;font-size:14px}#msg.bad{color:var(--bad)}#msg.ok{color:var(--ok)}
 [hidden]{display:none!important}
 </style></head><body><div class="wrap">
 
@@ -81,6 +94,13 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 
   <div class="step" style="margin-top:26px"><span class="num">2</span><div><h2>Formats</h2><p>Les deux sont créés d'office avec le même morceau. Décochez-en un si besoin.</p></div></div>
   <div class="grid g2" id="formats" aria-label="Formats"></div>
+
+  <div class="step" style="margin-top:26px"><span class="num">3</span><div><h2>Musique</h2><p>Laissez l'agent choisir, ou utilisez l'un de vos morceaux (fichiers MIDI).</p></div></div>
+  <div class="songs" id="songs" role="radiogroup" aria-label="Morceau"></div>
+  <div class="drop" id="drop" tabindex="0"><b>＋ Ajouter mes morceaux</b>Glissez des fichiers .mid ici, ou cliquez pour les choisir</div>
+  <input type="file" id="file" accept=".mid,.midi" multiple hidden>
+  <label class="rights"><input type="checkbox" id="rights"> Je confirme avoir les droits d'utiliser cette musique (composition à moi, domaine public ou licence qui l'autorise).</label>
+  <p id="msg" hidden></p>
 
   <div class="row">
     <label class="sw"><input type="checkbox" id="synth" checked> Utiliser mon application Synthesia (sinon rendu intégré)</label>
@@ -109,7 +129,7 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 
 <script>
 const $=s=>document.querySelector(s);
-let level=null,formats=new Set(),since=0,timer=null,opts=null,cur=-1,fmtLabel='';
+let songId=null,level=null,formats=new Set(),since=0,timer=null,opts=null,cur=-1,fmtLabel='';
 const api=(p,o)=>fetch(p,o).then(r=>r.json());
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const STEPS=['Morceau','Passage','Fabrication','Qualité','Publication'];
@@ -124,8 +144,27 @@ function render(){
   estimate()}
 $('#levels').onclick=e=>{const b=e.target.closest('.opt');if(b){level=b.dataset.k;render()}};
 $('#formats').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;const k=b.dataset.k;formats.has(k)?formats.delete(k):formats.add(k);render()};
+const ORIGIN={mine:'Mon MIDI',reserve:'Réserve',auto:'Auto'};
+function songs(){api('/api/songs').then(list=>{
+  const row=(id,title,sub,tag,mine)=>`<div class="song" role="radio" tabindex="0" aria-checked="${songId===id}" data-id="${id??''}"><span class="n"><b>${esc(title)}</b><small>${esc(sub)}</small></span>${tag?`<span class="tag ${mine?'mine':''}">${tag}</span>`:''}${mine?`<button class="x" data-del="${id}" title="Retirer de ma bibliothèque" aria-label="Retirer">✕</button>`:''}</div>`;
+  $('#songs').innerHTML=row(null,'Automatique','L\'agent choisit un morceau dans la réserve',null,false)+list.map(s=>row(s.id,s.title,s.artist||'',ORIGIN[s.origin]||'',s.origin==='mine')).join('')})}
+$('#songs').onclick=e=>{const d=e.target.closest('[data-del]');if(d){e.stopPropagation();if(+d.dataset.del===songId)songId=null;api('/api/songs/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:+d.dataset.del})}).then(songs);return}
+  const r=e.target.closest('.song');if(r){songId=r.dataset.id?+r.dataset.id:null;songs()}};
+function say(m,ok){const e=$('#msg');e.hidden=false;e.textContent=m;e.className=ok?'ok':'bad'}
+async function upload(files){
+  if(!$('#rights').checked){say('Cochez d\'abord la case qui confirme que vous avez les droits sur cette musique.',false);return}
+  for(const f of files){
+    if(!/\.midi?$/i.test(f.name)){say(`« ${f.name} » n'est pas un fichier MIDI (.mid). Un MP3 ne contient pas de notes.`,false);continue}
+    const r=await fetch('/api/upload',{method:'POST',headers:{'X-Filename':encodeURIComponent(f.name),'X-Rights':'1'},body:f}).then(r=>r.json());
+    say(`${f.name} : ${r.message||r.error}`,!r.error&&r.status!=='REJECTED');if(r.song_id&&!r.error)songId=r.song_id}
+  songs()}
+$('#drop').onclick=()=>$('#file').click();$('#drop').onkeydown=e=>{if(e.key==='Enter'||e.key===' ')$('#file').click()};
+$('#file').onchange=e=>{upload([...e.target.files]);e.target.value=''};
+['dragover','dragenter'].forEach(ev=>$('#drop').addEventListener(ev,e=>{e.preventDefault();$('#drop').classList.add('over')}));
+['dragleave','drop'].forEach(ev=>$('#drop').addEventListener(ev,e=>{e.preventDefault();$('#drop').classList.remove('over')}));
+$('#drop').addEventListener('drop',e=>upload([...e.dataTransfer.files]));
 function info(){api('/api/info').then(i=>{$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'');
-  $('#engine').innerHTML=`Moteur : <b>${i.engine==='synthesia'?'Synthesia':'rendu intégré'}</b>`;$('#engine').title=i.engine==='synthesia'?'Votre application Synthesia pilotée automatiquement':'Synthesia non prêt : rendu intégré utilisé'})}
+  $('#engine').innerHTML=`Moteur : <b>${i.engine==='synthesia'?'Synthesia':i.engine?'rendu intégré':'vérification…'}</b>`;$('#engine').title=i.engine==='synthesia'?'Votre application Synthesia pilotée automatiquement':'Synthesia non prêt : rendu intégré utilisé'})}
 function vids(){api('/api/videos').then(v=>{if(!v.length)return;$('#vids').innerHTML=v.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${esc(x.level)} · ${esc(x.format)} · ${x.duration}s · qualité ${x.quality??'-'}/100 · ${esc(x.status)} · ${esc(x.at)}</small></div>${x.file?`<button data-f="${esc(x.file)}">Voir</button>`:''}</div>`).join('')})}
 $('#vids').onclick=e=>{const f=e.target.dataset.f;if(f){$('#player').innerHTML=`<video controls autoplay playsinline style="width:100%;max-height:70vh;border-radius:12px;background:#000;margin-top:12px" src="/files/${encodeURIComponent(f)}"></video>`;$('#player').scrollIntoView({behavior:'smooth',block:'center'})}};
 function stepper(){$('#stepper').innerHTML=STEPS.map((s,i)=>`<li class="${i<cur?'done':i===cur?'cur':''}">${i<cur?'✓ ':''}${s}</li>`).join('')}
@@ -146,10 +185,10 @@ function poll(){api('/api/status?since='+since).then(s=>{
 $('#go').onclick=()=>{
   $('#job').hidden=false;$('#log').textContent='';$('#res').innerHTML='';$('#err').hidden=true;since=0;cur=-1;fmtLabel='';stepper();$('#now').textContent='Démarrage…';
   $('#job').scrollIntoView({behavior:'smooth',block:'start'});
-  api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked,synthesia:$('#synth').checked})})
+  api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked,synthesia:$('#synth').checked,song_id:songId})})
    .then(r=>{if(r.error){$('#now').textContent=r.error;return}if(!timer)timer=setInterval(poll,1500);poll()})};
 api('/api/options').then(o=>{opts=o;level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
-info();vids();setInterval(info,20000);
+info();vids();songs();setInterval(info,20000);
 api('/api/status').then(s=>{if(s.status==='running'){$('#job').hidden=false;since=0;timer=setInterval(poll,1500);poll()}});
 </script></div></body></html>
 """

@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from app import config
 from app.database import db
 from app.director import difficulty, pipeline, stock
+from app.music_discovery import importer
 from .page import PAGE
 
 RUNNER = pipeline.run_one          # remplaçable dans les tests
@@ -32,17 +33,17 @@ class Job:
             self.n += 1
             self.logs.append((self.n, msg))
 
-    def start(self, settings, level, formats, publish, count=1) -> bool:
+    def start(self, settings, level, formats, publish, count=1, song_id=None) -> bool:
         with self.lock:
             if self.state["status"] == "running":
                 return False
             self.state = {"status": "running", "params": {"level": level, "formats": formats, "publish": publish, "count": count},
                           "result": None, "error": None, "started": time.time()}
             self.logs.clear()
-        threading.Thread(target=self._run, args=(settings, level, formats, publish, count), daemon=True).start()
+        threading.Thread(target=self._run, args=(settings, level, formats, publish, count, song_id), daemon=True).start()
         return True
 
-    def _run(self, settings, level, formats, publish, count):
+    def _run(self, settings, level, formats, publish, count, song_id=None):
         job = self
 
         class H(logging.Handler):
@@ -53,7 +54,7 @@ class Job:
         lg = logging.getLogger("piano")
         lg.addHandler(h)
         try:
-            results = [RUNNER(settings, level=level, formats=formats, publish=publish) for _ in range(count)]
+            results = [RUNNER(settings, level=level, formats=formats, publish=publish, song_id=song_id) for _ in range(count)]
             with self.lock:
                 self.state.update(status="done", result=results[-1] if count == 1 else results)
         except Exception as e:  # jamais de plantage silencieux
@@ -83,19 +84,56 @@ def options(s) -> dict:
     }
 
 
-_ENGINE = {"at": 0, "value": None}
+_ENGINE = {"at": 0, "value": None, "busy": False}
+
+
+def _probe_engine(s):
+    """Vérifie en arrière-plan si Synthesia est prêt (peut prendre quelques secondes sur Mac) : la page ne l'attend jamais."""
+    try:
+        from app.synthesia_controller import mac
+        ready = s.get("engine", "auto") != "builtin" and mac.ready(s.get("synthesia", {}))
+    except Exception:
+        ready = False
+    _ENGINE.update(at=time.time(), value="synthesia" if ready else "builtin", busy=False)
 
 
 def info(s) -> dict:
     """Stock de morceaux d'avance + moteur qui sera utilisé (Synthesia ou rendu intégré)."""
-    if time.time() - _ENGINE["at"] > 60:
-        try:
-            from app.synthesia_controller import mac
-            ready = s.get("engine", "auto") != "builtin" and mac.ready(s.get("synthesia", {}))
-        except Exception:
-            ready = False
-        _ENGINE.update(at=time.time(), value="synthesia" if ready else "builtin")
+    if time.time() - _ENGINE["at"] > 60 and not _ENGINE["busy"]:
+        _ENGINE["busy"] = True
+        threading.Thread(target=_probe_engine, args=(s,), daemon=True).start()
     return {"stock": stock.count(s), "stock_target": s.get("stock", {}).get("target", 3), "engine": _ENGINE["value"]}
+
+
+def _origin(src: str) -> str:
+    src = src or ""
+    return "mine" if src.startswith("user_owned: Fourni") else "reserve" if "Mutopia" in src else "auto"
+
+
+def songs(s) -> list[dict]:
+    conn = db.connect(config.resolve(s, "database"))
+    rows = conn.execute("SELECT id,title,artist,source,midi_path,created_at FROM songs WHERE license='LEGAL_CONFIRMED' ORDER BY id DESC").fetchall()
+    return [{"id": r["id"], "title": r["title"], "artist": r["artist"], "origin": _origin(r["source"]),
+             "ready": bool(r["midi_path"] and Path(r["midi_path"]).exists())} for r in rows if r["midi_path"] and Path(r["midi_path"]).exists()]
+
+
+def import_upload(s, name: str, data: bytes, title: str = "", artist: str = "") -> dict:
+    """Import d'un MIDI fourni par l'utilisateur (droits confirmés dans la page). Le fichier est validé avant d'être gardé."""
+    stem = Path(name).stem.replace("_", " ").replace("-", " ").strip() or "Mon morceau"
+    up = config.resolve(s, "data_dir") / "midi" / "uploads"
+    up.mkdir(parents=True, exist_ok=True)
+    tmp = up / f"{int(time.time() * 1000)}.mid"
+    tmp.write_bytes(data)
+    try:
+        conn = db.connect(config.resolve(s, "database"))
+        r = importer.import_midi(conn, tmp, (title or stem)[:80], (artist or "")[:60], "user_owned",
+                                 "Fourni par l'utilisateur (droits confirmés)", dest_dir=config.resolve(s, "data_dir") / "midi")
+        if r["status"] == "LEGAL_CONFIRMED":
+            conn.execute("UPDATE songs SET source=? WHERE id=?", ("user_owned: Fourni par l'utilisateur (droits confirmés)", r["song_id"]))
+            conn.commit()
+        return r
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def videos(s, limit=12) -> list[dict]:
@@ -150,6 +188,28 @@ def make_handler(settings_loader):
                     self.wfile.write(chunk)
                     left -= len(chunk)
 
+        def _upload(self):
+            n = int(self.headers.get("Content-Length", 0) or 0)
+            if self.headers.get("X-Rights") != "1":
+                return self._json({"error": "Vous devez confirmer que vous avez les droits sur cette musique."}, 400)
+            if n <= 0 or n > 8 * 1024 * 1024:
+                return self._json({"error": "fichier vide ou trop gros (8 Mo max)"}, 400)
+            name = unquote(self.headers.get("X-Filename", "morceau.mid"))
+            if not name.lower().endswith((".mid", ".midi")):
+                return self._json({"error": "Seuls les fichiers MIDI (.mid) sont acceptés. Un MP3 ne contient pas de notes."}, 400)
+            r = import_upload(settings_loader(), name, self.rfile.read(n), unquote(self.headers.get("X-Title", "")), unquote(self.headers.get("X-Artist", "")))
+            msg = {"LEGAL_CONFIRMED": "Morceau ajouté.", "DUPLICATE": "Ce morceau est déjà dans votre bibliothèque.",
+                   "REJECTED": "Fichier MIDI invalide ou vide."}.get(r["status"], "Morceau non accepté.")
+            return self._json({"status": r["status"], "message": msg, "song_id": r.get("song_id")}, 200 if r["status"] in ("LEGAL_CONFIRMED", "DUPLICATE") else 400)
+
+        def _delete_song(self):
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0)) or 0) or b"{}")
+            s = settings_loader()
+            conn = db.connect(config.resolve(s, "database"))
+            conn.execute("UPDATE songs SET license='REJECTED' WHERE id=? AND source LIKE 'user_owned: Fourni%'", (int(body.get("id", 0)),))
+            conn.commit()
+            return self._json({"ok": True})
+
         def _json(self, obj, code=200):
             self._send(code, json.dumps(obj, ensure_ascii=False, default=str).encode())
 
@@ -165,6 +225,8 @@ def make_handler(settings_loader):
                 return self._json(JOB.snapshot(since))
             if u.path == "/api/info":
                 return self._json(info(s))
+            if u.path == "/api/songs":
+                return self._json(songs(s))
             if u.path == "/api/videos":
                 return self._json(videos(s))
             if u.path.startswith("/files/"):
@@ -175,11 +237,16 @@ def make_handler(settings_loader):
             self._send(404, b'{"error":"not found"}')
 
         def do_POST(self):
-            if urlparse(self.path).path != "/api/run":
+            path = urlparse(self.path).path
+            if path not in ("/api/run", "/api/upload", "/api/songs/delete"):
                 return self._send(404, b'{"error":"not found"}')
             origin = self.headers.get("Origin", "")
             if origin and not (origin.startswith("http://127.0.0.1") or origin.startswith("http://localhost")):
                 return self._json({"error": "origine refusée"}, 403)
+            if path == "/api/upload":
+                return self._upload()
+            if path == "/api/songs/delete":
+                return self._delete_song()
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0)) or 0) or b"{}")
             except json.JSONDecodeError:
@@ -197,7 +264,7 @@ def make_handler(settings_loader):
                 s = {**s, "engine": "synthesia"}              # Synthesia obligatoire : une erreur s'affiche, pas de repli silencieux
             else:
                 s = {**s, "engine": "builtin"}
-            if not JOB.start(s, level, formats, bool(body.get("publish", False)), count):
+            if not JOB.start(s, level, formats, bool(body.get("publish", False)), count, int(body["song_id"]) if body.get("song_id") else None):
                 return self._json({"error": "une vidéo est déjà en cours de création"}, 409)
             self._json({"ok": True})
 

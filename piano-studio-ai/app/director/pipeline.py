@@ -53,6 +53,13 @@ def _credit(source: str) -> str:
     return "Mutopia Project (CC BY)" if "CC-BY" in (source or "") else ""
 
 
+def song_by_id(conn, song_id: int) -> tuple[int, Path, dict]:
+    r = conn.execute("SELECT id, midi_path, title, artist, source, license FROM songs WHERE id=?", (song_id,)).fetchone()
+    if r is None or r["license"] != "LEGAL_CONFIRMED" or not r["midi_path"] or not Path(r["midi_path"]).exists():
+        raise ValueError("morceau introuvable ou non autorisé")
+    return r["id"], Path(r["midi_path"]), {"title": r["title"], "artist": r["artist"], "credit": _credit(r["source"])}
+
+
 def pick_song(conn, s, seed, exclude=()) -> tuple[int, Path, dict]:
     """1) MIDI de la réserve (légal, pas utilisé récemment, tiré au hasard) ; 2) recherche en ligne ; 3) domaine public / composition."""
     rows = conn.execute("SELECT id, midi_path, title, artist, source FROM songs WHERE license='LEGAL_CONFIRMED' ORDER BY id").fetchall()
@@ -142,7 +149,7 @@ def _formats(s, fmt, formats) -> list[tuple[str, dict]]:
     return [(n, fm.get(n) or {"width": 1080, "height": 1920, "banner": 300, "shorts": True}) for n in names]
 
 
-def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, formats=None) -> dict:
+def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, formats=None, song_id=None) -> dict:
     """Une création : UN morceau et UN niveau, rendus dans chaque format demandé (vertical court et/ou horizontal long)."""
     conn = db.connect(config.resolve(s, "database"))
     seed = seed if seed is not None else random.SystemRandom().randrange(1, 1_000_000)
@@ -154,7 +161,7 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
     log.info("🎯 Niveau : %s (%s BPM) | Formats : %s", lv["label"], lv["bpm"], ", ".join(n for n, _ in fmts))
     tried = set()
     for attempt_song in range(6):                   # on écarte les morceaux trop denses / trop courts pour la demande
-        sid, midi, meta = pick_song(conn, s, seed + attempt_song * 7919, exclude=tried)
+        sid, midi, meta = song_by_id(conn, song_id) if song_id else pick_song(conn, s, seed + attempt_song * 7919, exclude=tried)
         tried.add(sid)
         log.info("♪ Morceau choisi : %s - %s", meta["title"], meta["artist"])
         notes, tempo = parse_midi(midi)
@@ -166,6 +173,11 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
         log.info("🔎 Analyse : %s notes, durée %ss (tempo x%.2f -> %s BPM)", ana["note_count"], ana["duration"], factor, lv["bpm"])
         first_sec = select_section(notes, _target(fmts[0][1], s, ana))
         too_short = needs_full and ana["duration"] < min(F.get("min_duration", 90) for _, F in fmts if F.get("duration") == "full")
+        if song_id:
+            if too_short or first_sec["density"] > lv["max_density"]:
+                log.warning("⚠ Morceau choisi par vous : utilisé tel quel, même s'il est %s pour ce niveau/format",
+                            "trop court" if too_short else "dense")
+            break                                   # morceau imposé : pas de remplacement
         if first_sec["density"] <= lv["max_density"] and not too_short:
             break
         log.info("↻ Morceau écarté (%s) : autre morceau",
