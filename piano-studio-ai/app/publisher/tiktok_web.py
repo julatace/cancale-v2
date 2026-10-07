@@ -14,6 +14,7 @@ from pathlib import Path
 from .base import Result
 
 log = logging.getLogger("piano.tiktok_web")
+BROWSER = "Google Chrome"      # "Safari" ou "Google Chrome" (réglé par --browser)
 UPLOAD_URL = "https://www.tiktok.com/tiktokstudio/upload?from=webapp"
 
 
@@ -25,14 +26,19 @@ def _osa(script: str, timeout: int = 30) -> str:
 
 
 def _js(code: str) -> str:
-    """Exécute du JavaScript dans l'onglet actif de Safari."""
+    """Exécute du JavaScript dans l'onglet actif du navigateur."""
     esc = code.replace("\\", "\\\\").replace('"', '\\"')
+    if BROWSER == "Safari":
+        cmd = f'tell application "Safari" to do JavaScript "{esc}" in current tab of front window'
+    else:
+        cmd = f'tell application "{BROWSER}" to execute active tab of front window javascript "{esc}"'
     try:
-        return _osa(f'tell application "Safari" to do JavaScript "{esc}" in current tab of front window')
+        return _osa(cmd)
     except RuntimeError as e:
-        if "JavaScript" in str(e) and "Apple" in str(e):
-            raise RuntimeError("Safari refuse le JavaScript : active « Autoriser JavaScript provenant d'Apple Events » "
-                               "(menu Développement de Safari). Message exact de Safari : " + str(e)[:300]) from e
+        if "JavaScript" in str(e) and ("Apple" in str(e) or "AppleScript" in str(e)):
+            where = ("Safari > Réglages > Développeur" if BROWSER == "Safari"
+                     else "menu Présentation > Développeur > « Autoriser le JavaScript des événements Apple »")
+            raise RuntimeError(f"{BROWSER} refuse le JavaScript : active-le ({where}). Message exact : " + str(e)[:300]) from e
         raise
 
 
@@ -102,11 +108,15 @@ def _post(video, caption, publish, say):
     if not video.exists():
         raise RuntimeError(f"vidéo introuvable : {video}")
     say("🔐 Test du réglage JavaScript de Safari…")
-    _osa('tell application "Safari" to activate')
+    _osa(f'tell application "{BROWSER}" to activate')
     _js("1+1")
-    say("🌐 Ouverture de TikTok Studio dans Safari…")
-    _osa(f'tell application "Safari"\nactivate\nif (count of windows) = 0 then make new document\n'
-         f'set URL of current tab of front window to "{UPLOAD_URL}"\nend tell')
+    say(f"🌐 Ouverture de TikTok Studio dans {BROWSER}…")
+    if BROWSER == "Safari":
+        _osa(f'tell application "Safari"\nactivate\nif (count of windows) = 0 then make new document\n'
+             f'set URL of current tab of front window to "{UPLOAD_URL}"\nend tell')
+    else:
+        _osa(f'tell application "{BROWSER}"\nactivate\nif (count of windows) = 0 then make new window\n'
+             f'set URL of active tab of front window to "{UPLOAD_URL}"\nend tell')
     _wait('String(!!document.querySelector("input[type=file]"))', "page d'envoi non chargée")
     if _js('String(/connecter|log in|se connecter/i.test(document.body.innerText.slice(0,400)) && !document.querySelector("input[type=file]"))') == "true":
         raise RuntimeError("TikTok demande de se connecter : connecte ton compte dans Safari puis relance")
@@ -125,7 +135,7 @@ def _post(video, caption, publish, say):
     _keys('keystroke "v" using command down')
     time.sleep(2)
     if not publish:
-        say("✋ Tout est prêt dans Safari : vérifie puis clique sur « Publier » toi-même.")
+        say("✋ Tout est prêt dans le navigateur : vérifie puis clique sur « Publier » toi-même.")
         return "prêt (non publié)"
     say("🚀 Clic sur « Publier »…")
     ok = _js('var b=[...document.querySelectorAll("button")].find(x=>/^(publier|post)$/i.test(x.innerText.trim())&&!x.disabled);'

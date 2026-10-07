@@ -181,6 +181,7 @@ def cmd_tiktok_login(s, a):
 def cmd_tiktok_web(s, a):
     """Poste une vidéo sur TikTok en pilotant Safari (compte déjà connecté dans Safari)."""
     from .publisher import tiktok_web
+    tiktok_web.BROWSER = {"chrome": "Google Chrome", "safari": "Safari"}[a.browser]
     from .database import db
     video, cap = a.video, a.caption
     if not video:
@@ -255,7 +256,7 @@ def main(argv=None):
         if n in ("youtube-login", "tiktok-login"):
             sp.add_argument("--port", type=int, default=8085)
         if n == "tiktok-web":
-            sp.add_argument("--video"); sp.add_argument("--caption", default=""); sp.add_argument("--post", action="store_true", help="clique aussi sur Publier")
+            sp.add_argument("--video"); sp.add_argument("--caption", default=""); sp.add_argument("--browser", choices=["chrome", "safari"], default="chrome"); sp.add_argument("--post", action="store_true", help="clique aussi sur Publier")
         if n == "ui":
             sp.add_argument("--port", type=int, default=8765); sp.add_argument("--no-browser", action="store_true")
         if n == "analyze":
