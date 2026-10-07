@@ -86,6 +86,7 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 .sbox input[type=search],.sel{flex:1;min-width:0;padding:12px 14px;border:2px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);font-size:16px}
 .sbox input:focus,.sel:focus{border-color:var(--brand);outline:none}
 .btn{padding:12px 18px;border:0;border-radius:12px;background:var(--brand);color:#fff;font-weight:700;cursor:pointer;white-space:nowrap}
+.btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
 .btn.alt{background:var(--brand-soft);color:var(--brand)}.btn:disabled{opacity:.6;cursor:wait}
 .hit{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 14px;border:2px solid var(--line);border-radius:12px;margin-top:8px;background:var(--surface)}
 .hit .n{min-width:0}.hit b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hit small{color:var(--mute)}
@@ -111,13 +112,14 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
   <div class="grid g2" id="formats" aria-label="Formats"></div>
 
   <div class="step" style="margin-top:26px"><span class="num">3</span><div><h2>Musique</h2><p>Laissez l'agent choisir, ou utilisez l'un de vos morceaux (fichiers MIDI).</p></div></div>
-  <div class="sbox"><input type="search" id="q" placeholder="Rechercher un morceau (ex. Clair de Lune, Für Elise, Gymnopédie…)" aria-label="Rechercher un morceau"><button class="btn" id="qgo">Chercher</button></div>
+  <div class="sbox"><input type="search" id="q" placeholder="Rechercher un morceau (ex. Clair de Lune, Für Elise, Gymnopédie…)" aria-label="Rechercher un morceau"><button class="btn" id="qgo">Chercher</button><a class="btn alt" id="qweb" target="_blank" rel="noopener" title="Ouvre une recherche internet dans un nouvel onglet : vous téléchargez le fichier vous-même, puis vous le glissez ci-dessous">🔎 Sur le web</a></div>
   <div class="chips" id="pop" aria-label="Classiques populaires"></div>
   <div style="margin:8px 0 2px"><button class="btn alt" id="lat">✨ Voir les nouveautés (derniers morceaux libres de droits)</button></div>
   <div id="qres"></div>
   <div class="songs" id="songs" role="radiogroup" aria-label="Morceau" style="margin-top:12px"></div>
   <div class="drop" id="drop" tabindex="0"><b>＋ Ajouter mes morceaux</b>Glissez des fichiers .mid ici, ou cliquez pour les choisir</div>
   <input type="file" id="file" accept=".mid,.midi" multiple hidden>
+  <p class="note" style="margin:6px 0 0">Les chansons récentes sont protégées : un fichier MIDI trouvé sur le web n'est pas forcément libre de droits. Sa publication peut entraîner une réclamation, la coupure du son ou la suppression de la vidéo.</p>
   <label class="rights"><input type="checkbox" id="rights"> Je confirme avoir les droits d'utiliser cette musique (composition à moi, domaine public ou licence qui l'autorise).</label>
   <p id="msg" hidden></p>
 
@@ -170,6 +172,9 @@ function render(){
   estimate()}
 $('#levels').onclick=e=>{const b=e.target.closest('.opt');if(b){level=b.dataset.k;render()}};
 $('#formats').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;const k=b.dataset.k;formats.has(k)?formats.delete(k):formats.add(k);render()};
+const webUrl=q=>'https://www.google.com/search?q='+encodeURIComponent((q||'').trim()+' midi');
+function syncWeb(){$('#qweb').href=webUrl($('#q').value||'piano')}
+$('#q').addEventListener('input',syncWeb);syncWeb();
 const ORIGIN={mine:'Mon MIDI',reserve:'Réserve',auto:'Auto'};
 function songs(){api('/api/songs').then(list=>{
   const row=(id,title,sub,tag,mine)=>`<div class="song" role="radio" tabindex="0" aria-checked="${songId===id}" data-id="${id??''}"><span class="n"><b>${esc(title)}</b><small>${esc(sub)}</small></span>${tag?`<span class="tag ${mine?'mine':''}">${tag}</span>`:''}${mine?`<button class="x" data-del="${id}" title="Retirer de ma bibliothèque" aria-label="Retirer">✕</button>`:''}</div>`;
@@ -213,7 +218,7 @@ $('#qres').onclick=e=>{const u=e.target.closest('[data-use]'),a=e.target.closest
     songId=r.song_id;songs();$('#qres').innerHTML=`<p class="note" style="color:var(--ok);font-weight:700">✓ ${esc(r.message)} Il sera utilisé pour la création.</p>`})}};
 $('#tgo').onclick=()=>{$('#tgo').disabled=true;$('#tres').innerHTML='<p class="empty">Chargement…</p>';
   api(`/api/trends?country=${$('#tc').value}&genre=${$('#tg').value}`).then(r=>{
-    $('#tres').innerHTML=r.items.length?r.items.map(i=>`<div class="tr"><span class="rk">${i.rank}</span><span class="n"><b>${esc(i.title)}</b><small>${esc(i.artist)}</small></span><button class="btn alt" data-q="${esc(i.title)}">Chercher un MIDI libre</button></div>`).join(''):`<p class="note bad">${esc(r.message||'Aucune tendance disponible.')}</p>`
+    $('#tres').innerHTML=r.items.length?r.items.map(i=>`<div class="tr"><span class="rk">${i.rank}</span><span class="n"><b>${esc(i.title)}</b><small>${esc(i.artist)}</small></span><button class="btn alt" data-q="${esc(i.title)}">MIDI libre</button><a class="btn alt" target="_blank" rel="noopener" href="${webUrl(i.title+' '+i.artist)}">🔎 Web</a></div>`).join(''):`<p class="note bad">${esc(r.message||'Aucune tendance disponible.')}</p>`
   }).catch(()=>{$('#tres').innerHTML='<p class="note bad">Impossible de charger les tendances.</p>'}).finally(()=>{$('#tgo').disabled=false})};
 $('#tres').onclick=e=>{const b=e.target.closest('[data-q]');if(b){$('#q').scrollIntoView({behavior:'smooth',block:'center'});runSearch(b.dataset.q)}};
 function info(){api('/api/info').then(i=>{$('#ver').innerHTML=`version <b>${esc(i.version||'?')}</b>`;$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'');

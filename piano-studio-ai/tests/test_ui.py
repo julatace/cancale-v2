@@ -154,3 +154,9 @@ def test_trends_failure_is_a_message_not_an_error(srv, monkeypatch):
     monkeypatch.setattr(server.mtrends, "fetch_trends", boom)
     r = get(base + "/api/trends")
     assert r["items"] == [] and "réseau" in r["message"]
+
+
+def test_page_has_web_search_button_that_stays_user_driven():
+    from app.ui.page import PAGE
+    assert 'id="qweb"' in PAGE and "google.com/search" in PAGE and 'rel="noopener"' in PAGE
+    assert "réclamation" in PAGE                              # avertissement sur les droits affiché près de l'ajout de fichiers
