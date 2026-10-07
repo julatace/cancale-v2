@@ -32,8 +32,11 @@ synthesia:
   lead_in_seconds: 3    # délai (s) entre le début de la capture et la 1re note, à étalonner
   tail_seconds: 2
   start_mode: click      # click = bouton Continuer de l'écran « Regarder et écouter seulement » ; return = touche Entrée
-  continue_from_right: 56   # points, depuis le bord droit de la fenêtre
-  continue_from_top: 45     # points, depuis le haut de la fenêtre (barre de titre incluse)
+  # positions relevées sur vos captures (px d'une capture plein écran de 2000 px de large), converties selon votre écran
+  listen_card_from_left_px: 165    # carte « Regarder et écouter seulement » (depuis le bord gauche de la fenêtre)
+  listen_card_from_top_px: 256
+  continue_from_right_px: 88       # bouton « Continuer »
+  continue_from_top_px: 71
   titlebar_points: 24
   capture_trim: 4.0     # secondes à couper au début de la capture (étalonner pour caler l'audio)
 keyboard:

@@ -1,6 +1,7 @@
 """Pilotage de l'app Synthesia achetée par l'utilisateur (macOS) : ouverture du MIDI, lecture, capture d'écran.
 Aucune API Synthesia n'existe : AppleScript/System Events + ffmpeg avfoundation. Étalonné par `piano mac-check`."""
 import platform
+import shutil
 import re
 import subprocess
 import time
@@ -38,6 +39,7 @@ def check(cfg: dict, run=sh, system=platform.system) -> list[tuple[str, bool, st
     res.append(("Accessibilité (cliquer dans Synthesia)", ok, why))
     dev = screen_devices(run)
     res.append(("Écran capturable (ffmpeg avfoundation)", bool(dev), ", ".join(d[1] for d in dev) or "ffmpeg absent ou aucun écran"))
+    res.append(("cliclick (vrai clic souris)", bool(shutil.which("cliclick")), "brew install cliclick" if not shutil.which("cliclick") else ""))
     res.append(("Étalonnage fait", bool(cfg.get("calibrated")), "mettre synthesia.calibrated: true après vérification visuelle"))
     return res
 
@@ -74,15 +76,27 @@ def window_geometry(run=sh) -> tuple[int, int, int, int]:
     return tuple(v)
 
 
-def start_playback(cfg: dict, run=sh) -> str:
-    """Écran « Regarder et écouter seulement » -> clic sur « Continuer » (haut droite de la fenêtre) ou touche Entrée."""
+def click(x: int, y: int, run=sh) -> bool:
+    """Vrai clic souris (cliclick) ; repli sur System Events si cliclick n'est pas installé."""
+    if shutil.which("cliclick"):
+        return run(["cliclick", f"m:{x},{y}", "w:250", f"c:{x},{y}"]).returncode == 0
+    return osa(f'tell application "System Events" to click at {{{x}, {y}}}', run).returncode == 0
+
+
+def start_playback(cfg: dict, run=sh, sleep=time.sleep) -> str:
+    """Mode « Regarder et écouter seulement » -> clic sur la carte puis « Continuer ». Entrée en dernier recours."""
     osa('tell application "Synthesia" to activate', run)
+    sleep(0.5)
     if cfg.get("start_mode", "click") == "click":
         x, y, w, _h = window_geometry(run)
-        cx, cy = x + w - cfg["continue_from_right"], y + cfg["continue_from_top"]
-        r = osa(f'tell application "System Events" to click at {{{cx}, {cy}}}', run)
-        if r.returncode == 0:
-            return f"click({cx},{cy})"
+        k = screen_points(run)[0] / 2000.0          # px de capture -> points écran
+        card = (x + int(cfg["listen_card_from_left_px"] * k), y + int(cfg["listen_card_from_top_px"] * k))
+        cont = (x + w - int(cfg["continue_from_right_px"] * k), y + int(cfg["continue_from_top_px"] * k))
+        ok1 = click(*card, run=run)
+        sleep(0.7)
+        ok2 = click(*cont, run=run)
+        if ok1 and ok2:
+            return f"click{card}+click{cont}"
     r = osa('tell application "System Events" to key code 36', run)
     if r.returncode != 0:
         raise RuntimeError("impossible de piloter Synthesia : " + (r.stderr or "").strip()[:150])

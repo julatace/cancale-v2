@@ -34,15 +34,20 @@ def test_all_sources_last_at_least_a_minute():
         assert max(x.end for x in n) >= 70, seed
 
 
-def test_click_continue_top_right_of_window():
+def test_clicks_listen_card_then_continue(monkeypatch):
     log = []
-    assert mac.start_playback({**CFG, "start_mode": "click"}, fake_run(log)).startswith("click(1044,95)")  # 100+1000-56 ; 50+45
-    assert any("click at {1044, 95}" in s for s in log)
+    clicks = []
+    monkeypatch.setattr(mac, "click", lambda x, y, run=None: clicks.append((x, y)) or True)
+    out = mac.start_playback({**CFG, "start_mode": "click"}, fake_run(log), sleep=lambda s: None)
+    k = 1280 / 2000
+    assert clicks[0] == (100 + int(165 * k), 50 + int(256 * k))        # carte « Regarder et écouter seulement »
+    assert clicks[1] == (100 + 1000 - int(88 * k), 50 + int(71 * k))   # bouton « Continuer »
+    assert out.startswith("click")
 
 
 def test_return_mode_and_crop_fractions():
     log = []
-    assert mac.start_playback({**CFG, "start_mode": "return"}, fake_run(log)) == "return"
+    assert mac.start_playback({**CFG, "start_mode": "return"}, fake_run(log), sleep=lambda s: None) == "return"
     x, y, w, h = mac.crop_fractions(CFG, fake_run([]))
     assert abs(x - 100 / 1280) < 1e-6 and abs(w - 1000 / 1280) < 1e-6 and 0 < y < 1 and 0 < h < 1
 
@@ -59,4 +64,4 @@ def test_start_playback_raises_when_not_allowed():
     import pytest
     run = lambda cmd, **k: NS(returncode=1, stdout="0, 0, 1000, 700", stderr="osascript n'est pas autorisé")
     with pytest.raises(RuntimeError):
-        mac.start_playback({**CFG, "start_mode": "return"}, run)
+        mac.start_playback({**CFG, "start_mode": "return"}, run, sleep=lambda s: None)

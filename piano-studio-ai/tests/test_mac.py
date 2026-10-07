@@ -19,7 +19,8 @@ def test_not_ready_on_linux():
     assert mac.check(CFG, system=lambda: "Linux")[0][1] is False
 
 
-def test_check_on_mac_with_mocked_tools(tmp_path):
+def test_check_on_mac_with_mocked_tools(tmp_path, monkeypatch):
+    monkeypatch.setattr(mac.shutil, "which", lambda n: "/opt/homebrew/bin/" + n)
     app = tmp_path / "Synthesia.app"; app.mkdir()
     err = "[AVFoundation indev] AVFoundation video devices:\n[AVFoundation indev] [0] FaceTime HD\n[AVFoundation indev] [1] Capture screen 0\n[AVFoundation indev] AVFoundation audio devices:\n"
     run = lambda cmd, **k: NS(returncode=0, stdout="true", stderr=err)
