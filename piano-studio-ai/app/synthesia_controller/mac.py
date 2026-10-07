@@ -6,6 +6,7 @@ import platform
 import shutil
 import re
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -153,6 +154,25 @@ def portrait_size(cfg: dict, sw: int, sh_: int) -> tuple[int, int, int, int]:
     return fit_window(cfg, sw, sh_, 1080, 1920, 300)
 
 
+def maximize_window(cfg: dict, run=sh, sleep=time.sleep) -> tuple[int, int, int, int]:
+    """Fenêtre Synthesia sur tout l'écran (sous la barre de menus) : image nette, tout le clavier visible."""
+    sw, sh_ = screen_points(run)
+    y = cfg.get("window_top_points", 40)
+    w, h = sw, sh_ - y - cfg.get("maximize_margin_points", 4)
+    geo = (0, 0, 1, 1)
+    for order in (("pos", "size"), ("size", "pos", "size")):
+        for what in order:
+            val = f"{{{w}, {h}}}" if what == "size" else f"{{0, {y}}}"
+            osa(f'tell application "System Events" to tell process "Synthesia" to set {"size" if what == "size" else "position"} of window 1 to {val}', run)
+            sleep(0.4)
+        geo = window_geometry(run)
+        log.info("fenêtre Synthesia agrandie : x=%s y=%s largeur=%s hauteur=%s (visé %sx%s)", *geo, w, h)
+        if geo[2] >= 0.9 * sw:
+            return geo
+    log.warning("la fenêtre Synthesia n'a pas pu être agrandie (%sx%s)", geo[2], geo[3])
+    return geo
+
+
 def arrange_window_portrait(cfg: dict, run=sh, sleep=time.sleep, layout=(1080, 1920, 300)) -> tuple[int, int, int, int]:
     """Fenêtre Synthesia en portrait sur toute la hauteur de l'écran. Vérifie le résultat réel ; réessaie une fois."""
     sw, sh_ = screen_points(run)
@@ -203,10 +223,8 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
     ok, why = accessibility_ok(run)
     if not ok:
         raise RuntimeError(f"Accessibilité non autorisée : {why}")
-    backend = cfg.get("capture_backend", "screencapture")
-    ok, why = rec_test(out.with_name("preflight.mov"), seconds=1, run=run, backend=backend)
-    if not ok:
-        raise RuntimeError(f"Enregistrement d'écran impossible : {why}")
+    backend, encoder = pick_backend(cfg, run, out.with_name("preflight.mov"))      # lève une erreur claire si rien ne marche
+    log.info("🎥 Enregistreur d'écran : %s%s", backend, f" ({encoder})" if encoder else "")
     screen = screen_devices(run)[0][0] if backend == "ffmpeg" else None
     total = duration + cfg["lead_in_seconds"] + cfg["tail_seconds"]
     log.info("1/5 relance de Synthesia et ouverture du MIDI")
@@ -215,7 +233,8 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
     run(["open", "-a", str(cfg["app_path"]), str(midi)])
     sleep(cfg["load_seconds"])
     log.info("2/5 démarrage de l'enregistrement d'écran (%.0f s)", total)
-    cap = subprocess.Popen(_capture_cmd(backend, screen, total, out), stderr=subprocess.PIPE)
+    cap = subprocess.Popen(_capture_cmd(backend, screen, total, out, encoder or "libx264"), stderr=subprocess.PIPE,
+                           stdin=subprocess.PIPE if backend == "ffmpeg" else None)
     dock_before = None
     stopped_after = None
     try:
@@ -226,8 +245,12 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
         crop = None
         if cfg.get("portrait", True):
             try:
-                log.info("4/5 fenêtre à la forme du format (gros plan)")
-                arrange_window_portrait(cfg, run, layout=layout)   # gros plan : fenêtre à la forme du format
+                if cfg.get("window_mode", "maximized") == "maximized":
+                    log.info("4/5 fenêtre agrandie sur tout l'écran")
+                    maximize_window(cfg, run)
+                else:
+                    log.info("4/5 fenêtre à la forme du format (gros plan)")
+                    arrange_window_portrait(cfg, run, layout=layout)
                 sleep(1.5)
             except Exception as e:
                 log.warning("redimensionnement impossible (%s) : fenêtre gardée telle quelle", e)
@@ -240,13 +263,13 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
             control.check()                             # « Annuler » : on jette tout
             if control.STOP_RECORD.is_set():            # « Arrêter l'enregistrement » : on garde ce qui est enregistré
                 control.STOP_RECORD.clear()
-                stopped_after = time.monotonic() - t_start
-                log.info("■ Enregistrement arrêté à %.0f s : la vidéo sera montée avec ce qui est enregistré.", stopped_after)
-                cap.send_signal(signal.SIGINT)          # termine proprement le fichier vidéo
-                try:
-                    cap.wait(timeout=15)
-                except subprocess.TimeoutExpired:
-                    cap.kill()
+                log.info("■ Enregistrement arrêté : la vidéo sera montée avec ce qui est enregistré.")
+                _stop_capture(cap, backend)
+                stopped_after = _usable_seconds(out, run)      # durée réellement lisible dans le fichier
+                if stopped_after is None or stopped_after < 3:
+                    raise RuntimeError("L'enregistrement arrêté n'a pas été conservé par l'outil de capture (%s). "
+                                       "Laissez l'enregistrement aller jusqu'au bout, ou installez ffmpeg pour pouvoir l'arrêter sans rien perdre." % backend)
+                log.info("■ %.0f s d'enregistrement conservés.", stopped_after)
                 break
             if time.monotonic() > deadline:
                 raise subprocess.TimeoutExpired("capture", total + 30)
@@ -268,15 +291,66 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
     return out, crop, stopped_after
 
 
-def _capture_cmd(backend: str, screen_idx, seconds, out: Path) -> list[str]:
+def _stop_capture(cap, backend: str):
+    """Arrête l'enregistreur en laissant le fichier se terminer proprement (ffmpeg : touche « q », screencapture : Ctrl+C)."""
+    try:
+        if backend == "ffmpeg" and cap.stdin:
+            cap.stdin.write(b"q"); cap.stdin.flush()
+        else:
+            cap.send_signal(signal.SIGINT)
+        cap.wait(timeout=20)
+    except Exception:
+        try:
+            cap.send_signal(signal.SIGINT)
+            cap.wait(timeout=10)
+        except Exception:
+            cap.kill()
+
+
+def _usable_seconds(path: Path, run=sh) -> float | None:
+    """Durée réellement lisible d'un fichier vidéo (ffmpeg le décode jusqu'au bout) ; None si illisible."""
+    if not Path(path).exists() or Path(path).stat().st_size < 10_000:
+        return None
+    r = run(["ffmpeg", "-hide_banner", "-i", str(path), "-f", "null", "-"], timeout=180)
+    times = re.findall(r"time=(\d+):(\d+):([\d.]+)", r.stderr or "")
+    if not times:
+        return None
+    h, m, s = times[-1]
+    return int(h) * 3600 + int(m) * 60 + float(s)
+
+
+def pick_backend(cfg: dict, run=sh, probe: Path | None = None) -> tuple[str, str | None]:
+    """Choisit l'enregistreur : ffmpeg (enregistre en continu, supporte l'arrêt sans perte) si possible, sinon screencapture."""
+    want = cfg.get("capture_backend", "auto")
+    probe = probe or Path(tempfile.gettempdir()) / "piano_probe.mov"
+    last = ""
+    if want in ("auto", "ffmpeg"):
+        for enc in ("h264_videotoolbox", "libx264"):
+            ok, why = rec_test(probe, 2, run, backend="ffmpeg", encoder=enc)
+            if ok:
+                return "ffmpeg", enc
+            last = why
+            if "bloqué" in why:                       # ffmpeg se fige : inutile d'essayer un autre encodeur
+                break
+        if want == "ffmpeg":
+            raise RuntimeError(f"Enregistrement d'écran impossible (ffmpeg) : {last}")
+    ok, why = rec_test(probe, 2, run, backend="screencapture")
+    if ok:
+        return "screencapture", None
+    raise RuntimeError(f"Enregistrement d'écran impossible : {why}")
+
+
+def _capture_cmd(backend: str, screen_idx, seconds, out: Path, encoder: str = "libx264") -> list[str]:
     if backend == "ffmpeg":
+        enc = (["-c:v", "h264_videotoolbox", "-b:v", "30M", "-realtime", "1"] if encoder == "h264_videotoolbox"
+               else ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "16"])
         return ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "avfoundation", "-framerate", "30",
-                "-capture_cursor", "0", "-i", f"{screen_idx}:none", "-t", str(seconds), "-c:v", "libx264",
-                "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p", str(out)]
+                "-capture_cursor", "0", "-i", f"{screen_idx}:none", "-t", str(seconds), *enc, "-pix_fmt", "yuv420p",
+                "-movflags", "+frag_keyframe+empty_moov+default_base_moof", str(out)]    # fragmenté : lisible même si on l'interrompt
     return ["screencapture", "-x", "-v", "-V", str(int(seconds)), str(out)]   # enregistreur vidéo intégré à macOS
 
 
-def rec_test(out: Path, seconds=3, run=sh, backend="screencapture") -> tuple[bool, str]:
+def rec_test(out: Path, seconds=3, run=sh, backend="screencapture", encoder: str = "libx264") -> tuple[bool, str]:
     """Teste uniquement l'enregistrement d'écran : fichier créé, taille, image non noire."""
     idx = None
     if backend == "ffmpeg":
@@ -286,7 +360,7 @@ def rec_test(out: Path, seconds=3, run=sh, backend="screencapture") -> tuple[boo
         idx = dev[0][0]
     out.unlink(missing_ok=True)
     try:
-        r = run(_capture_cmd(backend, idx, seconds, out), timeout=seconds + 20)
+        r = run(_capture_cmd(backend, idx, seconds, out, encoder), timeout=seconds + (8 if backend == "ffmpeg" else 20))
     except subprocess.TimeoutExpired:
         return False, ("l'enregistrement reste bloqué : macOS n'a pas accordé « Enregistrement de l'écran » au Terminal. "
                        "Réglages Système > Confidentialité et sécurité > Enregistrement de l'écran et audio système > activer Terminal, "

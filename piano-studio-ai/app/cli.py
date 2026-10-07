@@ -124,9 +124,13 @@ def cmd_mac_rec_test(s, a):
     from .synthesia_controller import mac
     dbg = config.resolve(s, "data_dir") / "debug"
     dbg.mkdir(parents=True, exist_ok=True)
-    ok, msg = mac.rec_test(dbg / "rec_test.mp4")
-    print(("✅ " if ok else "❌ ") + "Enregistrement d'écran : " + msg)
-    return 0 if ok else 1
+    try:
+        backend, enc = mac.pick_backend(s["synthesia"], probe=dbg / "rec_test.mov")
+        print(f"✅ Enregistrement d'écran : OK avec {backend}{' (' + enc + ')' if enc else ''}")
+        return 0
+    except RuntimeError as e:
+        print(f"❌ {e}")
+        return 1
 
 
 def cmd_mac_setup(s, a):

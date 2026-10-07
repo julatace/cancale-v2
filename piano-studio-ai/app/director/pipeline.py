@@ -10,7 +10,8 @@ from app.content_generator.generate import difficulty_of, generate
 from app.database import db
 from app.midi_analyzer.analyzer import analyze
 from app.midi_analyzer.parser import parse_midi
-from app.midi_analyzer.fold import fold_notes
+from app.midi_analyzer.fold import choose_lowest, fold_notes
+from app.renderer import framing
 from app.music_discovery import generator, importer
 from app.publisher import adapters
 from app.quality_control import qc
@@ -91,8 +92,9 @@ def pick_song(conn, s, seed, exclude=()) -> tuple[int, Path, dict]:
 
 
 def _subtitle(meta, content) -> str:
-    lvl = f" · {content['level']} {content['bpm']} BPM" if content.get("level") and content.get("bpm") else ""
-    return f"{meta.get('artist', '')}{lvl}".strip(" ·")
+    """Sous-titre de la vidéo : le compositeur seulement (ni niveau ni BPM à l'écran)."""
+    a = (meta.get("artist") or "").strip()
+    return "" if a.lower() in ("", "unknown", "inconnu") else a
 
 
 def _render(s, notes, sec, out, meta, tempo, content=None, F=None) -> str:
@@ -175,7 +177,9 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
         tried.add(sid)
         log.info("♪ Morceau choisi : %s - %s", meta["title"], meta["artist"])
         notes, tempo = parse_midi(midi)
-        notes = fold_notes(notes, s["keyboard"]["lowest_key"], s["keyboard"]["keys"])  # plage du clavier
+        kb = s["keyboard"]
+        kb_lo = choose_lowest(notes, kb["keys"]) if kb.get("adaptive", True) else kb["lowest_key"]
+        notes = fold_notes(notes, kb_lo, kb["keys"])                                    # plage jouée, choisie selon le morceau
         factor = difficulty.speed_factor(analyze(notes, tempo)["bpm"], lv["bpm"])
         notes = difficulty.stretch_notes(notes, factor)                                  # tempo = niveau
         tempo = [(0.0, lv["bpm"])]
@@ -212,7 +216,7 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
             break
         plans.append((fmt_name, F, sec, content, report))
     if plans and not dry_run:
-        reports = _make_videos(s, conn, sid, level, plans, notes, tempo, meta, lv, publish)
+        reports = _make_videos(s, conn, sid, level, plans, notes, tempo, meta, lv, publish, kb_lo)
     if len(reports) == 1:
         return reports[0]
     ok = [r["status"] in ("READY", "PUBLISHED") for r in reports]
@@ -230,7 +234,7 @@ def _failed(s, conn, sid, level, plans, err) -> list[dict]:
     return out
 
 
-def _make_videos(s, conn, sid, level, plans, notes, tempo, meta, lv, publish) -> list[dict]:
+def _make_videos(s, conn, sid, level, plans, notes, tempo, meta, lv, publish, kb_lo=None) -> list[dict]:
     """Synthesia : UN SEUL enregistrement dont on tire tous les formats. Sinon (ou en secours) rendu intégré, format par format."""
     cfg = s.get("synthesia", {})
     mode = s.get("engine", "auto")
@@ -239,7 +243,7 @@ def _make_videos(s, conn, sid, level, plans, notes, tempo, meta, lv, publish) ->
         return _failed(s, conn, sid, level, plans, "RuntimeError: engine=synthesia mais le Mac n'est pas prêt")
     if ready:
         try:
-            return _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish)
+            return _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish, kb_lo)
         except control.Cancelled:
             raise
         except Exception as e:
@@ -247,12 +251,17 @@ def _make_videos(s, conn, sid, level, plans, notes, tempo, meta, lv, publish) ->
                 return _failed(s, conn, sid, level, plans, f"{type(e).__name__}: {e}")
             log.error("Synthesia a échoué (%s) -> rendu intégré", e)
     s_builtin = {**s, "engine": "builtin"}
+    if kb_lo is not None:
+        s_builtin["keyboard"] = {**s["keyboard"], "lowest_key": kb_lo}
     return [_produce(s_builtin, conn, sid, level, fmt_name, F, notes, tempo, sec, meta, content, report, publish)
             for fmt_name, F, sec, content, report in plans]
 
 
-def _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish) -> list[dict]:
+def _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish, kb_lo=None) -> list[dict]:
     cfg = s["synthesia"]
+    kb = s["keyboard"]
+    kb_lo = kb["lowest_key"] if kb_lo is None else kb_lo
+    maximized = cfg.get("window_mode", "maximized") == "maximized"
     out_dir = config.resolve(s, "data_dir") / "rendered"
     out_dir.mkdir(parents=True, exist_ok=True)
     full_plans = [p for p in plans if p[1].get("duration") == "full"]
@@ -277,6 +286,11 @@ def _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish) -> li
             log.warning("calage auto impossible -> repli sur %.1fs", t_on)
         else:
             log.info("🎚 Calage du son : 1re note visible à %.1fs dans la vidéo", t_on)
+        try:
+            screen_pts = mac.screen_points()
+        except Exception:
+            screen_pts = (1470, 956)
+        content_crop = crop or (0.0, 0.0, 1.0, 1.0)
         for fmt_name, F, sec, content, report in plans:
             control.check()
             full = F.get("duration") == "full"
@@ -298,12 +312,18 @@ def _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish) -> li
             out = out_dir / f"{sid}_{int(time.time())}_{fmt_name}.mp4"
             log.info("🎬 [%s] Montage depuis l'enregistrement (%.0f s)", fmt_name, dur)
             sub_txt = _subtitle(meta, content)
-            if F["width"] > F["height"]:
-                compose.compose_landscape(cap, wav, out, trim, dur, meta["title"], meta.get("artist", ""),
-                                          f"{content.get('level', '')} · {content.get('bpm', '')} BPM", content.get("hook", ""), content.get("cta", ""), crop=crop)
+            wide = F["width"] > F["height"]
+            if wide and not maximized:                                 # fenêtre verticale : app au centre, titre sur les côtés
+                compose.compose_landscape(cap, wav, out, trim, dur, meta["title"], sub_txt, "", content.get("hook", ""), content.get("cta", ""), crop=crop)
             else:
+                use = content_crop
+                if maximized and not wide:                             # zoom sur les touches réellement jouées
+                    use = framing.vertical_crop(content_crop, screen_pts, kb_lo, kb_lo + kb["keys"] - 1,
+                                                kb.get("display_lowest", 21), kb.get("display_keys", 88),
+                                                F["width"] / (F["height"] - F["banner"]))
                 compose.compose_vertical(cap, wav, out, trim, dur, meta["title"], subtitle=sub_txt, hook=content.get("hook", ""),
-                                         cta=content.get("cta", ""), crop=crop, size=(F["width"], F["height"]), top=F["banner"])
+                                         cta=content.get("cta", ""), crop=use if (maximized or not wide) else crop,
+                                         size=(F["width"], F["height"]), top=F["banner"])
             report["engine"] = "synthesia"
             log.info("✔ Contrôle qualité...")
             low = 5 if sec.get("stopped_early") else (min(30, F.get("max_duration", 300) * 0.5) if full else 3)

@@ -15,6 +15,18 @@ OK_LICENSES = [("Public Domain", re.compile(r"Public Domain", re.I)),
 BAD = re.compile(r"ShareAlike|NonCommercial|NoDerivs|Share Alike", re.I)
 
 
+def _composer_from_path(midi_url: str) -> str:
+    """Les fichiers Mutopia sont rangés par compositeur : /ftp/SchumannR/... -> « R. Schumann »."""
+    m = re.search(r"/ftp/([A-Za-z]+)/", midi_url)
+    if not m or m.group(1).lower() in ("contributed", "anonymous"):
+        return ""
+    d = re.match(r"^(.*?[a-z])([A-Z][A-Za-z]{0,2})$", m.group(1))
+    if not d:
+        return m.group(1)
+    initials = ".".join(c for c in d.group(2) if c.isupper()) + "."
+    return f"{initials} {d.group(1)}"
+
+
 def http_get(url: str, timeout=30) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": "PianoStudioAI/0.1 (+personal use)"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -42,6 +54,8 @@ def parse_piece(page_html: str, url: str) -> dict | None:
     if " by " in title:                                   # « Consolation, S.172 No.1, by F. Liszt (1811–1886) »
         title, composer = title.rsplit(" by ", 1)
         composer = re.sub(r"\s*\(.*?\)\s*", "", composer).strip()
+    if not composer:
+        composer = _composer_from_path(urljoin(url, mids[0]))
     if not composer:
         comp = re.search(r"Composer[^A-Za-z]{0,40}([A-Z][^\n<]{2,40})", text)
         composer = comp.group(1).strip() if comp else "Unknown"

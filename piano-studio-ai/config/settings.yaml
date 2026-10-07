@@ -39,7 +39,8 @@ synthesia:
   continue_from_right_px: 88       # bouton « Continuer »
   continue_from_top_px: 71
   titlebar_points: 24
-  capture_backend: screencapture   # enregistreur intégré à macOS (plus fiable que ffmpeg avfoundation) ; ffmpeg en secours
+  capture_backend: auto            # auto = ffmpeg si ça marche (arrêt sans perte), sinon l'enregistreur de macOS (screencapture)
+  window_mode: maximized    # maximized = fenêtre sur tout l'écran puis zoom sur les touches jouées ; portrait = fenêtre verticale
   portrait: true          # redimensionne la fenêtre Synthesia en vertical (gros plan)
   window_top_points: 40     # sous la barre de menus
   portrait_margin_points: 6
@@ -48,8 +49,11 @@ synthesia:
   first_note_seconds: 2.5   # repli si la détection auto échoue : instant (dans la vidéo) de la 1re note
   crop_toolbar_fraction: 0.12   # masque la barre d'outils de Synthesia     # secondes à couper au début de la capture (étalonner pour caler l'audio)
 keyboard:
-  keys: 28              # clavier affiché : 28 touches (réglage à faire une fois dans Synthesia)
-  lowest_key: 47        # B2 ; la musique est ramenée dans cette plage (47..74)
+  keys: 36              # étendue jouée (3 octaves) : la musique est ramenée dans cette plage, l'image zoome dessus
+  adaptive: true        # la plage (début = un Do) est choisie selon le morceau
+  lowest_key: 48        # utilisé seulement si adaptive: false
+  display_keys: 88      # clavier AFFICHÉ par Synthesia (réglage personnalisé de l'utilisateur)
+  display_lowest: 21    # première touche affichée (La0 pour un clavier de 88 touches)
 midi_sources:
   mutopia: true         # recherche en ligne (domaine public / CC0 / CC-BY) ; repli local si hors-ligne
 difficulty:
