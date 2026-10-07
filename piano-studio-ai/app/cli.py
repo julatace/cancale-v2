@@ -59,6 +59,17 @@ def cmd_analyze(s, a):
     return 0
 
 
+def cmd_run(s, a):
+    import json
+    from .director.pipeline import run_one
+    code = 0
+    for _ in range(a.count):
+        r = run_one(s, dry_run=a.dry_run)
+        print(json.dumps(r, indent=2, ensure_ascii=False, default=str))
+        code |= r["status"] not in ("PUBLISHED", "READY", "DRY_RUN")
+    return code
+
+
 def not_ready(name):
     def f(s, a):
         print(f"`piano {name}`: pas encore implémenté (voir phases du cahier des charges).")
@@ -70,14 +81,17 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="piano")
     sub = p.add_subparsers(dest="cmd", required=True)
     cmds = {"doctor": cmd_doctor, "status": cmd_status, "queue": cmd_queue, "init": cmd_init}
-    for n in ("setup", "start", "stop", "retry", "test", "auto", "dry-run"):
+    for n in ("setup", "start", "stop", "retry", "test"):
         cmds[n] = not_ready(n)
     cmds["import"], cmds["analyze"] = cmd_import, cmd_analyze
+    cmds["auto"] = cmds["run"] = cmds["dry-run"] = cmd_run
     for n in cmds:
         sp = sub.add_parser(n)
         if n == "import":
             sp.add_argument("file"); sp.add_argument("--title", required=True); sp.add_argument("--artist", default="")
             sp.add_argument("--source", required=True); sp.add_argument("--license-proof")
+        if n in ("auto", "run", "dry-run"):
+            sp.add_argument("--count", type=int, default=1); sp.add_argument("--dry-run", action="store_true", default=(n == "dry-run"))
         if n == "analyze":
             sp.add_argument("file"); sp.add_argument("--duration", type=float)
     a = p.parse_args(argv)

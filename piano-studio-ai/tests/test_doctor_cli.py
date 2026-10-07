@@ -11,7 +11,7 @@ def test_doctor_reports_action_required_when_apps_missing():
 
 
 def test_unimplemented_commands_do_not_pretend(capsys):
-    assert cli.main(["auto"]) == 2
+    assert cli.main(["stop"]) == 2
     assert "pas encore implémenté" in capsys.readouterr().out
 
 

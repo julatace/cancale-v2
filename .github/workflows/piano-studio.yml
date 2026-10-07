@@ -1,0 +1,33 @@
+name: Piano Studio AI
+on:
+  schedule:
+    - cron: "0 7 * * *"    # 09:00 Paris (été)
+    - cron: "0 17 * * *"   # 19:00 Paris (été)
+  workflow_dispatch:
+jobs:
+  produce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults: {run: {working-directory: piano-studio-ai}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+      - run: pip install -q -e '.[dev]' numpy pillow
+      - run: python -m pytest -q
+      - name: Restaurer la base (historique anti-doublons)
+        uses: actions/cache@v4
+        with:
+          path: piano-studio-ai/data/piano.sqlite3
+          key: piano-db-${{ github.run_id }}
+          restore-keys: piano-db-
+      - run: piano run
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: video-${{ github.run_id }}
+          path: piano-studio-ai/data/published/
