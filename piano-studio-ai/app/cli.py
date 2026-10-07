@@ -146,6 +146,12 @@ def cmd_mac_setup(s, a):
     return cmd_mac_check(s, a) if ok else 1
 
 
+def cmd_ui(s, a):
+    from .ui import server
+    server.serve(port=a.port, open_browser=not a.no_browser)
+    return 0
+
+
 def cmd_mac_install(s, a):
     from .scheduler import launchd
     p = launchd.install(s["publish_times"], config.ROOT)
@@ -171,6 +177,7 @@ def main(argv=None):
     cmds["mac-check"], cmds["mac-install"], cmds["mac-test"] = cmd_mac_check, cmd_mac_install, cmd_mac_test
     cmds["fetch-midi"] = cmd_fetch_midi
     cmds["mac-rec-test"] = cmd_mac_rec_test
+    cmds["ui"] = cmd_ui
     cmds["mac-setup"] = cmd_mac_setup
     cmds["auto"] = cmds["run"] = cmds["dry-run"] = cmd_run
     for n in cmds:
@@ -180,6 +187,8 @@ def main(argv=None):
             sp.add_argument("--source", required=True); sp.add_argument("--license-proof")
         if n in ("auto", "run", "dry-run"):
             sp.add_argument("--count", type=int, default=1); sp.add_argument("--dry-run", action="store_true", default=(n == "dry-run")); sp.add_argument("--force-synthesia", action="store_true")
+        if n == "ui":
+            sp.add_argument("--port", type=int, default=8765); sp.add_argument("--no-browser", action="store_true")
         if n == "analyze":
             sp.add_argument("file"); sp.add_argument("--duration", type=float)
     a = p.parse_args(argv)

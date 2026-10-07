@@ -138,3 +138,13 @@ def test_default_backend_is_native_macos_recorder(tmp_path):
         return NS(returncode=0, stdout="", stderr="lavfi.signalstats.YAVG=90.0")
     ok, msg = mac.rec_test(tmp_path / "r.mov", run=run)
     assert ok and seen[0] == "screencapture"
+
+
+def test_landscape_window_fits_screen_width_and_aspect():
+    cfg = {**CFG, "window_top_points": 40, "portrait_margin_points": 6, "titlebar_points": 24, "crop_toolbar_fraction": 0.12}
+    x, y, w, h = mac.fit_window(cfg, 1470, 956, 1920, 1080, 130)       # format horizontal
+    assert w <= 1470 and y + h <= 956 + 40
+    visible_h = (h - 24) * 0.88
+    assert abs(w / visible_h - 1920 / (1080 - 130)) < 0.02
+    xp, yp, wp, hp = mac.fit_window(cfg, 1470, 956, 1080, 1920, 300)    # vertical
+    assert wp < hp and w > h

@@ -29,8 +29,9 @@ class YouTube:
         except Exception as e:  # token expiré, réseau…
             return Result(self.platform, "FAILED", detail=f"auth: {type(e).__name__}")
         try:
-            snippet = {"snippet": {"title": meta["title"][:100] if "#Shorts" in meta["title"] else (meta["title"][:90] + " #Shorts"),
-                                   "description": meta["description"] + "\n#Shorts", "categoryId": "10"},
+            shorts = meta.get("shorts", True)
+            title = meta["title"][:100] if (not shorts or "#Shorts" in meta["title"]) else (meta["title"][:90] + " #Shorts")
+            snippet = {"snippet": {"title": title, "description": meta["description"] + ("\n#Shorts" if shorts else ""), "categoryId": "10"},
                        "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}}
             data = open(video, "rb").read()
             h = {"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=UTF-8",

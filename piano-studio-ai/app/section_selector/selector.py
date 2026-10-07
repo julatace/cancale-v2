@@ -27,4 +27,4 @@ def select_section(notes: list[Note], target: float = 45, step: float = 1.0) -> 
     if f["pitch_span"] >= 24: reasons.append("grande étendue")
     if f["poly"] >= 4: reasons.append("accords")
     return {"start": round(start, 1), "end": round(start + target, 1), "duration": round(target, 1),
-            "score": round(score), "reason": " + ".join(reasons) or "meilleure fenêtre disponible"}
+            "score": round(score), "density": round(f["density"], 2), "reason": " + ".join(reasons) or "meilleure fenêtre disponible"}

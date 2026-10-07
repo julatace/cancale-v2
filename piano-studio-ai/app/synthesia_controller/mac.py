@@ -131,21 +131,30 @@ def park_mouse(run=sh):
         pass
 
 
-def portrait_size(cfg: dict, sw: int, sh_: int) -> tuple[int, int, int, int]:
-    """(x, y, largeur, hauteur) : fenêtre sur toute la hauteur utile ; la largeur est calculée pour que la zone visible
-    (sans barre de titre ni barre d'outils) ait exactement le rapport 1080x1620 du montage -> aucune bande, aucun rognage."""
+def fit_window(cfg: dict, sw: int, sh_: int, W: int = 1080, H: int = 1920, top: int = 300) -> tuple[int, int, int, int]:
+    """(x, y, largeur, hauteur) de la fenêtre pour que la zone visible (sans barre de titre ni d'outils) ait exactement le rapport
+    de la zone « app » du montage (W x (H-top)), la plus grande possible dans l'écran -> aucune bande, aucun rognage."""
     y = cfg.get("window_top_points", 40)
-    h = sh_ - y - cfg.get("portrait_margin_points", 6)
     tb = cfg.get("titlebar_points", 24)
-    visible_h = (h - tb) * (1 - cfg.get("crop_toolbar_fraction", 0.12))
-    w = int(visible_h * 1080 / 1620)
+    keep = 1 - cfg.get("crop_toolbar_fraction", 0.12)
+    ratio = W / (H - top)
+    h = sh_ - y - cfg.get("portrait_margin_points", 6)
+    w = int((h - tb) * keep * ratio)
+    if w > sw:                                   # format large : limité par la largeur de l'écran
+        w = sw
+        h = int(w / ratio / keep) + tb
     return (sw - w) // 2, y, w, h
 
 
-def arrange_window_portrait(cfg: dict, run=sh, sleep=time.sleep) -> tuple[int, int, int, int]:
+def portrait_size(cfg: dict, sw: int, sh_: int) -> tuple[int, int, int, int]:
+    return fit_window(cfg, sw, sh_, 1080, 1920, 300)
+
+
+def arrange_window_portrait(cfg: dict, run=sh, sleep=time.sleep, layout=(1080, 1920, 300)) -> tuple[int, int, int, int]:
     """Fenêtre Synthesia en portrait sur toute la hauteur de l'écran. Vérifie le résultat réel ; réessaie une fois."""
     sw, sh_ = screen_points(run)
-    x, y, w, h = portrait_size(cfg, sw, sh_)
+    x, y, w, h = fit_window(cfg, sw, sh_, *layout)
+    wide = layout[0] > layout[1]
     geo = (0, 0, 1, 1)
     for order in (("size", "pos"), ("pos", "size", "size")):
         for what in order:
@@ -155,9 +164,9 @@ def arrange_window_portrait(cfg: dict, run=sh, sleep=time.sleep) -> tuple[int, i
             sleep(0.4)
         geo = window_geometry(run)
         log.info("fenêtre Synthesia après redimensionnement : x=%s y=%s largeur=%s hauteur=%s (visé %sx%s)", *geo, w, h)
-        if geo[2] / max(geo[3], 1) < 0.85:
+        if (geo[2] / max(geo[3], 1) > 1.1) == wide:
             return geo
-    log.warning("la fenêtre Synthesia n'est pas devenue verticale (%sx%s) : le gros plan sera limité", geo[2], geo[3])
+    log.warning("la fenêtre Synthesia n'a pas pris la forme voulue (%sx%s) : le gros plan sera limité", geo[2], geo[3])
     return geo
 
 
@@ -184,7 +193,7 @@ def debug_frames(video: Path, outdir: Path, times=(2, 8, 25), run=sh) -> list[Pa
     return out
 
 
-def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time.sleep) -> tuple[Path, tuple | None]:
+def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time.sleep, layout=(1080, 1920, 300)) -> tuple[Path, tuple | None]:
     """Relance Synthesia sur le MIDI, clique « Continuer », capture l'écran. Retourne (capture, zone de recadrage)."""
     ok, why = accessibility_ok(run)
     if not ok:
@@ -211,8 +220,8 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
         crop = None
         if cfg.get("portrait", True):
             try:
-                log.info("4/5 fenêtre en portrait (gros plan)")
-                arrange_window_portrait(cfg, run)   # gros plan : fenêtre verticale
+                log.info("4/5 fenêtre à la forme du format (gros plan)")
+                arrange_window_portrait(cfg, run, layout=layout)   # gros plan : fenêtre à la forme du format
                 sleep(1.5)
             except Exception as e:
                 log.warning("redimensionnement impossible (%s) : fenêtre gardée telle quelle", e)

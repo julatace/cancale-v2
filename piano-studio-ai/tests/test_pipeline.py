@@ -90,3 +90,19 @@ def test_forced_synthesia_failure_reports_error_once(s):
     s["engine"] = "synthesia"          # hors Mac : le moteur n'est pas prêt
     r = pipeline.run_one(s, seed=9, publish=False)
     assert r["status"] == "FAILED" and "Mac" in r["error"]
+
+
+def test_horizontal_long_format_and_level_override(s):
+    s["formats"]["horizontal"].update(max_duration=6, min_duration=0)      # court pour le test
+    r = pipeline.run_one(s, seed=11, publish=False, level="difficile", fmt="horizontal")
+    assert r["status"] == "READY" and r["format"] == "horizontal" and r["bpm"] == 130 and r["difficulty"] == "Difficile"
+    import json, subprocess
+    v = json.loads(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream=width,height", "-of", "json", r["video"]],
+                                  capture_output=True, text=True).stdout)["streams"][0]
+    assert (v["width"], v["height"]) == (1920, 1080) and r["qc"]["score"] >= 90
+
+
+def test_easy_level_is_slower_than_hard(s):
+    easy = pipeline.run_one(s, seed=21, dry_run=True, level="facile")
+    hard = pipeline.run_one(s, seed=21, dry_run=True, level="difficile")
+    assert easy["bpm"] < hard["bpm"] and easy["difficulty"] == "Facile"

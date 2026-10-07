@@ -26,3 +26,8 @@ Tu es l'ingénieur principal du projet. Objectif : un studio automatisé de tuto
 - `engine: auto` : si `piano mac-check` est tout vert (Synthesia, Accessibility, capture écran, `synthesia.calibrated: true`), la vidéo est capturée depuis l'app Synthesia (`synthesia_controller/mac.py`, `renderer/compose.py`) ; sinon repli automatique sur le rendu intégré.
 - Section : le MIDI est découpé sur le passage choisi (`trim_midi`), Synthesia le joue en entier. Audio = piano synthétisé aligné via `lead_in_seconds`/`capture_trim` (à étalonner sur le Mac : NON testé sur un vrai Mac).
 - Planification : `piano mac-install` écrit l'agent launchd (2/jour).
+
+## Niveaux et formats (interface `piano ui`)
+- Niveau = tempo cible (`difficulty.levels` dans settings.yaml) : facile 80 / moyen 100 / difficile 130 BPM. `director/difficulty.py` étire les notes au tempo voulu et écarte les morceaux trop denses pour le niveau.
+- Format (`formats` dans settings.yaml) : `vertical` 1080x1920 ≈ 1 min (TikTok/Shorts/Reels) ; `horizontal` 1920x1080, morceau entier (≥ 90 s, ≤ 300 s). La fenêtre Synthesia est redimensionnée à la forme du format (`mac.fit_window`).
+- `piano ui` ouvre http://127.0.0.1:8765 : choix niveau/format, création, journal en direct, vidéos récentes. Local uniquement (127.0.0.1, origine contrôlée).

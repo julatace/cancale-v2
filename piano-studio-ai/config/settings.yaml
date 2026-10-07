@@ -52,3 +52,29 @@ keyboard:
   lowest_key: 47        # B2 ; la musique est ramenée dans cette plage (47..74)
 midi_sources:
   mutopia: true         # recherche en ligne (domaine public / CC0 / CC-BY) ; repli local si hors-ligne
+difficulty:
+  mode: rotate              # rotate = alterne les niveaux ; ou un niveau fixe : debutant | facile | moyen | difficile | expert
+  rotation: [facile, moyen, difficile]
+  levels:                   # tempo cible (BPM) : plus c'est rapide, plus c'est dur ; max_density = notes/s acceptées
+    debutant:  {bpm: 60,  max_density: 2.5, label: Débutant}
+    facile:    {bpm: 80,  max_density: 4.0, label: Facile}
+    moyen:     {bpm: 100, max_density: 6.0, label: Moyen}
+    difficile: {bpm: 130, max_density: 9.0, label: Difficile}
+    expert:    {bpm: 160, max_density: 14.0, label: Expert}
+default_format: vertical
+formats:
+  vertical:                 # TikTok / YouTube Shorts / Reels : court, 9:16 (durée = duration_target)
+    label: "Vertical court (TikTok · YouTube Shorts · Reels)"
+    width: 1080
+    height: 1920
+    banner: 300
+    shorts: true
+  horizontal:               # YouTube long : 16:9, le morceau entier (plafonné)
+    label: "Horizontal long (YouTube)"
+    width: 1920
+    height: 1080
+    banner: 130
+    duration: full
+    min_duration: 90          # morceaux plus courts écartés
+    max_duration: 300
+    shorts: false

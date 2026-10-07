@@ -7,10 +7,10 @@ CTA = ["Suis-moi pour plus de piano", "Dis-moi le prochain morceau en commentair
        "Partage à un pianiste !", "Abonne-toi pour la suite"]
 TAGS = ["#piano", "#pianotutorial", "#learnpiano", "#pianocover", "#synthesia", "#music", "#fyp", "#pianomusic",
         "#pianist", "#classicalmusic", "#satisfying", "#pourtoi"]
-LEVEL = {"Facile": "débutant", "Moyen": "intermédiaire", "Avancé": "avancé"}
+LEVEL = {"Débutant": "débutant", "Facile": "facile", "Moyen": "intermédiaire", "Difficile": "difficile", "Expert": "expert", "Avancé": "avancé"}
 
 
-def generate(song: dict, difficulty: str, seed: int, used_titles: set[str]) -> dict:
+def generate(song: dict, difficulty: str, seed: int, used_titles: set[str], bpm: float | None = None) -> dict:
     rnd = random.Random(seed)
     for _ in range(30):
         hook = rnd.choice(HOOKS)
@@ -20,11 +20,13 @@ def generate(song: dict, difficulty: str, seed: int, used_titles: set[str]) -> d
     cta = rnd.choice(CTA)
     tags = rnd.sample(TAGS, 5)
     level = LEVEL.get(difficulty, difficulty)
+    if bpm:
+        level = f"{level} ({round(bpm)} BPM)"
     body = f"{song['title']} - {song['artist']}"
     desc = f"{hook}\n\n{body}\nNiveau : {level}\n\n{cta}\n\n" + " ".join(tags)
     return {
         "title": title, "description": desc, "hashtags": tags, "difficulty": difficulty,
-        "hook": hook, "cta": cta,                                   # texte à l'écran (début / fin)
+        "hook": hook, "cta": cta, "level": difficulty, "bpm": round(bpm) if bpm else None,                                   # texte à l'écran (début / fin)
         "keywords": [song["title"], song["artist"], "piano tutorial"],
         "tiktok_caption": f"{hook} {body} " + " ".join(tags),      # ~ légende courte
         "instagram_caption": f"{hook}\n{body}\n{cta}\n.\n" + " ".join(tags + ["#reels"]),
