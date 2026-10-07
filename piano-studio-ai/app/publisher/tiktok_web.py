@@ -32,7 +32,7 @@ def _js(code: str) -> str:
     except RuntimeError as e:
         if "JavaScript" in str(e) and "Apple" in str(e):
             raise RuntimeError("Safari refuse le JavaScript : active « Autoriser JavaScript provenant d'Apple Events » "
-                               "(menu Développement de Safari)") from e
+                               "(menu Développement de Safari). Message exact de Safari : " + str(e)[:300]) from e
         raise
 
 
