@@ -106,14 +106,19 @@ def _render(s, notes, sec, out, meta, tempo, content=None) -> str:
 def run_one(s, seed=None, dry_run=False, publish=True) -> dict:
     conn = db.connect(config.resolve(s, "database"))
     seed = seed if seed is not None else random.SystemRandom().randrange(1, 1_000_000)
+    log.info("▶ Nouvelle vidéo : recherche d'un morceau libre de droits...")
     sid, midi, meta = pick_song(conn, s, seed)
+    log.info("♪ Morceau choisi : %s - %s", meta["title"], meta["artist"])
     notes, tempo = parse_midi(midi)
     notes = fold_notes(notes, s["keyboard"]["lowest_key"], s["keyboard"]["keys"])  # clavier 28 touches
     ana = analyze(notes, tempo)
+    log.info("🔎 Analyse : %s notes, %s BPM, durée %ss", ana["note_count"], ana["bpm"], ana["duration"])
     sec = select_section(notes, min(s["duration_target"], ana["duration"]))
+    log.info("✂ Passage retenu : %ss → %ss (%s)", sec["start"], sec["end"], sec["reason"])
     diff = difficulty_of(ana)
     used = {r[0] for r in conn.execute("SELECT title FROM videos WHERE title IS NOT NULL")}
     content = generate({"title": meta["title"], "artist": meta["artist"]}, diff, seed, used)
+    log.info("✍ Titre : %s | niveau %s", content["title"], diff)
     if meta.get("credit"):
         content["description"] += f"\n\nMIDI : {meta['credit']}"
     report = {"song": meta["title"], "section": sec, "difficulty": diff, "title": content["title"]}
@@ -126,8 +131,11 @@ def run_one(s, seed=None, dry_run=False, publish=True) -> dict:
     report = {**report}
     for attempt in range(1, 4):
         try:
+            log.info("🎬 Fabrication de la vidéo (tentative %d/3)...", attempt)
             engine = _render(s, notes, sec, out, meta, tempo, content)
             report["engine"] = engine
+            log.info("🎬 Vidéo prête avec le moteur « %s »", engine)
+            log.info("✔ Contrôle qualité...")
             result = qc.check(out, dur_range=(3, s["duration_range"][1] + 5))
             if qc.verdict(result["score"], **{"publish_min": s["qc"]["publish_min"], "autofix_min": s["qc"]["autofix_min"]}) == "PUBLISH":
                 break
@@ -136,6 +144,7 @@ def run_one(s, seed=None, dry_run=False, publish=True) -> dict:
             db.log_error(conn, "render", f"{type(e).__name__}: {e}", retry_count=attempt)
             log.error("rendu échoué (tentative %d): %s", attempt, e)
     ok = result is not None and result["score"] >= s["qc"]["publish_min"]
+    log.info("✔ Score qualité : %s/100 -> %s", result["score"] if result else 0, "OK" if ok else "REFUSÉE")
     vid = conn.execute("INSERT INTO videos(song_id,style,duration,output_path,quality_score,status,title,created_at) VALUES(?,?,?,?,?,?,?,?)",
                        (sid, "viral", sec["duration"], str(out), result["score"] if result else 0,
                         "READY" if ok else "FAILED", content["title"], db.now())).lastrowid
@@ -153,6 +162,7 @@ def run_one(s, seed=None, dry_run=False, publish=True) -> dict:
             if r.status == "FAILED":
                 db.log_error(conn, f"publish:{r.platform}", r.detail)
             report["publications"].append({"platform": r.platform, "status": r.status, "detail": r.detail})
+            log.info("📤 %s : %s %s", r.platform, r.status, r.detail[:80])
         if any(x["status"] == "PUBLISHED" for x in report["publications"]):
             conn.execute("UPDATE videos SET status='PUBLISHED' WHERE id=?", (vid,))
             report["status"] = "PUBLISHED"

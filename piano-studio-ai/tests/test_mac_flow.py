@@ -84,7 +84,7 @@ def test_content_has_hook_cta_and_platform_captions():
 def test_rec_test_reports_black_screen(tmp_path):
     out = tmp_path / "r.mp4"
     def run(cmd, **k):
-        if "list_devices" in cmd:
+        if "-list_devices" in cmd:
             return NS(returncode=0, stdout="", stderr="[AVFoundation indev] AVFoundation video devices:\n[AVFoundation indev] [1] Capture screen 0\n[AVFoundation indev] AVFoundation audio devices:\n")
         if "signalstats,metadata=print" in cmd:
             return NS(returncode=0, stdout="", stderr="lavfi.signalstats.YAVG=0.0\nlavfi.signalstats.YAVG=0.0")
