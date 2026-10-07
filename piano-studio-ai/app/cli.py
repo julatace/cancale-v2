@@ -83,6 +83,27 @@ def cmd_mac_check(s, a):
     return 0 if ok_all else 1
 
 
+def cmd_mac_test(s, a):
+    """Test rapide (~15 s) : ouvre un MIDI, clique « Continuer », photographie l'écran avant/après."""
+    import time
+    from .music_discovery import generator
+    from .synthesia_controller import mac
+    cfg = s["synthesia"]
+    dbg = config.resolve(s, "data_dir") / "debug"
+    dbg.mkdir(parents=True, exist_ok=True)
+    midi = dbg / "test.mid"
+    midi.write_bytes(generator.compose(1)[0])
+    mac.osa('tell application "Synthesia" to quit'); time.sleep(2)
+    mac.sh(["open", "-a", cfg["app_path"], str(midi)]); time.sleep(cfg["load_seconds"])
+    print("Fenêtre Synthesia (x, y, largeur, hauteur) :", mac.window_geometry())
+    mac.sh(["screencapture", "-x", str(dbg / "1_avant_clic.png")])
+    print("Action :", mac.start_playback(cfg))
+    time.sleep(6)
+    mac.sh(["screencapture", "-x", str(dbg / "2_apres_clic.png")])
+    print(f"Photos : {dbg}/1_avant_clic.png et 2_apres_clic.png  (ouvrir : open {dbg})")
+    return 0
+
+
 def cmd_mac_install(s, a):
     from .scheduler import launchd
     p = launchd.install(s["publish_times"], config.ROOT)
@@ -105,7 +126,7 @@ def main(argv=None):
     for n in ("setup", "start", "stop", "retry", "test"):
         cmds[n] = not_ready(n)
     cmds["import"], cmds["analyze"] = cmd_import, cmd_analyze
-    cmds["mac-check"], cmds["mac-install"] = cmd_mac_check, cmd_mac_install
+    cmds["mac-check"], cmds["mac-install"], cmds["mac-test"] = cmd_mac_check, cmd_mac_install, cmd_mac_test
     cmds["auto"] = cmds["run"] = cmds["dry-run"] = cmd_run
     for n in cmds:
         sp = sub.add_parser(n)
