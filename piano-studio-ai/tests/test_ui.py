@@ -160,3 +160,14 @@ def test_page_has_web_search_button_that_stays_user_driven():
     from app.ui.page import PAGE
     assert 'id="qweb"' in PAGE and "google.com/search" in PAGE and 'rel="noopener"' in PAGE
     assert "réclamation" in PAGE                              # avertissement sur les droits affiché près de l'ajout de fichiers
+
+
+def test_upload_reads_artist_and_title_from_the_file_name(tmp_path):
+    from app.ui import server as srv_mod
+    from tests.helpers import song
+    st = config.load_settings()
+    st["paths"] = {**st["paths"], "data_dir": str(tmp_path), "database": str(tmp_path / "d.sqlite3"), "logs_dir": str(tmp_path / "l")}
+    r = srv_mod.import_upload(st, "Mon Artiste - Mon Titre.mid", song())
+    assert r["status"] == "LEGAL_CONFIRMED"
+    lst = srv_mod.songs(st)
+    assert lst[0]["title"] == "Mon Titre" and lst[0]["artist"] == "Mon Artiste"

@@ -154,7 +154,10 @@ def songs(s) -> list[dict]:
 
 def import_upload(s, name: str, data: bytes, title: str = "", artist: str = "") -> dict:
     """Import d'un MIDI fourni par l'utilisateur (droits confirmés dans la page). Le fichier est validé avant d'être gardé."""
-    stem = Path(name).stem.replace("_", " ").replace("-", " ").strip() or "Mon morceau"
+    raw = Path(name).stem.replace("_", " ").strip()
+    if " - " in raw and not (title or artist):             # « Artiste - Titre.mid » : l'artiste et le titre sont lus dans le nom du fichier
+        artist, title = (x.strip() for x in raw.split(" - ", 1))
+    stem = raw.replace("-", " ").strip() or "Mon morceau"
     up = config.resolve(s, "data_dir") / "midi" / "uploads"
     up.mkdir(parents=True, exist_ok=True)
     tmp = up / f"{int(time.time() * 1000)}.mid"
