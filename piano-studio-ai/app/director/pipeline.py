@@ -22,6 +22,31 @@ from app.midi_analyzer.writer import trim_midi
 log = logging.getLogger("piano.director")
 
 
+def _from_mutopia(conn, s, midi_dir, seed):
+    """Cherche un nouveau MIDI libre de droits en ligne ; toute erreur réseau = repli silencieux sur les autres sources."""
+    if not s.get("midi_sources", {}).get("mutopia", False):
+        return None
+    from app.music_discovery import mutopia
+    try:
+        res = mutopia.fetch_one(rnd=random.Random(seed), debug=log.info)
+        if not res:
+            return None
+        info, data = res
+        f = midi_dir / f"mutopia_{seed}.mid"
+        f.write_bytes(data)
+        r = importer.import_midi(conn, f, info["title"], info["composer"], "public_domain",
+                                 f"Mutopia {info['license']} {info['page']}", dest_dir=midi_dir)
+        f.unlink(missing_ok=True)
+        sid = r["song_id"]
+        if r["status"] == "LEGAL_CONFIRMED" and sid and db.song_usable(conn, sid, s["same_song_cooldown_days"])[0]:
+            path = conn.execute("SELECT midi_path FROM songs WHERE id=?", (sid,)).fetchone()[0]
+            return sid, Path(path), {"title": info["title"], "artist": info["composer"], "credit": info["credit"]}
+    except Exception as e:
+        db.log_error(conn, "mutopia", f"{type(e).__name__}: {str(e)[:150]}", "WARNING")
+        log.warning("Mutopia indisponible (%s) -> sources locales", e)
+    return None
+
+
 def pick_song(conn, s, seed) -> tuple[int, Path, dict]:
     """1) MIDI LEGAL_CONFIRMED inutilisé en base ; 2) mélodie du domaine public ; 3) composition originale."""
     rows = conn.execute("SELECT id, midi_path, title, artist FROM songs WHERE license='LEGAL_CONFIRMED' ORDER BY id").fetchall()
@@ -30,6 +55,9 @@ def pick_song(conn, s, seed) -> tuple[int, Path, dict]:
             return r["id"], Path(r["midi_path"]), {"title": r["title"], "artist": r["artist"]}
     midi_dir = config.resolve(s, "data_dir") / "midi"
     midi_dir.mkdir(parents=True, exist_ok=True)
+    got = _from_mutopia(conn, s, midi_dir, seed)
+    if got:
+        return got
     candidates = [lambda: generator.pd_song(n) for n in generator.PD_SONGS] + [lambda: generator.compose(seed)]
     rnd = random.Random(seed)
     rnd.shuffle(candidates[:-1])
@@ -84,6 +112,8 @@ def run_one(s, seed=None, dry_run=False, publish=True) -> dict:
     diff = difficulty_of(ana)
     used = {r[0] for r in conn.execute("SELECT title FROM videos WHERE title IS NOT NULL")}
     content = generate({"title": meta["title"], "artist": meta["artist"]}, diff, seed, used)
+    if meta.get("credit"):
+        content["description"] += f"\n\nMIDI : {meta['credit']}"
     report = {"song": meta["title"], "section": sec, "difficulty": diff, "title": content["title"]}
     if dry_run:
         return {**report, "status": "DRY_RUN"}

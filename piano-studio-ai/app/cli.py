@@ -104,6 +104,22 @@ def cmd_mac_test(s, a):
     return 0
 
 
+def cmd_fetch_midi(s, a):
+    """Test de la recherche en ligne : affiche ce qui est trouvé, importe si la licence est valide."""
+    import random
+    from .music_discovery import importer, mutopia
+    conn = db.connect(config.resolve(s, "database"))
+    res = mutopia.fetch_one(rnd=random.Random(), debug=print)
+    if not res:
+        print("Rien de valide trouvé (site inaccessible ou HTML différent de celui attendu)."); return 1
+    info, data = res
+    f = config.resolve(s, "data_dir") / "midi" / "fetched.mid"
+    f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(data)
+    r = importer.import_midi(conn, f, info["title"], info["composer"], "public_domain", f"Mutopia {info['license']} {info['page']}", dest_dir=f.parent)
+    print(info["title"], "|", info["composer"], "|", info["license"], "->", r["status"])
+    return 0
+
+
 def cmd_mac_install(s, a):
     from .scheduler import launchd
     p = launchd.install(s["publish_times"], config.ROOT)
@@ -127,6 +143,7 @@ def main(argv=None):
         cmds[n] = not_ready(n)
     cmds["import"], cmds["analyze"] = cmd_import, cmd_analyze
     cmds["mac-check"], cmds["mac-install"], cmds["mac-test"] = cmd_mac_check, cmd_mac_install, cmd_mac_test
+    cmds["fetch-midi"] = cmd_fetch_midi
     cmds["auto"] = cmds["run"] = cmds["dry-run"] = cmd_run
     for n in cmds:
         sp = sub.add_parser(n)

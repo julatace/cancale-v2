@@ -39,3 +39,5 @@ synthesia:
 keyboard:
   keys: 28              # clavier affiché : 28 touches (réglage à faire une fois dans Synthesia)
   lowest_key: 47        # B2 ; la musique est ramenée dans cette plage (47..74)
+midi_sources:
+  mutopia: true         # recherche en ligne (domaine public / CC0 / CC-BY) ; repli local si hors-ligne
