@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from app import config
 from app.database import db
-from app.director import difficulty, pipeline, stock
+from app.director import control, difficulty, pipeline, stock
 from app.music_discovery import importer
 from .page import PAGE
 
@@ -37,6 +37,8 @@ class Job:
         with self.lock:
             if self.state["status"] == "running":
                 return False
+            control.CANCEL.clear()
+            control.STOP_RECORD.clear()
             self.state = {"status": "running", "params": {"level": level, "formats": formats, "publish": publish, "count": count},
                           "result": None, "error": None, "started": time.time()}
             self.logs.clear()
@@ -57,6 +59,10 @@ class Job:
             results = [RUNNER(settings, level=level, formats=formats, publish=publish, song_id=song_id) for _ in range(count)]
             with self.lock:
                 self.state.update(status="done", result=results[-1] if count == 1 else results)
+        except control.Cancelled:
+            self._add("■ Création arrêtée. Synthesia est fermé et l'enregistrement coupé.")
+            with self.lock:
+                self.state.update(status="cancelled", error=None)
         except Exception as e:  # jamais de plantage silencieux
             self._add(f"✖ ERREUR : {type(e).__name__}: {e}")
             with self.lock:
@@ -64,6 +70,23 @@ class Job:
         finally:
             lg.removeHandler(h)
             stock.refill_in_background(settings)          # prépare déjà le(s) prochain(s) morceau(x)
+
+    def stop(self) -> bool:
+        with self.lock:
+            running = self.state["status"] == "running"
+        if running:
+            control.CANCEL.set()
+            self._add("■ Arrêt demandé…")
+        return running
+
+    def stop_recording(self) -> bool:
+        """Coupe l'enregistrement en cours ; la vidéo est montée avec ce qui est déjà enregistré."""
+        with self.lock:
+            running = self.state["status"] == "running"
+        if running:
+            control.STOP_RECORD.set()
+            self._add("■ Arrêt de l'enregistrement demandé…")
+        return running
 
     def snapshot(self, since=0):
         with self.lock:
@@ -247,11 +270,15 @@ def make_handler(settings_loader):
 
         def do_POST(self):
             path = urlparse(self.path).path
-            if path not in ("/api/run", "/api/upload", "/api/songs/delete"):
+            if path not in ("/api/run", "/api/upload", "/api/songs/delete", "/api/stop", "/api/stop-recording"):
                 return self._send(404, b'{"error":"not found"}')
             origin = self.headers.get("Origin", "")
             if origin and not (origin.startswith("http://127.0.0.1") or origin.startswith("http://localhost")):
                 return self._json({"error": "origine refusée"}, 403)
+            if path == "/api/stop-recording":
+                return self._json({"ok": True, "was_running": JOB.stop_recording()})
+            if path == "/api/stop":
+                return self._json({"ok": True, "was_running": JOB.stop()})
             if path == "/api/upload":
                 return self._upload()
             if path == "/api/songs/delete":

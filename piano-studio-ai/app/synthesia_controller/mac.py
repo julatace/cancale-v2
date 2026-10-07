@@ -1,6 +1,7 @@
 """Pilotage de l'app Synthesia achetée par l'utilisateur (macOS) : ouverture du MIDI, lecture, capture d'écran.
 Aucune API Synthesia n'existe : AppleScript/System Events + ffmpeg avfoundation. Étalonné par `piano mac-check`."""
 import logging
+import signal
 import platform
 import shutil
 import re
@@ -8,6 +9,8 @@ import subprocess
 import time
 from pathlib import Path
 
+
+from app.director import control
 
 log = logging.getLogger("piano.mac")
 
@@ -193,8 +196,10 @@ def debug_frames(video: Path, outdir: Path, times=(2, 8, 25), run=sh) -> list[Pa
     return out
 
 
-def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time.sleep, layout=(1080, 1920, 300)) -> tuple[Path, tuple | None]:
-    """Relance Synthesia sur le MIDI, clique « Continuer », capture l'écran. Retourne (capture, zone de recadrage)."""
+def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time.sleep, layout=(1080, 1920, 300)) -> tuple[Path, tuple | None, float | None]:
+    """Relance Synthesia sur le MIDI, clique « Continuer », capture l'écran.
+    Retourne (capture, zone de recadrage, durée réellement enregistrée si l'utilisateur a arrêté avant la fin, sinon None)."""
+    control.check()
     ok, why = accessibility_ok(run)
     if not ok:
         raise RuntimeError(f"Accessibilité non autorisée : {why}")
@@ -212,6 +217,7 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
     log.info("2/5 démarrage de l'enregistrement d'écran (%.0f s)", total)
     cap = subprocess.Popen(_capture_cmd(backend, screen, total, out), stderr=subprocess.PIPE)
     dock_before = None
+    stopped_after = None
     try:
         dock_before = dock_autohide(True, run) if cfg.get("hide_dock", True) else None   # Dock masqué (remis à la fin)
         sleep(1.0)
@@ -227,7 +233,24 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
                 log.warning("redimensionnement impossible (%s) : fenêtre gardée telle quelle", e)
         crop = crop_fractions(cfg, run)
         log.info("5/5 enregistrement en cours...")
-        cap.wait(timeout=total + 30)
+        t_start = time.monotonic()
+        deadline = t_start + total + 30
+        control.STOP_RECORD.clear()
+        while cap.poll() is None:                       # attente interrompable par les boutons
+            control.check()                             # « Annuler » : on jette tout
+            if control.STOP_RECORD.is_set():            # « Arrêter l'enregistrement » : on garde ce qui est enregistré
+                control.STOP_RECORD.clear()
+                stopped_after = time.monotonic() - t_start
+                log.info("■ Enregistrement arrêté à %.0f s : la vidéo sera montée avec ce qui est enregistré.", stopped_after)
+                cap.send_signal(signal.SIGINT)          # termine proprement le fichier vidéo
+                try:
+                    cap.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    cap.kill()
+                break
+            if time.monotonic() > deadline:
+                raise subprocess.TimeoutExpired("capture", total + 30)
+            time.sleep(0.4)
     except Exception:
         cap.kill()
         osa('tell application "Synthesia" to quit', run)
@@ -237,10 +260,10 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
     osa('tell application "Synthesia" to quit', run)
     if dock_before is False:
         dock_autohide(False, run)                          # remet le Dock comme avant
-    if cap.returncode != 0 or not out.exists() or out.stat().st_size < 100_000:
+    if (cap.returncode != 0 and stopped_after is None) or not out.exists() or out.stat().st_size < 100_000:
         err = (cap.stderr.read().decode()[-300:] if cap.stderr else "")
         raise RuntimeError(f"capture écran échouée (autorisation « Enregistrement de l'écran » pour le Terminal ?) {err}")
-    return out, crop
+    return out, crop, stopped_after
 
 
 def _capture_cmd(backend: str, screen_idx, seconds, out: Path) -> list[str]:

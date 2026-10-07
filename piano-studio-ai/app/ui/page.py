@@ -62,6 +62,8 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 .vid video{width:100%;max-height:60vh;border-radius:10px;background:#000;display:block}
 .vid .meta{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 0 8px;font-weight:700;font-size:15px}
 .vid a{display:inline-block;margin-top:10px;color:var(--brand);font-weight:700;text-decoration:none}
+.stop{background:var(--bad);color:#fff;border:0;border-radius:10px;padding:8px 16px;font-weight:700;cursor:pointer}.stop.ghost{background:transparent;color:var(--bad);border:2px solid var(--bad)}
+.stop:disabled{opacity:.6;cursor:wait}
 .err{color:var(--bad);margin:8px 0 0;font-size:14px}
 .hist .v{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--line)}.hist .v:first-child{border-top:0}
 .hist small{color:var(--mute)}.hist button{background:var(--brand-soft);color:var(--brand);border:0;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
@@ -113,7 +115,7 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 <div class="cta"><button id="go">Créer</button></div>
 
 <section class="card" id="job" hidden style="margin-top:18px">
-  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><b>Création en cours</b><span class="chip" id="chip">En cours</span></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><b>Création</b><span style="display:flex;gap:10px;align-items:center"><span class="chip" id="chip">En cours</span><button id="stoprec" class="stop">■ Arrêter l'enregistrement</button><button id="stop" class="stop ghost">Annuler</button></span></div>
   <ol class="stepper" id="stepper"></ol>
   <div class="now" id="now">…</div>
   <div class="bar" id="bar"><i></i></div>
@@ -137,11 +139,11 @@ const STEPS=['Morceau','Passage','Fabrication','Qualité','Publication'];
 const dev=f=>f.width>f.height
   ?'<svg width="64" height="40" viewBox="0 0 64 40" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="58" height="34" rx="6"/><path d="M12 28h40" stroke-width="5" stroke-linecap="round" opacity=".35"/></svg>'
   :'<svg width="40" height="64" viewBox="0 0 40 64" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="34" height="58" rx="7"/><path d="M12 52h16" stroke-width="5" stroke-linecap="round" opacity=".35"/></svg>';
-const estimate=()=>{const n=formats.size;$('#est').textContent=n?`Environ ${[...formats].some(k=>opts.formats.find(f=>f.key===k).long)?'6 à 8':'2 à 3'} minutes${n>1?' pour les deux vidéos':''}`:'Choisissez au moins un format';
+const estimate=()=>{const n=formats.size;$('#est').textContent=n?`Environ ${n>1?'5 à 6':[...formats].some(k=>opts.formats.find(f=>f.key===k).long)?'4 à 5':'2 à 3'} minutes${n>1?' pour les deux vidéos':''}`:'Choisissez au moins un format';
   $('#go').disabled=!n||!level;$('#go').textContent=n>1?'Créer les 2 vidéos':n===1?'Créer la vidéo':'Choisissez un format'};
 function render(){
   $('#levels').innerHTML=opts.levels.map((l,i)=>`<button class="opt" role="radio" aria-checked="${l.key===level}" data-k="${l.key}"><span class="tick">✓</span><span class="t">${esc(l.label)}</span><span class="bpm">${l.bpm}<small>BPM</small></span><span class="meter">${[0,1,2].map(j=>`<i class="${j<=i?'on':''}"></i>`).join('')}</span></button>`).join('');
-  $('#formats').innerHTML=opts.formats.map(f=>`<button class="opt dev" role="checkbox" aria-checked="${formats.has(f.key)}" data-k="${f.key}"><span class="tick">✓</span>${dev(f)}<span><span class="t">${esc(f.label.split(' (')[0])}</span><span class="d">${esc((f.label.match(/\(([^)]+)\)/)||[,''])[1])}</span><span class="d">${f.width}×${f.height} · ${f.long?'morceau entier (jusqu\'à 5 min)':'environ 1 minute'}</span></span></button>`).join('');
+  $('#formats').innerHTML=opts.formats.map(f=>`<button class="opt dev" role="checkbox" aria-checked="${formats.has(f.key)}" data-k="${f.key}"><span class="tick">✓</span>${dev(f)}<span><span class="t">${esc(f.label.split(' (')[0])}</span><span class="d">${esc((f.label.match(/\(([^)]+)\)/)||[,''])[1])}</span><span class="d">${f.width}×${f.height} · ${f.long?'morceau entier (1 à 2 min 30)':'environ 1 minute'}</span></span></button>`).join('');
   estimate()}
 $('#levels').onclick=e=>{const b=e.target.closest('.opt');if(b){level=b.dataset.k;render()}};
 $('#formats').onclick=e=>{const b=e.target.closest('.opt');if(!b)return;const k=b.dataset.k;formats.has(k)?formats.delete(k):formats.add(k);render()};
@@ -177,12 +179,15 @@ function results(r){const list=r.videos||[r];$('#res').innerHTML=list.filter(x=>
 function poll(){api('/api/status?since='+since).then(s=>{
   since=s.last;const L=$('#log');s.logs.forEach(l=>track(l));
   if(s.logs.length){L.textContent+=s.logs.join('\n')+'\n';L.scrollTop=L.scrollHeight;const last=s.logs[s.logs.length-1];$('#now').textContent=(fmtLabel&&s.status==='running'?fmtLabel+' · ':'')+last.replace(/\s*\[(vertical|horizontal)\]\s*/,' ').trim()}
-  stepper();const run=s.status==='running';$('#bar').hidden=!run;estimate();if(run){$('#go').disabled=true;$('#go').textContent='Création en cours…'}
-  $('#chip').textContent=run?'En cours':s.status==='done'?'Terminé':'Échec';$('#chip').className='chip '+(s.status==='done'?'ok':s.status==='failed'?'bad':'');
+  stepper();const run=s.status==='running';$('#bar').hidden=!run;$('#stop').hidden=!run;$('#stoprec').hidden=!run;if(run&&!$('#stoprec').dataset.busy){$('#stop').disabled=false;$('#stoprec').disabled=false};if(!run)delete $('#stoprec').dataset.busy;estimate();if(run){$('#go').disabled=true;$('#go').textContent='Création en cours…'}
+  $('#chip').textContent=run?'En cours':s.status==='done'?'Terminé':s.status==='cancelled'?'Arrêté':'Échec';$('#chip').className='chip '+(s.status==='done'?'ok':s.status==='failed'||s.status==='cancelled'?'bad':'');
   if(!run){clearInterval(timer);timer=null;vids();info();cur=s.status==='done'?5:cur;stepper();
+    if(s.status==='cancelled'){$('#now').textContent='Création arrêtée'}
     if(s.status==='failed'){$('#err').hidden=false;$('#err').textContent=s.error}
     else if(s.result){$('#now').textContent='Terminé';results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result)}}
 })}
+$('#stoprec').onclick=()=>{$('#stoprec').disabled=true;$('#stoprec').dataset.busy=1;$('#now').textContent='Arrêt de l\'enregistrement… la vidéo sera montée avec ce qui est enregistré';api('/api/stop-recording',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(()=>setTimeout(()=>{delete $('#stoprec').dataset.busy},4000))};
+$('#stop').onclick=()=>{if(!confirm('Annuler la création ? Rien ne sera gardé.'))return;$('#stop').disabled=true;$('#now').textContent='Annulation… (Synthesia va se fermer)';api('/api/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})};
 $('#go').onclick=()=>{
   $('#job').hidden=false;$('#log').textContent='';$('#res').innerHTML='';$('#err').hidden=true;since=0;cur=-1;fmtLabel='';stepper();$('#now').textContent='Démarrage…';
   $('#job').scrollIntoView({behavior:'smooth',block:'start'});

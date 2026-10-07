@@ -68,6 +68,7 @@ formats:
     width: 1080
     height: 1920
     banner: 300
+    min_duration: 60          # morceaux plus courts écartés (la vidéo doit faire au moins 1 minute)
     shorts: true
   horizontal:               # YouTube long : 16:9, le morceau entier (plafonné)
     label: "Horizontal long (YouTube)"
@@ -75,8 +76,8 @@ formats:
     height: 1080
     banner: 130
     duration: full
-    min_duration: 90          # morceaux plus courts écartés
-    max_duration: 300
+    min_duration: 60          # au moins 1 minute
+    max_duration: 150         # 2 min 30 maximum : pas trop long
     shorts: false
 stock:
   target: 3                 # morceaux gardés d'avance (téléchargés et vérifiés en arrière-plan)

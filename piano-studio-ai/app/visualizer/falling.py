@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from app.director import control
 from . import synth
 
 @dataclass(frozen=True)
@@ -72,7 +73,7 @@ def _background(pos, title, subtitle, L: Layout):
     return np.asarray(img).copy()
 
 
-def render_video(notes, start: float, duration: float, out_path, title="", subtitle="", fps=30, hand_split=60, key_range=None, layout: Layout = VERTICAL):
+def render_video(notes, start: float, duration: float, out_path, title="", subtitle="", fps=30, hand_split=60, key_range=None, layout: Layout = VERTICAL, result: dict | None = None):
     ns = [n for n in notes if n.end > start and n.start < start + duration]
     if not ns:
         raise ValueError("aucune note dans la section")
@@ -100,8 +101,17 @@ def render_video(notes, start: float, duration: float, out_path, title="", subti
                "-movflags", "+faststart", str(out_path)]
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
+            written = 0
             for i in range(int(duration * fps)):
+                if i % 15 == 0:
+                    control.check()
+                    if control.STOP_RECORD.is_set() and written >= int(5 * fps):   # on garde les images déjà faites (5 s minimum)
+                        control.STOP_RECORD.clear()
+                        break
+                written += 1
                 p.stdin.write(_frame(bg, ns, start + i / fps, pos, hand_split, layout).tobytes())
+            if result is not None:
+                result["duration"] = written / fps
             p.stdin.close()
             err = p.stderr.read().decode()[-400:]
             if p.wait() != 0:

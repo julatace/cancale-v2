@@ -15,7 +15,7 @@ from app.music_discovery import generator, importer
 from app.publisher import adapters
 from app.quality_control import qc
 from app.section_selector.selector import select_section
-from app.director import difficulty
+from app.director import control, difficulty
 from app.visualizer import falling, synth
 from app.synthesia_controller import mac, sync
 from app.renderer import compose
@@ -96,6 +96,7 @@ def _subtitle(meta, content) -> str:
 
 
 def _render(s, notes, sec, out, meta, tempo, content=None, F=None) -> str:
+    control.check()
     content = content or {}
     F = F or {"width": 1080, "height": 1920, "banner": 300}
     layout = (F["width"], F["height"], F["banner"])
@@ -106,7 +107,12 @@ def _render(s, notes, sec, out, meta, tempo, content=None, F=None) -> str:
             with tempfile.TemporaryDirectory() as td:
                 td = Path(td)
                 (td / "s.mid").write_bytes(trim_midi(notes, sec["start"], sec["start"] + sec["duration"], bpm=content.get("bpm") or 120))
-                cap, crop = mac.record(td / "s.mid", sec["duration"], td / "cap.mov", cfg, layout=layout)
+                cap, crop, recorded = mac.record(td / "s.mid", sec["duration"], td / "cap.mov", cfg, layout=layout)
+                if recorded is not None:                                           # arrêté avant la fin : vidéo plus courte
+                    usable = recorded - cfg["capture_trim"]
+                    if usable < 10:
+                        raise RuntimeError("Enregistrement arrêté trop tôt : moins de 10 secondes de vidéo utile.")
+                    sec["duration"], sec["stopped_early"] = round(usable, 1), True
                 mac.debug_frames(cap, config.resolve(s, "data_dir") / "debug")
                 inside = [n for n in notes if n.end > sec["start"] and n.start < sec["start"] + sec["duration"]]
                 first = max(min(n.start for n in inside) - sec["start"], 0.0)       # 1re note dans le MIDI découpé
@@ -131,9 +137,12 @@ def _render(s, notes, sec, out, meta, tempo, content=None, F=None) -> str:
     elif s.get("engine") == "synthesia":
         raise RuntimeError("engine=synthesia mais le Mac n'est pas prêt")
     kb = s["keyboard"]
+    res = {}
     falling.render_video(notes, sec["start"], sec["duration"], out, meta["title"], _subtitle(meta, content), fps=30,
                          key_range=(kb["lowest_key"], kb["lowest_key"] + kb["keys"] - 1),
-                         layout=falling.HORIZONTAL if F["width"] > F["height"] else falling.VERTICAL)
+                         layout=falling.HORIZONTAL if F["width"] > F["height"] else falling.VERTICAL, result=res)
+    if res.get("duration") and res["duration"] < sec["duration"] - 0.5:
+        sec["duration"], sec["stopped_early"] = round(res["duration"], 1), True
     return "builtin"
 
 
@@ -159,6 +168,7 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
     level, lv = difficulty.choose_level(s, done, level)
     needs_full = any(F.get("duration") == "full" for _, F in fmts)
     log.info("🎯 Niveau : %s (%s BPM) | Formats : %s", lv["label"], lv["bpm"], ", ".join(n for n, _ in fmts))
+    control.check()
     tried = set()
     for attempt_song in range(6):                   # on écarte les morceaux trop denses / trop courts pour la demande
         sid, midi, meta = song_by_id(conn, song_id) if song_id else pick_song(conn, s, seed + attempt_song * 7919, exclude=tried)
@@ -172,7 +182,8 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
         ana = analyze(notes, tempo)
         log.info("🔎 Analyse : %s notes, durée %ss (tempo x%.2f -> %s BPM)", ana["note_count"], ana["duration"], factor, lv["bpm"])
         first_sec = select_section(notes, _target(fmts[0][1], s, ana))
-        too_short = needs_full and ana["duration"] < min(F.get("min_duration", 90) for _, F in fmts if F.get("duration") == "full")
+        min_len = max(F.get("min_duration", 0) for _, F in fmts)         # chaque vidéo doit durer au moins 1 minute
+        too_short = ana["duration"] < min_len
         if song_id:
             if too_short or first_sec["density"] > lv["max_density"]:
                 log.warning("⚠ Morceau choisi par vous : utilisé tel quel, même s'il est %s pour ce niveau/format",
@@ -221,10 +232,14 @@ def _produce(s, conn, sid, level, fmt_name, F, notes, tempo, sec, meta, content,
             log.info("🎬 [%s] Vidéo prête avec le moteur « %s »", fmt_name, engine)
             log.info("✔ Contrôle qualité...")
             dur_range = (min(30, F.get("max_duration", 300) * 0.5), F.get("max_duration", 300) + 10) if full else (3, s["duration_range"][1] + 5)
+            if sec.get("stopped_early"):
+                dur_range = (5, dur_range[1])                      # vidéo volontairement raccourcie
             result = qc.check(out, expect_w=F["width"], expect_h=F["height"], dur_range=dur_range)
             if qc.verdict(result["score"], publish_min=s["qc"]["publish_min"], autofix_min=s["qc"]["autofix_min"]) == "PUBLISH":
                 break
             log.warning("QC %s (tentative %d): %s", result["score"], attempt, result["issues"])
+        except control.Cancelled:
+            raise                                       # arrêt demandé : pas de nouvelle tentative
         except Exception as e:
             last_err = f"{type(e).__name__}: {e}"
             db.log_error(conn, "render", last_err, retry_count=attempt)
