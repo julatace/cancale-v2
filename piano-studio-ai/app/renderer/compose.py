@@ -11,6 +11,28 @@ _FONTS = ["/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/System/Library/
           "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
 
 
+DEFAULT_BG = (59, 59, 59)       # gris du fond de Synthesia (repli si la mesure échoue)
+
+
+def sample_bg_color(capture, crop, at: float = 3.0, run=subprocess.run) -> tuple[int, int, int]:
+    """Couleur du fond de Synthesia, mesurée dans l'enregistrement (coin haut-gauche de la zone des notes)."""
+    c = f"crop=iw*{crop[2]:.4f}:ih*{crop[3]:.4f}:iw*{crop[0]:.4f}:ih*{crop[1]:.4f}," if crop else ""
+    try:
+        r = run(["ffmpeg", "-v", "error", "-ss", str(at), "-i", str(capture), "-vf",
+                 f"{c}crop=iw*0.05:ih*0.04:iw*0.02:ih*0.04,scale=1:1", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                capture_output=True, timeout=60)
+        rgb = tuple(r.stdout[:3])
+        if len(rgb) == 3 and max(rgb) <= 110 and min(rgb) >= 8:          # un gris sombre plausible
+            return rgb
+    except Exception:
+        pass
+    return DEFAULT_BG
+
+
+def _hex(rgb) -> str:
+    return "0x%02x%02x%02x" % tuple(rgb)
+
+
 def _font(size):
     for p in _FONTS:
         if Path(p).exists():
@@ -48,13 +70,14 @@ def _wrap(draw, text, size, width, max_lines=2):
     return _font(34), [text[:40]]
 
 
-def _banner(path: Path, title: str, subtitle: str, w: int = W, top: int = TOP):
+def _banner(path: Path, title: str, subtitle: str, w: int = W, top: int = TOP, bg=DEFAULT_BG):
     """Bandeau dégradé : titre (2 lignes max en vertical, 1 en horizontal), compositeur, filet doré."""
     img = Image.new("RGBA", (w, top), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
-    for y in range(top):
-        k = y / top
-        d.line([(0, y), (w, y)], fill=(int(30 - 18 * k), int(34 - 20 * k), int(70 - 40 * k), 255))
+    dark = (26, 30, 56)
+    for y in range(top):                                  # du bleu nuit en haut jusqu'au gris de Synthesia en bas : continuité du fond
+        k = (y / top) ** 0.8
+        d.line([(0, y), (w, y)], fill=tuple(int(dark[i] + (bg[i] - dark[i]) * k) for i in range(3)) + (255,))
     tall = top >= 250
     f, lines = _wrap(d, title, 78 if tall else 58, w - 100, 2 if tall else 1)
     y = 26 if tall else 14
@@ -63,7 +86,6 @@ def _banner(path: Path, title: str, subtitle: str, w: int = W, top: int = TOP):
         y += int(f.size * 1.12)
     if subtitle:
         d.text((w / 2, y + (6 if tall else 2)), subtitle, font=_font(40 if tall else 30), fill=(200, 206, 235, 255), anchor="mt")
-    d.rectangle([0, top - 5, w, top], fill=(255, 196, 40, 255))
     img.save(path)
 
 
@@ -80,17 +102,17 @@ def _tag(path: Path, text: str, w: int = W):
     img.save(path)
 
 
-def build_filter(td: Path, duration: float, title="", subtitle="", hook="", cta="", crop=None, size=(W, H), top=TOP) -> tuple[str, list[str]]:
+def build_filter(td: Path, duration: float, title="", subtitle="", hook="", cta="", crop=None, size=(W, H), top=TOP, bg=DEFAULT_BG) -> tuple[str, list[str]]:
     """Retourne (filtre, entrées PNG supplémentaires)."""
     W, H, TOP = size[0], size[1], top
     c = f"crop=iw*{crop[2]:.4f}:ih*{crop[3]:.4f}:iw*{crop[0]:.4f}:ih*{crop[1]:.4f}," if crop else ""
-    chain = (f"[0:v]scale=108:192:force_original_aspect_ratio=increase,crop=108:192,boxblur=6:2,scale={W}:{H}:flags=bilinear,eq=brightness=-0.3[bg];"
+    chain = (f"color=c={_hex(bg)}:s={W}x{H}:r=30:d={duration:.2f}[bg];"                      # fond = gris de Synthesia
              f"[1:v]{c}scale={W}:{H - TOP}:force_original_aspect_ratio=decrease:flags=lanczos[fg];"   # fenêtre entière, jamais rognée
              f"[bg][fg]overlay=(W-w)/2:{TOP}+(({H - TOP})-h)/2[v0]")
     cur, extra, idx = "v0", [], 3          # entrées 0,1 = capture ; 2 = audio ; 3.. = PNG
     layers = []
     if title or subtitle:
-        p = td / "banner.png"; _banner(p, title[:60], subtitle[:60], W, TOP); layers.append((p, 0, ""))
+        p = td / "banner.png"; _banner(p, title[:60], subtitle[:60], W, TOP, bg); layers.append((p, 0, ""))
     if hook:
         p = td / "hook.png"; _tag(p, hook[:60], W); layers.append((p, TOP + 12, ":enable='between(t,0,3.5)'"))
     if cta:
@@ -106,10 +128,10 @@ def build_filter(td: Path, duration: float, title="", subtitle="", hook="", cta=
 
 
 def compose_vertical(capture, audio_wav, out, trim: float, duration: float, title="", subtitle="", hook="", cta="",
-                     fps=30, crop=None, size=(W, H), top=TOP) -> Path:
+                     fps=30, crop=None, size=(W, H), top=TOP, bg=DEFAULT_BG) -> Path:
     """crop = (x, y, w, h) en fractions de l'image capturée (zone de la fenêtre Synthesia)."""
     with tempfile.TemporaryDirectory() as td:
-        chain, pngs = build_filter(Path(td), duration, title, subtitle, hook, cta, crop, size, top)
+        chain, pngs = build_filter(Path(td), duration, title, subtitle, hook, cta, crop, size, top, bg)
         cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-ss", str(trim), "-t", str(duration), "-i", str(capture),
                "-ss", str(trim), "-t", str(duration), "-i", str(capture), "-i", str(audio_wav)]
         for p in pngs:
@@ -145,7 +167,7 @@ def _side_png(path: Path, w: int, h: int, title: str, subtitle: str, level: str)
 
 
 def compose_landscape(capture, audio_wav, out, trim: float, duration: float, title="", subtitle="", level="", hook="", cta="",
-                      fps=30, crop=None) -> Path:
+                      fps=30, crop=None, bg=DEFAULT_BG) -> Path:
     """Format horizontal 1920x1080 tiré du MÊME enregistrement vertical : l'app au centre en plein hauteur, le titre sur les côtés."""
     W_, H_ = 1920, 1080
     fw = 720                                            # largeur de l'app (rapport 2:3 de la zone de montage)
@@ -159,7 +181,7 @@ def compose_landscape(capture, audio_wav, out, trim: float, duration: float, tit
             _tag(td / "hook.png", hook[:60], side); layers.append((td / "hook.png", W_ - side, 150, ":enable='between(t,0,3.5)'"))
         if cta:
             _tag(td / "cta.png", cta[:60], side); layers.append((td / "cta.png", W_ - side, 150, f":enable='gt(t,{max(duration - 3.5, 0):.1f})'"))
-        chain = (f"[0:v]scale=192:108:force_original_aspect_ratio=increase,crop=192:108,boxblur=6:2,scale={W_}:{H_}:flags=bilinear,eq=brightness=-0.3[bg];"
+        chain = (f"color=c={_hex(bg)}:s={W_}x{H_}:r=30:d={duration:.2f}[bg];"
                  f"[1:v]{c}scale={fw}:{H_}:force_original_aspect_ratio=decrease:flags=lanczos,pad={fw}:{H_}:(ow-iw)/2:(oh-ih)/2:color=black[fg];"
                  f"[bg][fg]overlay={side}:0[v0]")
         cur = "v0"

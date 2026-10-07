@@ -60,3 +60,20 @@ def test_subtitle_hides_unknown_composer_and_never_shows_level_or_bpm():
     from app.director.pipeline import _subtitle
     assert _subtitle({"artist": "Unknown"}, {"level": "Moyen", "bpm": 100}) == ""
     assert _subtitle({"artist": "J.S. Bach"}, {"level": "Moyen", "bpm": 100}) == "J.S. Bach"
+
+
+def test_background_color_is_measured_from_the_capture_and_fills_the_bars(tmp_path):
+    import subprocess
+    from app.renderer import compose
+    cap = tmp_path / "grey.mp4"                     # fausse capture : fond gris (70,70,70) avec une zone claire au centre
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "color=c=0x464646:s=640x480:r=30:d=6,drawbox=x=200:y=150:w=240:h=200:color=white:t=fill",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(cap)], check=True)
+    rgb = compose.sample_bg_color(cap, None, at=1.0)
+    assert all(abs(c - 70) <= 4 for c in rgb)
+    wav = tmp_path / "a.wav"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=300:duration=4", str(wav)], check=True)
+    out = compose.compose_vertical(cap, wav, tmp_path / "o.mp4", 0.5, 3, "Titre", "", crop=None, bg=rgb)
+    px = subprocess.run(["ffmpeg", "-v", "error", "-ss", "1", "-i", str(out), "-vf", "crop=4:4:20:1840,scale=1:1", "-frames:v", "1",
+                         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True).stdout    # bas de l'image : barre de fond
+    assert all(abs(a - b) <= 6 for a, b in zip(px[:3], rgb)), (px[:3], rgb)

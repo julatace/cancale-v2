@@ -291,6 +291,8 @@ def _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish, kb_lo
         except Exception:
             screen_pts = (1470, 956)
         content_crop = crop or (0.0, 0.0, 1.0, 1.0)
+        bg = compose.sample_bg_color(cap, content_crop, cfg["capture_trim"] + 1.0)      # gris du fond de Synthesia
+        log.info("🎨 Couleur de fond mesurée : RGB%s", bg)
         for fmt_name, F, sec, content, report in plans:
             control.check()
             full = F.get("duration") == "full"
@@ -314,7 +316,7 @@ def _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish, kb_lo
             sub_txt = _subtitle(meta, content)
             wide = F["width"] > F["height"]
             if wide and not maximized:                                 # fenêtre verticale : app au centre, titre sur les côtés
-                compose.compose_landscape(cap, wav, out, trim, dur, meta["title"], sub_txt, "", content.get("hook", ""), content.get("cta", ""), crop=crop)
+                compose.compose_landscape(cap, wav, out, trim, dur, meta["title"], sub_txt, "", content.get("hook", ""), content.get("cta", ""), crop=crop, bg=bg)
             else:
                 use = content_crop
                 if maximized and not wide:                             # zoom sur les touches réellement jouées
@@ -323,7 +325,7 @@ def _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish, kb_lo
                                                 F["width"] / (F["height"] - F["banner"]))
                 compose.compose_vertical(cap, wav, out, trim, dur, meta["title"], subtitle=sub_txt, hook=content.get("hook", ""),
                                          cta=content.get("cta", ""), crop=use if (maximized or not wide) else crop,
-                                         size=(F["width"], F["height"]), top=F["banner"])
+                                         size=(F["width"], F["height"]), top=F["banner"], bg=bg)
             report["engine"] = "synthesia"
             log.info("✔ Contrôle qualité...")
             low = 5 if sec.get("stopped_early") else (min(30, F.get("max_duration", 300) * 0.5) if full else 3)
