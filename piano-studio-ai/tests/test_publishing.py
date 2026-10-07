@@ -158,6 +158,7 @@ def test_tiktok_web_flow_prepares_without_publishing(tmp_path, monkeypatch):
     monkeypatch.setattr(tw, "_js", lambda c: calls.append(c) or ("false" if "connecter" in c else "true"))
     monkeypatch.setattr(tw, "_keys", lambda *l: calls.append("keys"))
     monkeypatch.setattr(tw, "_clip", lambda t: calls.append("clip:" + t[:5]))
+    monkeypatch.setattr(tw, "_real_click_upload", lambda say: calls.append("click"))
     monkeypatch.setattr(tw.time, "sleep", lambda s: None)
     out = tw.post(v, "légende #piano", publish=False)
     assert "non publié" in out and not any("publier|post" in str(c) for c in calls)

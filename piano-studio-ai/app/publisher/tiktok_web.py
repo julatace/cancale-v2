@@ -56,7 +56,40 @@ def _wait(cond_js: str, what: str, timeout: int = 90) -> None:
     raise RuntimeError(f"TikTok : {what} (délai dépassé) — vérifie que tu es connecté dans Safari")
 
 
+def _real_click_upload(say):
+    """Vrai clic souris sur la zone « Sélectionner une vidéo » (un clic JavaScript est refusé par Safari : pas de geste humain)."""
+    import shutil
+    if not shutil.which("cliclick"):
+        raise RuntimeError("cliclick manquant : lance  brew install cliclick")
+    _js('window.scrollTo(0,0); "ok"')
+    js = ("(function(){var el=document.querySelector('input[type=file]');"
+          "for(var k=0;k<6&&el.parentElement;k++){el=el.parentElement;var q=el.getBoundingClientRect();if(q.width>120&&q.height>40)break;}"
+          "var r=el.getBoundingClientRect();"
+          "return Math.round(window.screenX+r.left+r.width/2)+','+Math.round(window.screenY+(window.outerHeight-window.innerHeight)+r.top+r.height/2);})()")
+    x, y = (int(float(v)) for v in _js(js).split(","))
+    say(f"🖱 Clic sur la zone d'envoi ({x},{y})")
+    subprocess.run(["cliclick", f"m:{x},{y}", "w:300", f"c:{x},{y}"], check=True)
+
+
+def _shot(name="tiktok_web_erreur.png"):
+    try:
+        out = Path(__file__).resolve().parents[2] / "data" / "debug" / name
+        out.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["screencapture", "-x", str(out)], timeout=10)
+        return str(out)
+    except Exception:
+        return ""
+
+
 def post(video: Path, caption: str, publish: bool = False, say=log.info) -> str:
+    try:
+        return _post(video, caption, publish, say)
+    except Exception as e:
+        shot = _shot()
+        raise RuntimeError(f"{e}" + (f" (capture d'écran : {shot})" if shot else "")) from e
+
+
+def _post(video, caption, publish, say):
     video = Path(video).resolve()
     if not video.exists():
         raise RuntimeError(f"vidéo introuvable : {video}")
@@ -67,7 +100,7 @@ def post(video: Path, caption: str, publish: bool = False, say=log.info) -> str:
     if _js('String(/connecter|log in|se connecter/i.test(document.body.innerText.slice(0,400)) && !document.querySelector("input[type=file]"))') == "true":
         raise RuntimeError("TikTok demande de se connecter : connecte ton compte dans Safari puis relance")
     say("📁 Sélection de la vidéo…")
-    _js('document.querySelector("input[type=file]").click(); "ok"')
+    _real_click_upload(say)
     time.sleep(2.5)
     _clip(str(video))
     _keys('keystroke "g" using {command down, shift down}', "delay 1", 'keystroke "v" using command down', "delay 1",
