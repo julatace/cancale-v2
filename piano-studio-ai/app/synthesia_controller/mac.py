@@ -147,6 +147,9 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
     ok, why = accessibility_ok(run)
     if not ok:
         raise RuntimeError(f"Accessibilité non autorisée : {why}")
+    ok, why = rec_test(out.with_name("preflight.mp4"), seconds=1, run=run)
+    if not ok:
+        raise RuntimeError(f"Enregistrement d'écran impossible : {why}")
     screen = screen_devices(run)[0][0]
     total = duration + cfg["lead_in_seconds"] + cfg["tail_seconds"]
     log.info("1/5 relance de Synthesia et ouverture du MIDI")
@@ -189,8 +192,14 @@ def rec_test(out: Path, seconds=3, run=sh) -> tuple[bool, str]:
     dev = screen_devices(run)
     if not dev:
         return False, "aucun écran capturable (ffmpeg avfoundation)"
-    r = run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "avfoundation", "-framerate", "30",
-             "-i", f"{dev[0][0]}:none", "-t", str(seconds), "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(out)])
+    try:
+        r = run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "avfoundation", "-framerate", "30",
+                 "-i", f"{dev[0][0]}:none", "-t", str(seconds), "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(out)],
+                timeout=seconds + 15)
+    except subprocess.TimeoutExpired:
+        return False, ("l'enregistrement reste bloqué : macOS n'a pas accordé « Enregistrement de l'écran » au Terminal. "
+                       "Réglages Système > Confidentialité et sécurité > Enregistrement de l'écran et audio système > activer Terminal, "
+                       "puis Cmd+Q sur le Terminal et relancer")
     if r.returncode != 0 or not out.exists():
         return False, "ffmpeg a échoué : " + r.stderr.strip()[-300:] + " -> autorisez le Terminal dans Enregistrement de l'écran"
     s = run(["ffmpeg", "-hide_banner", "-i", str(out), "-vf", "signalstats,metadata=print", "-f", "null", "-"]).stderr

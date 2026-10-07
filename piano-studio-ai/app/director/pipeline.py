@@ -94,6 +94,8 @@ def _render(s, notes, sec, out, meta, tempo, content=None) -> str:
                                        subtitle=meta.get("artist", ""), hook=content.get("hook", ""), cta=content.get("cta", ""), crop=crop)
             return "synthesia"
         except Exception as e:
+            if s.get("engine") == "synthesia":
+                raise                                   # mode forcé : on veut voir l'erreur, pas de repli silencieux
             log.error("Synthesia a échoué (%s) -> rendu intégré", e)
     elif s.get("engine") == "synthesia":
         raise RuntimeError("engine=synthesia mais le Mac n'est pas prêt")

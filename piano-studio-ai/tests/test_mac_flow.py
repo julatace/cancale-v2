@@ -92,3 +92,24 @@ def test_rec_test_reports_black_screen(tmp_path):
         return NS(returncode=0, stdout="", stderr="")
     ok, msg = mac.rec_test(out, run=run)
     assert not ok and "noire" in msg
+
+
+def test_rec_test_timeout_explains_permission(tmp_path):
+    import subprocess
+    def run(cmd, **k):
+        if "-list_devices" in cmd:
+            return NS(returncode=0, stdout="", stderr="[AVFoundation indev] AVFoundation video devices:\n[AVFoundation indev] [1] Capture screen 0\n[AVFoundation indev] AVFoundation audio devices:\n")
+        raise subprocess.TimeoutExpired(cmd, 1)
+    ok, msg = mac.rec_test(tmp_path / "r.mp4", run=run)
+    assert not ok and "Enregistrement de l'écran" in msg
+
+
+def test_record_aborts_early_without_screen_permission(tmp_path):
+    import pytest, subprocess
+    def run(cmd, **k):
+        if cmd[0] == "osascript": return NS(returncode=0, stdout="true", stderr="")
+        if "-list_devices" in cmd:
+            return NS(returncode=0, stdout="", stderr="[AVFoundation indev] AVFoundation video devices:\n[AVFoundation indev] [1] Capture screen 0\n[AVFoundation indev] AVFoundation audio devices:\n")
+        raise subprocess.TimeoutExpired(cmd, 1)
+    with pytest.raises(RuntimeError, match="Enregistrement d'écran impossible"):
+        mac.record(tmp_path / "a.mid", 5, tmp_path / "o.mp4", CFG, run=run, sleep=lambda s: None)

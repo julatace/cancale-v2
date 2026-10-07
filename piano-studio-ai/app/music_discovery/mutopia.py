@@ -38,8 +38,15 @@ def parse_piece(page_html: str, url: str) -> dict | None:
         return None
     t = re.search(r"<title>(.*?)</title>", page_html, re.S | re.I)
     title = html.unescape(t.group(1)).split("|")[0].split(" - ")[0].strip() if t else "Piece"
-    comp = re.search(r"Composer[^A-Za-z]{0,40}([A-Z][^\n<]{2,40})", text)
-    return {"title": title[:80], "composer": (comp.group(1).strip() if comp else "Unknown")[:40],
+    composer = ""
+    if " by " in title:                                   # « Consolation, S.172 No.1, by F. Liszt (1811–1886) »
+        title, composer = title.rsplit(" by ", 1)
+        composer = re.sub(r"\s*\(.*?\)\s*", "", composer).strip()
+    if not composer:
+        comp = re.search(r"Composer[^A-Za-z]{0,40}([A-Z][^\n<]{2,40})", text)
+        composer = comp.group(1).strip() if comp else "Unknown"
+    title = title.strip(" ,")
+    return {"title": title[:80], "composer": composer[:40],
             "midi_url": urljoin(url, mids[0]), "license": lic,
             "credit": "Mutopia Project (CC BY)" if lic == "CC-BY" else ""}
 

@@ -35,3 +35,9 @@ def test_offline_falls_back(tmp_path, monkeypatch):
     s["paths"] = {**s["paths"], "data_dir": str(tmp_path), "database": str(tmp_path / "d.sqlite3")}
     r = pipeline.run_one(s, seed=2, dry_run=True)
     assert r["status"] == "DRY_RUN"
+
+
+def test_title_and_composer_are_cleaned():
+    html_ = '<html><title>Consolation, S.172 No.1, by F. Liszt (1811–1886) | Mutopia</title>Licence: Public Domain<a href="a.mid">m</a></html>'
+    info = mutopia.parse_piece(html_, mutopia.BASE + "cgibin/p")
+    assert info["title"] == "Consolation, S.172 No.1" and info["composer"] == "F. Liszt"
