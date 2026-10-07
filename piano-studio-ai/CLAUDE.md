@@ -12,5 +12,7 @@ Tu es l'ingénieur principal du projet. Objectif : un studio automatisé de tuto
 
 ## État (phases du cahier des charges)
 - Phase 1 Fondations : fait (structure, config, SQLite, logs, CLI `doctor/status/queue/init`, tests).
-- À faire : 2 Musique, 3 Synthesia, 4 OBS, 5 Rendu, 6 QC, 7 Publication, 8 Analytics, 9 `piano auto`.
+- Phase 2 (partielle) : parseur/analyse MIDI, sélection de passage, import avec garde-fou licence (`piano import`, `piano analyze`). Pas encore de découverte de tendances ni de téléchargement.
+- Phase 5 (partielle) : rendu FFmpeg 9:16 depuis templates (`app/renderer/render.py`). Pas encore de logo/texte/variantes plateformes.
+- À faire : 3 Synthesia, 4 OBS, 6 QC, 7 Publication, 8 Analytics, 9 `piano auto` + scheduler launchd + dashboard.
 - Les phases 3-4 et `doctor` complet exigent un Mac réel (Synthesia, OBS, permissions Accessibility/Screen Recording) : impossible à valider dans le conteneur cloud.

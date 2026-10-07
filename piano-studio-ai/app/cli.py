@@ -39,6 +39,26 @@ def cmd_init(s, a):
     return 0
 
 
+def cmd_import(s, a):
+    from .music_discovery import importer
+    conn = db.connect(config.resolve(s, "database"))
+    r = importer.import_midi(conn, a.file, a.title, a.artist, a.source, a.license_proof,
+                             dest_dir=config.resolve(s, "data_dir") / "midi", allowed=set(s["allowed_sources"]))
+    print(f"{r['status']}: {r['reason']}")
+    return 0 if r["status"] == "LEGAL_CONFIRMED" else 1
+
+
+def cmd_analyze(s, a):
+    import json
+    from .midi_analyzer.analyzer import analyze
+    from .midi_analyzer.parser import parse_midi
+    from .section_selector.selector import select_section
+    notes, tempo = parse_midi(a.file)
+    print(json.dumps({"analysis": analyze(notes, tempo),
+                      "section": select_section(notes, a.duration or s["duration_target"])}, indent=2, ensure_ascii=False))
+    return 0
+
+
 def not_ready(name):
     def f(s, a):
         print(f"`piano {name}`: pas encore implémenté (voir phases du cahier des charges).")
@@ -52,8 +72,14 @@ def main(argv=None):
     cmds = {"doctor": cmd_doctor, "status": cmd_status, "queue": cmd_queue, "init": cmd_init}
     for n in ("setup", "start", "stop", "retry", "test", "auto", "dry-run"):
         cmds[n] = not_ready(n)
+    cmds["import"], cmds["analyze"] = cmd_import, cmd_analyze
     for n in cmds:
-        sub.add_parser(n)
+        sp = sub.add_parser(n)
+        if n == "import":
+            sp.add_argument("file"); sp.add_argument("--title", required=True); sp.add_argument("--artist", default="")
+            sp.add_argument("--source", required=True); sp.add_argument("--license-proof")
+        if n == "analyze":
+            sp.add_argument("file"); sp.add_argument("--duration", type=float)
     a = p.parse_args(argv)
     s = config.load_settings()
     setup_logging(config.resolve(s, "logs_dir"))
