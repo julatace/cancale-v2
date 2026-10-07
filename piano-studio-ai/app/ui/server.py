@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from app import config
 from app.database import db
 from app.director import control, difficulty, pipeline, stock
-from app.music_discovery import importer
+from app.music_discovery import importer, search as msearch, trends as mtrends
 from .page import PAGE
 
 RUNNER = pipeline.run_one          # remplaçable dans les tests
@@ -33,7 +33,7 @@ class Job:
             self.n += 1
             self.logs.append((self.n, msg))
 
-    def start(self, settings, level, formats, publish, count=1, song_id=None) -> bool:
+    def start(self, settings, level, formats, publish, count=1, song_id=None, lang=None) -> bool:
         with self.lock:
             if self.state["status"] == "running":
                 return False
@@ -42,10 +42,10 @@ class Job:
             self.state = {"status": "running", "params": {"level": level, "formats": formats, "publish": publish, "count": count},
                           "result": None, "error": None, "started": time.time()}
             self.logs.clear()
-        threading.Thread(target=self._run, args=(settings, level, formats, publish, count, song_id), daemon=True).start()
+        threading.Thread(target=self._run, args=(settings, level, formats, publish, count, song_id, lang), daemon=True).start()
         return True
 
-    def _run(self, settings, level, formats, publish, count, song_id=None):
+    def _run(self, settings, level, formats, publish, count, song_id=None, lang=None):
         job = self
 
         class H(logging.Handler):
@@ -56,7 +56,7 @@ class Job:
         lg = logging.getLogger("piano")
         lg.addHandler(h)
         try:
-            results = [RUNNER(settings, level=level, formats=formats, publish=publish, song_id=song_id) for _ in range(count)]
+            results = [RUNNER(settings, level=level, formats=formats, publish=publish, song_id=song_id, lang=lang) for _ in range(count)]
             with self.lock:
                 self.state.update(status="done", result=results[-1] if count == 1 else results)
         except control.Cancelled:
@@ -104,6 +104,9 @@ def options(s) -> dict:
                      "long": v.get("duration") == "full"} for k, v in s.get("formats", {}).items()],
         "default_format": s.get("default_format", "vertical"),
         "default_formats": s.get("ui_default_formats", [s.get("default_format", "vertical")]),
+        "languages": [{"key": "fr", "label": "Français"}, {"key": "en", "label": "English"}, {"key": "es", "label": "Español"}],
+        "default_language": s.get("language", "fr"),
+        "countries": [{"key": k, "label": v} for k, v in mtrends.COUNTRIES.items()],
     }
 
 
@@ -257,6 +260,16 @@ def make_handler(settings_loader):
                 return self._json(JOB.snapshot(since))
             if u.path == "/api/info":
                 return self._json(info(s))
+            if u.path == "/api/search":
+                q = parse_qs(u.query).get("q", [""])[0]
+                return self._json(msearch.search(s, q))
+            if u.path == "/api/trends":
+                qs = parse_qs(u.query)
+                try:
+                    items = mtrends.fetch_trends(qs.get("country", ["fr"])[0], qs.get("genre", ["all"])[0])
+                    return self._json({"items": items, "message": ""})
+                except mtrends.TrendsUnavailable as e:
+                    return self._json({"items": [], "message": str(e)})
             if u.path == "/api/songs":
                 return self._json(songs(s))
             if u.path == "/api/videos":
@@ -270,11 +283,19 @@ def make_handler(settings_loader):
 
         def do_POST(self):
             path = urlparse(self.path).path
-            if path not in ("/api/run", "/api/upload", "/api/songs/delete", "/api/stop", "/api/stop-recording"):
+            if path not in ("/api/run", "/api/upload", "/api/songs/delete", "/api/stop", "/api/stop-recording", "/api/import-found"):
                 return self._send(404, b'{"error":"not found"}')
             origin = self.headers.get("Origin", "")
             if origin and not (origin.startswith("http://127.0.0.1") or origin.startswith("http://localhost")):
                 return self._json({"error": "origine refusée"}, 403)
+            if path == "/api/import-found":
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0)) or 0) or b"{}")
+                try:
+                    r = msearch.import_found(settings_loader(), str(body.get("page", "")))
+                except Exception as e:
+                    return self._json({"error": f"Import impossible : {e}"}, 400)
+                msg = {"LEGAL_CONFIRMED": "MIDI ajouté à votre bibliothèque.", "DUPLICATE": "Déjà dans votre bibliothèque."}.get(r["status"], "Non accepté.")
+                return self._json({**r, "message": msg}, 200 if r["status"] in ("LEGAL_CONFIRMED", "DUPLICATE") else 400)
             if path == "/api/stop-recording":
                 return self._json({"ok": True, "was_running": JOB.stop_recording()})
             if path == "/api/stop":
@@ -300,7 +321,8 @@ def make_handler(settings_loader):
                 s = {**s, "engine": "synthesia"}              # Synthesia obligatoire : une erreur s'affiche, pas de repli silencieux
             else:
                 s = {**s, "engine": "builtin"}
-            if not JOB.start(s, level, formats, bool(body.get("publish", False)), count, int(body["song_id"]) if body.get("song_id") else None):
+            if not JOB.start(s, level, formats, bool(body.get("publish", False)), count, int(body["song_id"]) if body.get("song_id") else None,
+                         body.get("lang") if body.get("lang") in ("fr", "en", "es") else None):
                 return self._json({"error": "une vidéo est déjà en cours de création"}, 409)
             self._json({"ok": True})
 

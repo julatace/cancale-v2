@@ -81,6 +81,17 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 .tag.mine{background:var(--brand-soft);color:var(--brand);border-color:transparent}
 .x{background:none;border:0;color:var(--mute);cursor:pointer;font-size:18px;padding:2px 8px;border-radius:8px}.x:hover{color:var(--bad)}
 #msg{margin:8px 0 0;font-size:14px}#msg.bad{color:var(--bad)}#msg.ok{color:var(--ok)}
+.sbox{display:flex;gap:8px;margin:2px 0 4px}
+.sbox input[type=search],.sel{flex:1;min-width:0;padding:12px 14px;border:2px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);font-size:16px}
+.sbox input:focus,.sel:focus{border-color:var(--brand);outline:none}
+.btn{padding:12px 18px;border:0;border-radius:12px;background:var(--brand);color:#fff;font-weight:700;cursor:pointer;white-space:nowrap}
+.btn.alt{background:var(--brand-soft);color:var(--brand)}.btn:disabled{opacity:.6;cursor:wait}
+.hit{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 14px;border:2px solid var(--line);border-radius:12px;margin-top:8px;background:var(--surface)}
+.hit .n{min-width:0}.hit b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hit small{color:var(--mute)}
+.note{color:var(--mute);font-size:14px;margin:8px 0 0}.note.bad{color:var(--bad)}
+.tr{display:flex;gap:12px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}.tr:first-child{border-top:0}
+.tr .rk{width:28px;font-weight:800;color:var(--mute);text-align:right;flex:none}.tr .n{flex:1;min-width:0}.tr .n b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tr small{color:var(--mute)}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}.filters .sel{flex:1;min-width:140px}
 [hidden]{display:none!important}
 </style></head><body><div class="wrap">
 
@@ -99,13 +110,16 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
   <div class="grid g2" id="formats" aria-label="Formats"></div>
 
   <div class="step" style="margin-top:26px"><span class="num">3</span><div><h2>Musique</h2><p>Laissez l'agent choisir, ou utilisez l'un de vos morceaux (fichiers MIDI).</p></div></div>
-  <div class="songs" id="songs" role="radiogroup" aria-label="Morceau"></div>
+  <div class="sbox"><input type="search" id="q" placeholder="Rechercher un morceau (ex. Clair de Lune, Für Elise, Gymnopédie…)" aria-label="Rechercher un morceau"><button class="btn" id="qgo">Chercher</button></div>
+  <div id="qres"></div>
+  <div class="songs" id="songs" role="radiogroup" aria-label="Morceau" style="margin-top:12px"></div>
   <div class="drop" id="drop" tabindex="0"><b>＋ Ajouter mes morceaux</b>Glissez des fichiers .mid ici, ou cliquez pour les choisir</div>
   <input type="file" id="file" accept=".mid,.midi" multiple hidden>
   <label class="rights"><input type="checkbox" id="rights"> Je confirme avoir les droits d'utiliser cette musique (composition à moi, domaine public ou licence qui l'autorise).</label>
   <p id="msg" hidden></p>
 
   <div class="row">
+    <label class="sw">Langue des textes <select id="lang" class="sel" style="flex:none;padding:6px 10px"></select></label>
     <label class="sw"><input type="checkbox" id="synth" checked> Utiliser mon application Synthesia (sinon rendu intégré)</label>
     <label class="sw"><input type="checkbox" id="publish"> Publier ensuite (YouTube si configuré)</label>
     <span class="est" id="est"></span>
@@ -122,6 +136,12 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
   <p class="err" id="err" hidden></p>
   <details><summary>Détails techniques</summary><pre id="log"></pre></details>
   <div class="res" id="res"></div>
+</section>
+
+<section class="card">
+  <div class="step"><div><h2>Tendances du moment</h2><p>Classements musicaux par pays. Ces titres sont en général protégés : l'agent cherche une version libre de droits (surtout en classique).</p></div></div>
+  <div class="filters"><select id="tc" class="sel"></select><select id="tg" class="sel"><option value="all">Tous styles</option><option value="classical">Classique</option></select><button class="btn alt" id="tgo">Afficher</button></div>
+  <div id="tres"><p class="empty">Cliquez sur « Afficher » pour consulter les tendances.</p></div>
 </section>
 
 <section class="card hist">
@@ -166,6 +186,28 @@ $('#file').onchange=e=>{upload([...e.target.files]);e.target.value=''};
 ['dragover','dragenter'].forEach(ev=>$('#drop').addEventListener(ev,e=>{e.preventDefault();$('#drop').classList.add('over')}));
 ['dragleave','drop'].forEach(ev=>$('#drop').addEventListener(ev,e=>{e.preventDefault();$('#drop').classList.remove('over')}));
 $('#drop').addEventListener('drop',e=>upload([...e.dataTransfer.files]));
+function hit(h){
+  const lib=h.kind==='library';
+  return `<div class="hit"><span class="n"><b>${esc(h.title)}</b><small>${esc(h.composer||'')} · ${lib?'Dans ma bibliothèque':'Libre de droits : '+esc(h.license)}</small></span>`+
+    `<button class="btn ${lib?'alt':''}" ${lib?`data-use="${h.song_id}"`:`data-add="${esc(h.page)}"`}>${lib?'Utiliser':'Ajouter et utiliser'}</button></div>`}
+function runSearch(q){
+  q=(q||$('#q').value).trim();if(q.length<2){$('#qres').innerHTML='<p class="note">Tapez au moins 2 lettres.</p>';return}
+  $('#q').value=q;$('#qgo').disabled=true;$('#qres').innerHTML='<p class="note">Recherche en cours…</p>';
+  api('/api/search?q='+encodeURIComponent(q)).then(r=>{
+    $('#qres').innerHTML=r.results.map(hit).join('')+(r.message?`<p class="note ${r.results.length?'':'bad'}">${esc(r.message)}</p>`:'');
+    if(r.results.length)$('#qres').insertAdjacentHTML('afterbegin',`<p class="note" style="color:var(--ok);font-weight:700">✓ ${r.results.length} MIDI trouvé${r.results.length>1?'s':''} pour « ${esc(r.query)} »</p>`)
+  }).catch(()=>{$('#qres').innerHTML='<p class="note bad">La recherche a échoué.</p>'}).finally(()=>{$('#qgo').disabled=false})}
+$('#qgo').onclick=()=>runSearch();$('#q').onkeydown=e=>{if(e.key==='Enter')runSearch()};
+$('#qres').onclick=e=>{const u=e.target.closest('[data-use]'),a=e.target.closest('[data-add]');
+  if(u){songId=+u.dataset.use;songs();$('#qres').innerHTML='<p class="note" style="color:var(--ok);font-weight:700">✓ Ce morceau sera utilisé.</p>'}
+  if(a){a.disabled=true;a.textContent='Téléchargement…';api('/api/import-found',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({page:a.dataset.add})}).then(r=>{
+    if(r.error){$('#qres').insertAdjacentHTML('beforeend',`<p class="note bad">${esc(r.error)}</p>`);a.disabled=false;a.textContent='Ajouter et utiliser';return}
+    songId=r.song_id;songs();$('#qres').innerHTML=`<p class="note" style="color:var(--ok);font-weight:700">✓ ${esc(r.message)} Il sera utilisé pour la création.</p>`})}};
+$('#tgo').onclick=()=>{$('#tgo').disabled=true;$('#tres').innerHTML='<p class="empty">Chargement…</p>';
+  api(`/api/trends?country=${$('#tc').value}&genre=${$('#tg').value}`).then(r=>{
+    $('#tres').innerHTML=r.items.length?r.items.map(i=>`<div class="tr"><span class="rk">${i.rank}</span><span class="n"><b>${esc(i.title)}</b><small>${esc(i.artist)}</small></span><button class="btn alt" data-q="${esc(i.title)}">Chercher un MIDI libre</button></div>`).join(''):`<p class="note bad">${esc(r.message||'Aucune tendance disponible.')}</p>`
+  }).catch(()=>{$('#tres').innerHTML='<p class="note bad">Impossible de charger les tendances.</p>'}).finally(()=>{$('#tgo').disabled=false})};
+$('#tres').onclick=e=>{const b=e.target.closest('[data-q]');if(b){$('#q').scrollIntoView({behavior:'smooth',block:'center'});runSearch(b.dataset.q)}};
 function info(){api('/api/info').then(i=>{$('#ver').innerHTML=`version <b>${esc(i.version||'?')}</b>`;$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'');
   $('#engine').innerHTML=`Moteur : <b>${i.engine==='synthesia'?'Synthesia':i.engine?'rendu intégré':'vérification…'}</b>`;$('#engine').title=i.engine==='synthesia'?'Votre application Synthesia pilotée automatiquement':'Synthesia non prêt : rendu intégré utilisé'})}
 function vids(){api('/api/videos').then(v=>{if(!v.length)return;$('#vids').innerHTML=v.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${esc(x.level)} · ${esc(x.format)} · ${x.duration}s · qualité ${x.quality??'-'}/100 · ${esc(x.status)} · ${esc(x.at)}</small></div>${x.file?`<button data-f="${esc(x.file)}">Voir</button>`:''}</div>`).join('')})}
@@ -191,9 +233,9 @@ $('#stop').onclick=()=>{if(!confirm('Annuler la création ? Rien ne sera gardé.
 $('#go').onclick=()=>{
   $('#job').hidden=false;$('#log').textContent='';$('#res').innerHTML='';$('#err').hidden=true;since=0;cur=-1;fmtLabel='';stepper();$('#now').textContent='Démarrage…';
   $('#job').scrollIntoView({behavior:'smooth',block:'start'});
-  api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked,synthesia:$('#synth').checked,song_id:songId})})
+  api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked,synthesia:$('#synth').checked,song_id:songId,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#now').textContent=r.error;return}if(!timer)timer=setInterval(poll,1500);poll()})};
-api('/api/options').then(o=>{opts=o;level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
+api('/api/options').then(o=>{opts=o;$('#lang').innerHTML=o.languages.map(l=>`<option value="${l.key}"${l.key===o.default_language?' selected':''}>${l.label}</option>`).join('');$('#tc').innerHTML=o.countries.map(c=>`<option value="${c.key}">${c.label}</option>`).join('');level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
 info();vids();songs();setInterval(info,20000);
 api('/api/status').then(s=>{if(s.status==='running'){$('#job').hidden=false;since=0;timer=setInterval(poll,1500);poll()}});
 </script></div></body></html>

@@ -52,6 +52,7 @@ keyboard:
   keys: 36              # étendue jouée (3 octaves) : la musique est ramenée dans cette plage, l'image zoome dessus
   adaptive: true        # la plage (début = un Do) est choisie selon le morceau
   lowest_key: 48        # utilisé seulement si adaptive: false
+  margin_keys: 6        # touches voisines gardées visibles de chaque côté de l'étendue jouée (moins de zoom)
   display_keys: 88      # clavier AFFICHÉ par Synthesia (réglage personnalisé de l'utilisateur)
   display_lowest: 21    # première touche affichée (La0 pour un clavier de 88 touches)
 midi_sources:
@@ -86,3 +87,4 @@ formats:
 stock:
   target: 3                 # morceaux gardés d'avance (téléchargés et vérifiés en arrière-plan)
 ui_default_formats: [vertical, horizontal]   # les deux formats sont créés d'office
+language: fr            # langue des textes de la vidéo et de la publication : fr | en | es

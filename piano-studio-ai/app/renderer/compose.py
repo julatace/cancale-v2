@@ -33,6 +33,29 @@ def _hex(rgb) -> str:
     return "0x%02x%02x%02x" % tuple(rgb)
 
 
+def _probe_size(path) -> tuple[int, int] | None:
+    try:
+        r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", str(path)],
+                           capture_output=True, text=True, timeout=30)
+        w, h = r.stdout.strip().split(",")[:2]
+        return int(w), int(h)
+    except Exception:
+        return None
+
+
+def app_box(src: tuple[int, int] | None, crop, W: int, H: int, top: int, bottom_margin: int = 28) -> tuple[float, float, float]:
+    """(largeur, hauteur, y) de l'app dans la vidéo : la plus grande possible, centrée en largeur, posée en bas."""
+    avail_h = H - top - bottom_margin
+    if src:
+        cw = (crop[2] if crop else 1.0) * src[0]
+        ch = (crop[3] if crop else 1.0) * src[1]
+        s = min(W / cw, avail_h / ch)
+        w, h = cw * s, ch * s
+    else:
+        w, h = W, avail_h
+    return w, h, H - bottom_margin - h
+
+
 def _font(size):
     for p in _FONTS:
         if Path(p).exists():
@@ -54,24 +77,39 @@ def _line(draw, text, y, size, fill, width=W - 80):
 
 
 def _wrap(draw, text, size, width, max_lines=2):
-    """Coupe le titre sur 2 lignes max ; réduit la police si besoin."""
+    """Coupe le titre en lignes ÉQUILIBRÉES (jamais un mot seul orphelin) ; réduit la police si besoin."""
+    raw, words = text.split(), []
+    for tok in raw:                                         # « No. 1 », « Op. 15 »... ne se séparent jamais
+        if words and words[-1].rstrip(".").lower() in ("no", "op", "nr", "bwv", "k", "s", "hob", "d", "kv") and words[-1].endswith("."):
+            words[-1] += " " + tok
+        else:
+            words.append(tok)
     while size > 34:
         f = _font(size)
-        words, lines, cur = text.split(), [], ""
-        for w_ in words:
-            test = (cur + " " + w_).strip()
-            if draw.textlength(test, font=f) <= width: cur = test
-            else:
-                lines.append(cur); cur = w_
-        lines.append(cur)
-        if len(lines) <= max_lines and all(draw.textlength(l, font=f) <= width for l in lines):
-            return f, lines
+        w = lambda s: draw.textlength(s, font=f)
+        if w(text) <= width:
+            return f, [text]
+        if max_lines >= 2 and len(words) >= 2:
+            best = min(range(1, len(words)), key=lambda k: max(w(" ".join(words[:k])), w(" ".join(words[k:]))))
+            a, b = " ".join(words[:best]), " ".join(words[best:])
+            if max(w(a), w(b)) <= width and (len(words) < 4 or len(b.split()) >= 2 or len(a.split()) >= 2):
+                return f, [a, b]
+        if max_lines >= 3:                                  # 3-4 lignes (panneau latéral) : coupe gloutonne
+            lines, cur = [], ""
+            for word in words:
+                test = (cur + " " + word).strip()
+                if w(test) <= width: cur = test
+                else: lines.append(cur); cur = word
+            lines.append(cur)
+            if len(lines) <= max_lines:
+                return f, lines
         size -= 4
     return _font(34), [text[:40]]
 
 
-def _banner(path: Path, title: str, subtitle: str, w: int = W, top: int = TOP, bg=DEFAULT_BG):
-    """Bandeau dégradé : titre (2 lignes max en vertical, 1 en horizontal), compositeur, filet doré."""
+def _banner(path: Path, title: str, subtitle: str, w: int = W, top: int = TOP, bg=DEFAULT_BG) -> int:
+    """Bloc titre dégradé (bleu nuit -> gris de Synthesia) : titre (2 lignes max en vertical), compositeur, centrés dans la hauteur
+    disponible. Retourne le bas du texte (pour placer l'accroche juste dessous)."""
     img = Image.new("RGBA", (w, top), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
     dark = (26, 30, 56)
@@ -79,14 +117,19 @@ def _banner(path: Path, title: str, subtitle: str, w: int = W, top: int = TOP, b
         k = (y / top) ** 0.8
         d.line([(0, y), (w, y)], fill=tuple(int(dark[i] + (bg[i] - dark[i]) * k) for i in range(3)) + (255,))
     tall = top >= 250
-    f, lines = _wrap(d, title, 78 if tall else 58, w - 100, 2 if tall else 1)
-    y = 26 if tall else 14
+    start = 86 if top >= 420 else 78 if tall else 58
+    f, lines = _wrap(d, title, start, w - 100, 2 if tall else 1)
+    sub_h = (46 if tall else 38) if subtitle else 0
+    block = int(len(lines) * f.size * 1.12) + sub_h
+    y = max(26 if tall else 14, int((top - block) / 2 - (top * 0.10 if top >= 420 else 0)))
     for l in lines:
         d.text((w / 2, y), l, font=f, fill=(255, 255, 255, 255), anchor="mt", stroke_width=2, stroke_fill=(0, 0, 0, 160))
         y += int(f.size * 1.12)
     if subtitle:
-        d.text((w / 2, y + (6 if tall else 2)), subtitle, font=_font(40 if tall else 30), fill=(200, 206, 235, 255), anchor="mt")
+        d.text((w / 2, y + (6 if tall else 2)), subtitle, font=_font(42 if top >= 420 else 40 if tall else 30), fill=(200, 206, 235, 255), anchor="mt")
+        y += sub_h
     img.save(path)
+    return y
 
 
 def _tag(path: Path, text: str, w: int = W):
@@ -102,21 +145,25 @@ def _tag(path: Path, text: str, w: int = W):
     img.save(path)
 
 
-def build_filter(td: Path, duration: float, title="", subtitle="", hook="", cta="", crop=None, size=(W, H), top=TOP, bg=DEFAULT_BG) -> tuple[str, list[str]]:
+def build_filter(td: Path, duration: float, title="", subtitle="", hook="", cta="", crop=None, size=(W, H), top=TOP, bg=DEFAULT_BG, src=None) -> tuple[str, list[str]]:
     """Retourne (filtre, entrées PNG supplémentaires)."""
     W, H, TOP = size[0], size[1], top
     c = f"crop=iw*{crop[2]:.4f}:ih*{crop[3]:.4f}:iw*{crop[0]:.4f}:ih*{crop[1]:.4f}," if crop else ""
     chain = (f"color=c={_hex(bg)}:s={W}x{H}:r=30:d={duration:.2f}[bg];"                      # fond = gris de Synthesia
-             f"[1:v]{c}scale={W}:{H - TOP}:force_original_aspect_ratio=decrease:flags=lanczos[fg];"   # fenêtre entière, jamais rognée
-             f"[bg][fg]overlay=(W-w)/2:{TOP}+(({H - TOP})-h)/2[v0]")
+             f"[1:v]{c}scale={W}:{H - TOP - 28}:force_original_aspect_ratio=decrease:flags=lanczos[fg];"   # fenêtre entière, jamais rognée
+             f"[bg][fg]overlay=(W-w)/2:H-h-28[v0]")                                # app posée en bas, le gris du fond occupe le reste
     cur, extra, idx = "v0", [], 3          # entrées 0,1 = capture ; 2 = audio ; 3.. = PNG
     layers = []
+    _, fh, fy = app_box(src, crop, W, H, TOP)
+    ban_h = max(int(fy), TOP)                                           # le bloc titre occupe tout l'espace au-dessus de l'app
+    text_bottom = TOP
     if title or subtitle:
-        p = td / "banner.png"; _banner(p, title[:60], subtitle[:60], W, TOP, bg); layers.append((p, 0, ""))
+        p = td / "banner.png"; text_bottom = _banner(p, title[:60], subtitle[:60], W, ban_h, bg); layers.append((p, 0, ""))
+    pill_y = int(min(max(text_bottom + 28, 10), max(ban_h - 90, 10)))   # accroche : juste sous le texte, sans toucher l'app
     if hook:
-        p = td / "hook.png"; _tag(p, hook[:60], W); layers.append((p, TOP + 12, ":enable='between(t,0,3.5)'"))
+        p = td / "hook.png"; _tag(p, hook[:60], W); layers.append((p, pill_y, ":enable='between(t,0,3.5)'"))
     if cta:
-        p = td / "cta.png"; _tag(p, cta[:60], W); layers.append((p, TOP + 12, f":enable='gt(t,{max(duration - 3.5, 0):.1f})'"))
+        p = td / "cta.png"; _tag(p, cta[:60], W); layers.append((p, pill_y, f":enable='gt(t,{max(duration - 3.5, 0):.1f})'"))
     for n, (p, y, en) in enumerate(layers):
         out = "v" if n == len(layers) - 1 else f"vl{n}"
         chain += f";[{cur}][{idx}:v]overlay=0:{y}{en}[{out}]"
@@ -131,7 +178,7 @@ def compose_vertical(capture, audio_wav, out, trim: float, duration: float, titl
                      fps=30, crop=None, size=(W, H), top=TOP, bg=DEFAULT_BG) -> Path:
     """crop = (x, y, w, h) en fractions de l'image capturée (zone de la fenêtre Synthesia)."""
     with tempfile.TemporaryDirectory() as td:
-        chain, pngs = build_filter(Path(td), duration, title, subtitle, hook, cta, crop, size, top, bg)
+        chain, pngs = build_filter(Path(td), duration, title, subtitle, hook, cta, crop, size, top, bg, _probe_size(capture))
         cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-ss", str(trim), "-t", str(duration), "-i", str(capture),
                "-ss", str(trim), "-t", str(duration), "-i", str(capture), "-i", str(audio_wav)]
         for p in pngs:

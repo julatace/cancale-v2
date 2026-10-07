@@ -19,9 +19,10 @@ def test_vertical_crop_has_exact_aspect_keeps_keyboard_and_stays_inside():
     x, y, w, h = framing.vertical_crop(content, (1470, 956), 48, 83)
     assert 0 <= x and x + w <= 1.0001 and 0 <= y and y + h <= 1.0001
     ratio = (w * 1470) / (h * 956)
-    assert 1080 / 1620 * 0.98 <= ratio <= 0.85                       # au moins le rapport visé : toutes les touches jouées sont gardées
+    assert ratio >= 1080 / 1620 * 0.98                                 # toutes les touches jouées + voisines sont gardées
     assert y + h == pytest.approx(content[1] + content[3])            # le bas (clavier) est conservé
-    assert w < 0.6                                                      # on a bien zoomé sur la partie jouée
+    assert w < 0.7                                                      # zoom modéré : on ne voit pas tout le piano
+    assert x <= framing.key_x(48) - 0.05 and x + w >= framing.key_x(83) + 0.05   # des touches voisines de chaque côté
 
 
 def test_vertical_crop_at_the_edges_never_leaves_the_window():
@@ -77,3 +78,37 @@ def test_background_color_is_measured_from_the_capture_and_fills_the_bars(tmp_pa
     px = subprocess.run(["ffmpeg", "-v", "error", "-ss", "1", "-i", str(out), "-vf", "crop=4:4:20:1840,scale=1:1", "-frames:v", "1",
                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True).stdout    # bas de l'image : barre de fond
     assert all(abs(a - b) <= 6 for a, b in zip(px[:3], rgb)), (px[:3], rgb)
+
+
+def _fake_synthesia_capture(path, x0=0.30, x1=0.62):
+    """Fausse capture : fond gris, grille, notes vertes qui tombent seulement entre x0 et x1, clavier en bas."""
+    import subprocess
+    W, H = 640, 480
+    bx, bw = int(W * x0), int(W * (x1 - x0))
+    f = (f"color=c=0x3b3b3b:s={W}x{H}:r=10:d=12,"
+         f"drawbox=x={bx}:y='mod(t*60,300)':w=18:h=60:color=0x8cf050:t=fill,"
+         f"drawbox=x={bx + bw - 18}:y='mod(t*80+40,300)':w=18:h=80:color=0x8cf050:t=fill,"
+         f"drawbox=x={bx + bw // 2}:y='mod(t*50+90,300)':w=18:h=40:color=0x8cf050:t=fill,"
+         f"drawbox=x=0:y=380:w={W}:h=100:color=white:t=fill")
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f, "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)], check=True)
+
+
+def test_played_range_is_measured_from_the_recording_not_assumed(tmp_path):
+    cap = tmp_path / "c.mp4"
+    _fake_synthesia_capture(cap, 0.30, 0.62)
+    r = framing.measure_played_range(cap, 0.5, (0, 0, 1, 1), seconds=10, margin=0.0)
+    assert r is not None and abs(r[0] - 0.30) < 0.04 and abs(r[1] - 0.62) < 0.05          # la bande réellement utilisée
+    wide = framing.measure_played_range(cap, 0.5, (0, 0, 1, 1), seconds=10, margin=0.25)
+    assert wide[0] < r[0] and wide[1] > r[1]                                              # des touches voisines sont gardées
+
+
+def test_nothing_colourful_means_no_measurement(tmp_path):
+    import subprocess
+    cap = tmp_path / "grey.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0x3b3b3b:s=320x240:r=10:d=5", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(cap)], check=True)
+    assert framing.measure_played_range(cap, 0.0, (0, 0, 1, 1), seconds=4) is None
+
+
+def test_crop_from_range_keeps_the_whole_measured_band():
+    x, y, w, h = framing.crop_from_range((0, 0.06, 1, 0.9), (1470, 956), 0.30, 0.62, 1080 / 1620)
+    assert x <= 0.30 and x + w >= 0.62 and y + h == pytest.approx(0.96)

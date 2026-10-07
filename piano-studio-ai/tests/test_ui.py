@@ -131,3 +131,26 @@ def test_chosen_song_is_used_by_pipeline(tmp_path):
     r = server.import_upload(st, "Ma chanson.mid", song(), "Ma chanson", "Moi")
     out = pipeline.run_one(st, seed=1, dry_run=True, song_id=r["song_id"])
     assert out["song"] == "Ma chanson"
+
+
+def test_search_trends_and_import_routes(srv, monkeypatch):
+    base, _ = srv
+    monkeypatch.setattr(server.msearch, "search", lambda s, q: {"query": q, "results": [{"kind": "online", "title": "Clair de lune", "composer": "C. Debussy",
+                                                                                          "license": "Public Domain", "page": server.msearch.ALLOWED_PREFIX + "x"}], "message": ""})
+    monkeypatch.setattr(server.mtrends, "fetch_trends", lambda c, g: [{"rank": 1, "title": "Song", "artist": "Artist"}])
+    monkeypatch.setattr(server.msearch, "import_found", lambda s, page: {"status": "LEGAL_CONFIRMED", "song_id": 7, "title": "Clair de lune", "license": "Public Domain"})
+    r = get(base + "/api/search?q=clair%20de%20lune")
+    assert r["results"][0]["license"] == "Public Domain"
+    assert get(base + "/api/trends?country=fr&genre=classical")["items"][0]["title"] == "Song"
+    req = urllib.request.Request(base + "/api/import-found", json.dumps({"page": "https://www.mutopiaproject.org/x"}).encode(), {"Content-Type": "application/json"})
+    assert json.load(urllib.request.urlopen(req))["song_id"] == 7
+    o = get(base + "/api/options")
+    assert {l["key"] for l in o["languages"]} == {"fr", "en", "es"} and any(c["key"] == "gb" for c in o["countries"])
+
+
+def test_trends_failure_is_a_message_not_an_error(srv, monkeypatch):
+    base, _ = srv
+    def boom(c, g): raise server.mtrends.TrendsUnavailable("réseau")
+    monkeypatch.setattr(server.mtrends, "fetch_trends", boom)
+    r = get(base + "/api/trends")
+    assert r["items"] == [] and "réseau" in r["message"]

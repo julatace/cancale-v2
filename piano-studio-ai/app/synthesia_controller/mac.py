@@ -216,6 +216,18 @@ def debug_frames(video: Path, outdir: Path, times=(2, 8, 25), run=sh) -> list[Pa
     return out
 
 
+def debug_crop(video: Path, at: float, crop, outdir: Path, run=sh) -> Path | None:
+    """Image de contrôle : une image de la capture avec un cadre rouge autour de la zone gardée dans la vidéo verticale."""
+    try:
+        outdir.mkdir(parents=True, exist_ok=True)
+        f = outdir / "cadrage_vertical.jpg"
+        box = f"drawbox=x=iw*{crop[0]:.4f}:y=ih*{crop[1]:.4f}:w=iw*{crop[2]:.4f}:h=ih*{crop[3]:.4f}:color=red@0.9:t=8"
+        run(["ffmpeg", "-y", "-loglevel", "error", "-ss", str(at), "-i", str(video), "-frames:v", "1", "-vf", f"{box},scale=1200:-2", str(f)])
+        return f if f.exists() else None
+    except Exception:
+        return None
+
+
 def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time.sleep, layout=(1080, 1920, 300)) -> tuple[Path, tuple | None, float | None]:
     """Relance Synthesia sur le MIDI, clique « Continuer », capture l'écran.
     Retourne (capture, zone de recadrage, durée réellement enregistrée si l'utilisateur a arrêté avant la fin, sinon None)."""

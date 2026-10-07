@@ -160,7 +160,7 @@ def _formats(s, fmt, formats) -> list[tuple[str, dict]]:
     return [(n, fm.get(n) or {"width": 1080, "height": 1920, "banner": 300, "shorts": True}) for n in names]
 
 
-def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, formats=None, song_id=None) -> dict:
+def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, formats=None, song_id=None, lang=None) -> dict:
     """Une création : UN morceau et UN niveau, rendus dans chaque format demandé (vertical court et/ou horizontal long)."""
     conn = db.connect(config.resolve(s, "database"))
     seed = seed if seed is not None else random.SystemRandom().randrange(1, 1_000_000)
@@ -204,7 +204,7 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
     for k, (fmt_name, F) in enumerate(fmts):
         sec = select_section(notes, _target(F, s, ana))
         log.info("✂ [%s] Passage retenu : %ss → %ss (%s)", fmt_name, sec["start"], sec["end"], sec["reason"])
-        content = generate(song, diff, seed + k, used, lv["bpm"])
+        content = generate(song, diff, seed + k, used, lv["bpm"], lang or s.get("language", "fr"))
         content["format"], content["shorts"] = fmt_name, bool(F.get("shorts", True))
         used.add(content["title"])
         if meta.get("credit"):
@@ -293,6 +293,13 @@ def _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish, kb_lo
         content_crop = crop or (0.0, 0.0, 1.0, 1.0)
         bg = compose.sample_bg_color(cap, content_crop, cfg["capture_trim"] + 1.0)      # gris du fond de Synthesia
         log.info("🎨 Couleur de fond mesurée : RGB%s", bg)
+        played = framing.measure_played_range(cap, cfg["capture_trim"], content_crop, margin=kb.get("margin_ratio", 0.22)) if maximized else None
+        if played is not None:
+            log.info("📐 Zone jouée mesurée : de %.0f %% à %.0f %% de la largeur de la fenêtre (marge incluse)", played[0] * 100, played[1] * 100)
+        else:
+            log.warning("📐 Zone jouée non mesurable : cadrage estimé d'après le clavier supposé")
+        mac.debug_crop(cap, cfg["capture_trim"] + 10, framing.crop_from_range(content_crop, screen_pts, *played, 1080 / 1620) if played else content_crop,
+                       config.resolve(s, "data_dir") / "debug")
         for fmt_name, F, sec, content, report in plans:
             control.check()
             full = F.get("duration") == "full"
@@ -319,10 +326,13 @@ def _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish, kb_lo
                 compose.compose_landscape(cap, wav, out, trim, dur, meta["title"], sub_txt, "", content.get("hook", ""), content.get("cta", ""), crop=crop, bg=bg)
             else:
                 use = content_crop
-                if maximized and not wide:                             # zoom sur les touches réellement jouées
-                    use = framing.vertical_crop(content_crop, screen_pts, kb_lo, kb_lo + kb["keys"] - 1,
-                                                kb.get("display_lowest", 21), kb.get("display_keys", 88),
-                                                F["width"] / (F["height"] - F["banner"]))
+                if maximized and not wide:                             # zoom sur la zone où les notes tombent réellement
+                    aspect = F["width"] / (F["height"] - F["banner"])
+                    if played is not None:
+                        use = framing.crop_from_range(content_crop, screen_pts, played[0], played[1], aspect)
+                    else:                                              # mesure impossible : estimation d'après le clavier supposé
+                        use = framing.vertical_crop(content_crop, screen_pts, kb_lo, kb_lo + kb["keys"] - 1,
+                                                    kb.get("display_lowest", 21), kb.get("display_keys", 88), aspect, kb.get("margin_keys", 6))
                 compose.compose_vertical(cap, wav, out, trim, dur, meta["title"], subtitle=sub_txt, hook=content.get("hook", ""),
                                          cta=content.get("cta", ""), crop=use if (maximized or not wide) else crop,
                                          size=(F["width"], F["height"]), top=F["banner"], bg=bg)
