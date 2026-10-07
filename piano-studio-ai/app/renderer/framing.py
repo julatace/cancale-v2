@@ -57,9 +57,10 @@ def crop_from_range(content, screen_pts, x0: float, x1: float, aspect: float):
 
 
 def measure_played_range(capture, trim: float, content, seconds: float = 60.0, fps: int = 4, keyboard_share: float = 0.22,
-                         margin: float = 0.22, run=subprocess.run):
+                         top_skip: float = 0.08, margin: float = 0.22, run=subprocess.run):
     """Mesure, dans l'enregistrement, la bande horizontale où les notes tombent : (x0, x1) en fractions de la zone de contenu,
-    marge comprise. Les notes sont les seuls éléments colorés sur le fond gris. Retourne None si rien n'est détecté."""
+    marge comprise. Seuls comptent les éléments COLORÉS qui BOUGENT : la barre de progression verte, les icônes et les lignes de la
+    grille, qui restent en place, sont ignorés. Retourne None si rien n'est détecté."""
     cx, cy, cw, ch = content
     vf = (f"crop=iw*{cw:.4f}:ih*{ch:.4f}:iw*{cx:.4f}:ih*{cy:.4f},fps={fps},scale=320:240")
     try:
@@ -71,15 +72,18 @@ def measure_played_range(capture, trim: float, content, seconds: float = 60.0, f
     if n < 4:
         return None
     fr = np.frombuffer(r.stdout[: n * 320 * 240 * 3], np.uint8).reshape(n, 240, 320, 3).astype(np.float32)
-    area = fr[:, : int(240 * (1 - keyboard_share)), :, :]                    # au-dessus du clavier : les notes qui tombent
+    y0, y1 = int(240 * top_skip), int(240 * (1 - keyboard_share))
+    area = fr[:, y0:y1, :, :]                                                  # notes qui tombent, sans le haut ni le clavier
     mx, mn = area.max(axis=3), area.min(axis=3)
-    mask = ((mx - mn) > 0.45 * np.maximum(mx, 1)) & (mx > 90)                 # coloré (saturé) et lumineux, contrairement au fond gris
+    colored = ((mx - mn) > 0.45 * np.maximum(mx, 1)) & (mx > 90)               # coloré et lumineux, contrairement au fond gris
+    moved = np.abs(np.diff(area, axis=0)).max(axis=3) > 40                     # ... et différent de l'image précédente
+    mask = colored[1:] & moved
     col = mask.sum(axis=(0, 1)).astype(np.float64)
     total = col.sum()
     if total < 50:
         return None
     cum = np.cumsum(col) / total
-    lo = int(np.searchsorted(cum, 0.004))                                     # on ignore les 0,4 % extrêmes (poussières)
+    lo = int(np.searchsorted(cum, 0.004))
     hi = int(np.searchsorted(cum, 0.996))
     x0, x1 = lo / 320.0, (hi + 1) / 320.0
     pad = max((x1 - x0) * margin, 0.03)

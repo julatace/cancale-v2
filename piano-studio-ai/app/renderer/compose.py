@@ -44,7 +44,7 @@ def _probe_size(path) -> tuple[int, int] | None:
 
 
 def app_box(src: tuple[int, int] | None, crop, W: int, H: int, top: int, bottom_margin: int = 28) -> tuple[float, float, float]:
-    """(largeur, hauteur, y) de l'app dans la vidéo : la plus grande possible, centrée en largeur, posée en bas."""
+    """(largeur, hauteur, y) de l'app dans la vidéo : la plus grande possible, CENTRÉE verticalement (sans toucher le titre)."""
     avail_h = H - top - bottom_margin
     if src:
         cw = (crop[2] if crop else 1.0) * src[0]
@@ -53,7 +53,7 @@ def app_box(src: tuple[int, int] | None, crop, W: int, H: int, top: int, bottom_
         w, h = cw * s, ch * s
     else:
         w, h = W, avail_h
-    return w, h, H - bottom_margin - h
+    return w, h, max((H - h) / 2, top)
 
 
 def _font(size):
@@ -151,11 +151,12 @@ def build_filter(td: Path, duration: float, title="", subtitle="", hook="", cta=
     c = f"crop=iw*{crop[2]:.4f}:ih*{crop[3]:.4f}:iw*{crop[0]:.4f}:ih*{crop[1]:.4f}," if crop else ""
     chain = (f"color=c={_hex(bg)}:s={W}x{H}:r=30:d={duration:.2f}[bg];"                      # fond = gris de Synthesia
              f"[1:v]{c}scale={W}:{H - TOP - 28}:force_original_aspect_ratio=decrease:flags=lanczos[fg];"   # fenêtre entière, jamais rognée
-             f"[bg][fg]overlay=(W-w)/2:H-h-28[v0]")                                # app posée en bas, le gris du fond occupe le reste
+             f"[bg][fg]overlay=(W-w)/2:{int(app_box(src, crop, W, H, TOP)[2])}[v0]")           # app centrée, le gris du fond occupe le reste
     cur, extra, idx = "v0", [], 3          # entrées 0,1 = capture ; 2 = audio ; 3.. = PNG
     layers = []
     _, fh, fy = app_box(src, crop, W, H, TOP)
     ban_h = max(int(fy), TOP)                                           # le bloc titre occupe tout l'espace au-dessus de l'app
+    cta_y = int(min(fy + fh + max((H - fy - fh - 84) / 2, 10), H - 96))   # appel à l'abonnement : dans l'espace gris sous l'app
     text_bottom = TOP
     if title or subtitle:
         p = td / "banner.png"; text_bottom = _banner(p, title[:60], subtitle[:60], W, ban_h, bg); layers.append((p, 0, ""))
@@ -163,7 +164,7 @@ def build_filter(td: Path, duration: float, title="", subtitle="", hook="", cta=
     if hook:
         p = td / "hook.png"; _tag(p, hook[:60], W); layers.append((p, pill_y, ":enable='between(t,0,3.5)'"))
     if cta:
-        p = td / "cta.png"; _tag(p, cta[:60], W); layers.append((p, pill_y, f":enable='gt(t,{max(duration - 3.5, 0):.1f})'"))
+        p = td / "cta.png"; _tag(p, cta[:60], W); layers.append((p, cta_y, f":enable='gt(t,{max(duration - 3.5, 0):.1f})'"))
     for n, (p, y, en) in enumerate(layers):
         out = "v" if n == len(layers) - 1 else f"vl{n}"
         chain += f";[{cur}][{idx}:v]overlay=0:{y}{en}[{out}]"

@@ -80,22 +80,24 @@ def test_background_color_is_measured_from_the_capture_and_fills_the_bars(tmp_pa
     assert all(abs(a - b) <= 6 for a, b in zip(px[:3], rgb)), (px[:3], rgb)
 
 
-def _fake_synthesia_capture(path, x0=0.30, x1=0.62):
-    """Fausse capture : fond gris, grille, notes vertes qui tombent seulement entre x0 et x1, clavier en bas."""
+def _fake_synthesia_capture(path, x0=0.30, x1=0.62, progress_bar=True):
+    """Fausse capture : fond gris, barre de progression verte FIXE sur toute la largeur en haut, notes vertes qui TOMBENT
+    seulement entre x0 et x1, clavier blanc en bas."""
     import subprocess
     W, H = 640, 480
     bx, bw = int(W * x0), int(W * (x1 - x0))
-    f = (f"color=c=0x3b3b3b:s={W}x{H}:r=10:d=12,"
-         f"drawbox=x={bx}:y='mod(t*60,300)':w=18:h=60:color=0x8cf050:t=fill,"
-         f"drawbox=x={bx + bw - 18}:y='mod(t*80+40,300)':w=18:h=80:color=0x8cf050:t=fill,"
-         f"drawbox=x={bx + bw // 2}:y='mod(t*50+90,300)':w=18:h=40:color=0x8cf050:t=fill,"
-         f"drawbox=x=0:y=380:w={W}:h=100:color=white:t=fill")
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f, "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)], check=True)
+    base = f"color=c=0x3b3b3b:s={W}x{H}:r=10:d=12"
+    if progress_bar:
+        base += f",drawbox=x=0:y=30:w={W}:h=14:color=0x2ea043:t=fill"           # barre de progression : colorée mais immobile
+    graph = (f"{base}[bg];color=c=0x8cf050:s=18x60:r=10:d=12[n1];color=c=0x8cf050:s=18x80:r=10:d=12[n2];color=c=0x8cf050:s=18x40:r=10:d=12[n3];"
+             f"[bg][n1]overlay=x={bx}:y='mod(t*90,300)':eval=frame[a];[a][n2]overlay=x={bx + bw - 18}:y='mod(t*110+40,300)':eval=frame[b];"
+             f"[b][n3]overlay=x={bx + bw // 2}:y='mod(t*70+90,300)':eval=frame,drawbox=x=0:y=380:w={W}:h=100:color=white:t=fill")
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-filter_complex", graph, "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)], check=True)
 
 
 def test_played_range_is_measured_from_the_recording_not_assumed(tmp_path):
     cap = tmp_path / "c.mp4"
-    _fake_synthesia_capture(cap, 0.30, 0.62)
+    _fake_synthesia_capture(cap, 0.30, 0.62)                                              # avec une barre de progression verte pleine largeur
     r = framing.measure_played_range(cap, 0.5, (0, 0, 1, 1), seconds=10, margin=0.0)
     assert r is not None and abs(r[0] - 0.30) < 0.04 and abs(r[1] - 0.62) < 0.05          # la bande réellement utilisée
     wide = framing.measure_played_range(cap, 0.5, (0, 0, 1, 1), seconds=10, margin=0.25)
@@ -112,3 +114,11 @@ def test_nothing_colourful_means_no_measurement(tmp_path):
 def test_crop_from_range_keeps_the_whole_measured_band():
     x, y, w, h = framing.crop_from_range((0, 0.06, 1, 0.9), (1470, 956), 0.30, 0.62, 1080 / 1620)
     assert x <= 0.30 and x + w >= 0.62 and y + h == pytest.approx(0.96)
+
+
+def test_app_is_centred_vertically_and_never_overlaps_the_title():
+    from app.renderer import compose
+    w, h, y = compose.app_box((1470, 860), None, 1080, 1920, 300)
+    assert w == pytest.approx(1080) and abs((y + h / 2) - 960) < 2          # centre de l'app = centre de l'image
+    w2, h2, y2 = compose.app_box((600, 1100), None, 1080, 1920, 300)          # app très haute : elle ne passe pas sous le bloc titre
+    assert y2 >= 300 and y2 + h2 <= 1920

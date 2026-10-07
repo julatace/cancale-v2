@@ -16,6 +16,7 @@ from app.music_discovery import generator, importer
 from app.publisher import adapters
 from app.quality_control import qc
 from app.section_selector.selector import select_section
+from app.section_selector.hook import select_hook
 from app.director import control, difficulty
 from app.visualizer import falling, synth
 from app.synthesia_controller import mac, sync
@@ -202,7 +203,7 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
     diff = lv["label"]
     reports, plans = [], []
     for k, (fmt_name, F) in enumerate(fmts):
-        sec = select_section(notes, _target(F, s, ana))
+        sec = select_section(notes, _target(F, s, ana)) if F.get("duration") == "full" else select_hook(notes, _target(F, s, ana))
         log.info("✂ [%s] Passage retenu : %ss → %ss (%s)", fmt_name, sec["start"], sec["end"], sec["reason"])
         content = generate(song, diff, seed + k, used, lv["bpm"], lang or s.get("language", "fr"))
         content["format"], content["shorts"] = fmt_name, bool(F.get("shorts", True))
@@ -215,6 +216,7 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
             reports.append({**report, "status": "DRY_RUN"})
             break
         plans.append((fmt_name, F, sec, content, report))
+    _cover_hook(plans, ana["duration"])
     if plans and not dry_run:
         reports = _make_videos(s, conn, sid, level, plans, notes, tempo, meta, lv, publish, kb_lo)
     if len(reports) == 1:
@@ -232,6 +234,19 @@ def _failed(s, conn, sid, level, plans, err) -> list[dict]:
         path = config.resolve(s, "data_dir") / "rendered" / f"{sid}_{int(time.time())}_{fmt_name}.mp4"
         out.append(_finalize(s, conn, sid, level, fmt_name, F, path, sec, content, report, False, None, err))
     return out
+
+
+def _cover_hook(plans, total: float):
+    """Si une vidéo longue ET une courte sont demandées : l'enregistrement de la longue doit contenir le refrain de la courte."""
+    shorts = [p for p in plans if p[1].get("duration") != "full"]
+    longs = [p for p in plans if p[1].get("duration") == "full"]
+    if not shorts or not longs:
+        return
+    hook, sec = shorts[0][2], longs[0][2]
+    if hook["start"] >= sec["start"] - 1e-6 and hook["end"] <= sec["end"] + 1e-6:
+        return
+    start = min(max(hook["start"] - (sec["duration"] - hook["duration"]) / 2, 0.0), max(total - sec["duration"], 0.0))
+    sec["start"], sec["end"] = round(start, 1), round(start + sec["duration"], 1)
 
 
 def _make_videos(s, conn, sid, level, plans, notes, tempo, meta, lv, publish, kb_lo=None) -> list[dict]:
@@ -304,10 +319,14 @@ def _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish, kb_lo
             control.check()
             full = F.get("duration") == "full"
             v0, dur = 0.0, min(R["duration"], avail) if avail else R["duration"]
-            if not full:                                               # extrait vertical : meilleur passage DANS l'enregistrement
-                inner = [type(n)(n.start - R["start"], n.end - R["start"], n.pitch, n.velocity, n.track) for n in inside]
-                sub = select_section(inner, min(s["duration_target"], R["duration"] if avail is None else min(R["duration"], avail)))
-                v0, dur = sub["start"], sub["duration"]
+            if not full:                                               # extrait vertical : le refrain, DANS l'enregistrement
+                v0 = sec["start"] - R["start"]
+                dur = sec["duration"]
+                if v0 < -1e-6 or v0 + dur > R["duration"] + 0.5:       # hors enregistrement : refrain recherché à l'intérieur
+                    inner = [type(n)(n.start - R["start"], n.end - R["start"], n.pitch, n.velocity, n.track) for n in inside]
+                    sub = select_hook(inner, min(s["duration_target"], R["duration"] if avail is None else min(R["duration"], avail)))
+                    v0, dur = sub["start"], sub["duration"]
+                v0 = max(v0, 0.0)
             d = t_on + v0 - first                                      # instant vidéo où commence l'extrait
             trim = cfg["capture_trim"] + max(d, 0.0)
             shift = t_on - first - max(d, 0.0)
