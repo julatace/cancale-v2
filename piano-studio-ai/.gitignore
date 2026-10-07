@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.egg-info/
+data/*/*
+!data/*/.gitkeep
+logs/*
+!logs/.gitkeep
+*.sqlite3

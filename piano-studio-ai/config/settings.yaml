@@ -1,0 +1,25 @@
+mode: manual            # manual | auto
+videos_per_day: 2
+publish_times: ["09:00", "19:00"]
+duration_target: 45
+duration_range: [35, 55]
+styles_allowed: [viral, clean]
+languages: [fr, en]
+same_song_cooldown_days: 30
+qc:
+  publish_min: 90
+  autofix_min: 80
+paths:
+  synthesia_app: /Applications/Synthesia.app
+  obs_app: /Applications/OBS.app
+  data_dir: data
+  logs_dir: logs
+  database: data/piano.sqlite3
+allowed_sources: [user_owned, public_domain, licensed]
+score_weights:
+  trend: 0.30
+  piano: 0.20
+  short_video: 0.20
+  difficulty: 0.10
+  visual: 0.10
+  novelty: 0.10

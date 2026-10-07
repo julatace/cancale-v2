@@ -1,0 +1,4 @@
+tiktok:    {enabled: true,  adapter: tiktok}
+youtube:   {enabled: true,  adapter: youtube}
+instagram: {enabled: true,  adapter: instagram}
+facebook:  {enabled: true,  adapter: facebook}
