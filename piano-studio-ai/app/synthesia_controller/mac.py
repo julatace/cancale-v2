@@ -110,13 +110,42 @@ def start_playback(cfg: dict, run=sh, sleep=time.sleep) -> str:
     return "return"
 
 
+def dock_autohide(value: bool | None = None, run=sh) -> bool | None:
+    """Lit (value=None) ou règle le masquage automatique du Dock ; retourne l'ancien état."""
+    r = osa('tell application "System Events" to tell dock preferences to get autohide', run)
+    old = "true" in (r.stdout or "").lower() if r.returncode == 0 else None
+    if value is not None and old is not None and value != old:
+        osa(f'tell application "System Events" to tell dock preferences to set autohide to {"true" if value else "false"}', run)
+    return old
+
+
+def park_mouse(run=sh):
+    """Écarte le curseur de la fenêtre (bord gauche de l'écran) pour qu'il n'apparaisse pas dans la vidéo."""
+    try:
+        sw, sh_ = screen_points(run)
+        if shutil.which("cliclick"):
+            run(["cliclick", f"m:2,{sh_ // 2}"])
+        else:
+            osa(f'tell application "System Events" to set position of mouse to {{2, {sh_ // 2}}}', run)
+    except Exception:
+        pass
+
+
+def portrait_size(cfg: dict, sw: int, sh_: int) -> tuple[int, int, int, int]:
+    """(x, y, largeur, hauteur) : fenêtre sur toute la hauteur utile ; la largeur est calculée pour que la zone visible
+    (sans barre de titre ni barre d'outils) ait exactement le rapport 1080x1620 du montage -> aucune bande, aucun rognage."""
+    y = cfg.get("window_top_points", 40)
+    h = sh_ - y - cfg.get("portrait_margin_points", 6)
+    tb = cfg.get("titlebar_points", 24)
+    visible_h = (h - tb) * (1 - cfg.get("crop_toolbar_fraction", 0.12))
+    w = int(visible_h * 1080 / 1620)
+    return (sw - w) // 2, y, w, h
+
+
 def arrange_window_portrait(cfg: dict, run=sh, sleep=time.sleep) -> tuple[int, int, int, int]:
-    """Fenêtre Synthesia en portrait (même rapport que la zone 1080x1650 du montage), collée en haut, centrée.
-    Vérifie le résultat réel ; réessaie une fois dans l'autre ordre si la fenêtre est restée large."""
+    """Fenêtre Synthesia en portrait sur toute la hauteur de l'écran. Vérifie le résultat réel ; réessaie une fois."""
     sw, sh_ = screen_points(run)
-    h = sh_ - cfg.get("portrait_margin_points", 70)
-    w = int(h * 1080 / 1650)
-    x, y = (sw - w) // 2, 28
+    x, y, w, h = portrait_size(cfg, sw, sh_)
     geo = (0, 0, 1, 1)
     for order in (("size", "pos"), ("pos", "size", "size")):
         for what in order:
@@ -140,7 +169,9 @@ def crop_fractions(cfg: dict, run=sh) -> tuple[float, float, float, float] | Non
     except Exception:
         return None
     tb = cfg.get("titlebar_points", 24)
-    return (max(x, 0) / sw, (max(y, 0) + tb) / sh_, min(w, sw) / sw, (h - tb) / sh_)
+    content = h - tb
+    bar = content * cfg.get("crop_toolbar_fraction", 0.12)   # barre d'outils + progression de Synthesia
+    return (max(x, 0) / sw, (max(y, 0) + tb + bar) / sh_, min(w, sw) / sw, (content - bar) / sh_)
 
 
 def debug_frames(video: Path, outdir: Path, times=(2, 8, 25), run=sh) -> list[Path]:
@@ -171,8 +202,10 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
     sleep(cfg["load_seconds"])
     log.info("2/5 démarrage de l'enregistrement d'écran (%.0f s)", total)
     cap = subprocess.Popen(_capture_cmd(backend, screen, total, out), stderr=subprocess.PIPE)
-    sleep(1.0)
+    dock_before = None
     try:
+        dock_before = dock_autohide(True, run) if cfg.get("hide_dock", True) else None   # Dock masqué (remis à la fin)
+        sleep(1.0)
         log.info("3/5 lancement de la lecture")
         start_playback(cfg, run)            # la lecture démarre dans la fenêtre large (disposition connue)
         crop = None
@@ -189,8 +222,12 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
     except Exception:
         cap.kill()
         osa('tell application "Synthesia" to quit', run)
+        if dock_before is False:
+            dock_autohide(False, run)
         raise
     osa('tell application "Synthesia" to quit', run)
+    if dock_before is False:
+        dock_autohide(False, run)                          # remet le Dock comme avant
     if cap.returncode != 0 or not out.exists() or out.stat().st_size < 100_000:
         err = (cap.stderr.read().decode()[-300:] if cap.stderr else "")
         raise RuntimeError(f"capture écran échouée (autorisation « Enregistrement de l'écran » pour le Terminal ?) {err}")

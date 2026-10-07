@@ -29,7 +29,7 @@ synthesia:
   app_path: /Applications/Synthesia.app
   calibrated: false     # passer à true après `piano mac-check` + vérification visuelle d'une vidéo test
   load_seconds: 6       # attente du chargement du MIDI
-  lead_in_seconds: 4    # délai (s) entre le début de la capture et la 1re note, à étalonner
+  lead_in_seconds: 8    # délai (s) entre le début de la capture et la 1re note, à étalonner
   tail_seconds: 2
   start_mode: click      # click = bouton Continuer de l'écran « Regarder et écouter seulement » ; return = touche Entrée
   # positions relevées sur vos captures (px d'une capture plein écran de 2000 px de large), converties selon votre écran
@@ -41,8 +41,12 @@ synthesia:
   titlebar_points: 24
   capture_backend: screencapture   # enregistreur intégré à macOS (plus fiable que ffmpeg avfoundation) ; ffmpeg en secours
   portrait: true          # redimensionne la fenêtre Synthesia en vertical (gros plan)
-  portrait_margin_points: 70
-  capture_trim: 5.5     # secondes à couper au début de la capture (étalonner pour caler l'audio)
+  window_top_points: 40     # sous la barre de menus
+  portrait_margin_points: 6
+  hide_dock: true           # masque le Dock pendant l'enregistrement (remis ensuite) -> fenêtre plus haute
+  capture_trim: 5.5
+  first_note_seconds: 2.5   # repli si la détection auto échoue : instant (dans la vidéo) de la 1re note
+  crop_toolbar_fraction: 0.12   # masque la barre d'outils de Synthesia     # secondes à couper au début de la capture (étalonner pour caler l'audio)
 keyboard:
   keys: 28              # clavier affiché : 28 touches (réglage à faire une fois dans Synthesia)
   lowest_key: 47        # B2 ; la musique est ramenée dans cette plage (47..74)

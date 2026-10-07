@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-W, H, TOP = 1080, 1920, 270          # bandeau titre de 270 px, app dessous (1080x1650)
+W, H, TOP = 1080, 1920, 300          # bandeau titre de 300 px, app dessous (1080x1620)
 _FONTS = ["/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/System/Library/Fonts/Helvetica.ttc",
           "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
 
@@ -31,17 +31,51 @@ def _line(draw, text, y, size, fill, width=W - 80):
     draw.text((W / 2, y), text, font=f, fill=fill, anchor="mt", stroke_width=2, stroke_fill=(0, 0, 0, 170))
 
 
+def _wrap(draw, text, size, width=W - 100, max_lines=2):
+    """Coupe le titre sur 2 lignes max ; réduit la police si besoin."""
+    while size > 34:
+        f = _font(size)
+        words, lines, cur = text.split(), [], ""
+        for w_ in words:
+            test = (cur + " " + w_).strip()
+            if draw.textlength(test, font=f) <= width: cur = test
+            else:
+                lines.append(cur); cur = w_
+        lines.append(cur)
+        if len(lines) <= max_lines and all(draw.textlength(l, font=f) <= width for l in lines):
+            return f, lines
+        size -= 4
+    return _font(34), [text[:40]]
+
+
 def _banner(path: Path, title: str, subtitle: str):
-    img = Image.new("RGBA", (W, TOP), (0, 0, 0, 0))
+    """Bandeau dégradé : titre en grand (2 lignes max), compositeur, filet doré."""
+    img = Image.new("RGBA", (W, TOP), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
-    if title: _line(d, title, 45, 62, (255, 255, 255, 255))
-    if subtitle: _line(d, subtitle, 130, 38, (191, 197, 224, 255))
+    for y in range(TOP):
+        k = y / TOP
+        d.line([(0, y), (W, y)], fill=(int(30 - 18 * k), int(34 - 20 * k), int(70 - 40 * k), 255))
+    f, lines = _wrap(d, title, 78)
+    y = 26
+    for l in lines:
+        d.text((W / 2, y), l, font=f, fill=(255, 255, 255, 255), anchor="mt", stroke_width=2, stroke_fill=(0, 0, 0, 160))
+        y += int(f.size * 1.12)
+    if subtitle:
+        d.text((W / 2, y + 6), subtitle, font=_font(40), fill=(200, 206, 235, 255), anchor="mt")
+    d.rectangle([0, TOP - 5, W, TOP], fill=(255, 196, 40, 255))
     img.save(path)
 
 
 def _tag(path: Path, text: str):
-    img = Image.new("RGBA", (W, 70), (0, 0, 0, 0))
-    _line(ImageDraw.Draw(img), text, 8, 44, (255, 220, 40, 255))
+    """Accroche / appel à l'action : pastille jaune lisible sur n'importe quel fond."""
+    img = Image.new("RGBA", (W, 84), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    f = _font(46)
+    while d.textlength(text, font=f) > W - 120 and f.size > 26:
+        f = _font(f.size - 2)
+    tw = d.textlength(text, font=f)
+    d.rounded_rectangle([(W - tw) / 2 - 28, 6, (W + tw) / 2 + 28, 78], radius=36, fill=(255, 196, 40, 240))
+    d.text((W / 2, 42), text, font=f, fill=(20, 20, 30, 255), anchor="mm")
     img.save(path)
 
 
@@ -56,9 +90,9 @@ def build_filter(td: Path, duration: float, title="", subtitle="", hook="", cta=
     if title or subtitle:
         p = td / "banner.png"; _banner(p, title[:60], subtitle[:60]); layers.append((p, 0, ""))
     if hook:
-        p = td / "hook.png"; _tag(p, hook[:60]); layers.append((p, 205, ":enable='between(t,0,3.5)'"))
+        p = td / "hook.png"; _tag(p, hook[:60]); layers.append((p, TOP + 12, ":enable='between(t,0,3.5)'"))
     if cta:
-        p = td / "cta.png"; _tag(p, cta[:60]); layers.append((p, 205, f":enable='gt(t,{max(duration - 3.5, 0):.1f})'"))
+        p = td / "cta.png"; _tag(p, cta[:60]); layers.append((p, TOP + 12, f":enable='gt(t,{max(duration - 3.5, 0):.1f})'"))
     for n, (p, y, en) in enumerate(layers):
         out = "v" if n == len(layers) - 1 else f"vl{n}"
         chain += f";[{cur}][{idx}:v]overlay=0:{y}{en}[{out}]"

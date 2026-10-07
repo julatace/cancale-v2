@@ -66,13 +66,26 @@ def test_start_playback_raises_when_not_allowed():
         mac.start_playback({**CFG, "start_mode": "return"}, run, sleep=lambda s: None)
 
 
-def test_portrait_window_is_resized_in_9_16_zone():
+def test_portrait_window_uses_full_height_and_exact_aspect():
     log = []
-    geo = mac.arrange_window_portrait({**CFG, "portrait_margin_points": 70}, fake_run(log))
-    sets = [s for s in log if "set size" in s]
-    assert sets and "{" in sets[0]
-    h = 832 - 70
-    assert f"{{{int(h * 1080 / 1650)}, {h}}}" in sets[0]
+    cfg = {**CFG, "window_top_points": 40, "portrait_margin_points": 6, "titlebar_points": 24, "crop_toolbar_fraction": 0.12}
+    x, y, w, h = mac.portrait_size(cfg, 1470, 956)
+    assert (y, h) == (40, 956 - 40 - 6)
+    visible_h = (h - 24) * 0.88
+    assert abs(w / visible_h - 1080 / 1620) < 0.005          # zone visible = rapport du montage
+    mac.arrange_window_portrait(cfg, fake_run(log), sleep=lambda s: None)      # écran simulé 1280x832
+    _, _, w2, h2 = mac.portrait_size(cfg, 1280, 832)
+    assert any("set size" in s and f"{{{w2}, {h2}}}" in s for s in log)
+
+
+def test_dock_is_hidden_then_restored():
+    from types import SimpleNamespace as NS
+    calls = []
+    def run(cmd, **k):
+        s = cmd[-1]; calls.append(s)
+        return NS(returncode=0, stdout="false" if "get autohide" in s else "", stderr="")
+    old = mac.dock_autohide(True, run)
+    assert old is False and any("set autohide to true" in s for s in calls)
 
 
 def test_content_has_hook_cta_and_platform_captions():

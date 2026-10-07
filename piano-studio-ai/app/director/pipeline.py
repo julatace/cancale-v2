@@ -15,7 +15,7 @@ from app.publisher import adapters
 from app.quality_control import qc
 from app.section_selector.selector import select_section
 from app.visualizer import falling, synth
-from app.synthesia_controller import mac
+from app.synthesia_controller import mac, sync
 from app.renderer import compose
 from app.midi_analyzer.writer import trim_midi
 
@@ -86,9 +86,17 @@ def _render(s, notes, sec, out, meta, tempo, content=None) -> str:
                 (td / "s.mid").write_bytes(trim_midi(notes, sec["start"], sec["start"] + sec["duration"]))
                 cap, crop = mac.record(td / "s.mid", sec["duration"], td / "cap.mov", cfg)
                 mac.debug_frames(cap, config.resolve(s, "data_dir") / "debug")
-                shifted = [type(n)(n.start - sec["start"] + cfg["lead_in_seconds"] - cfg["capture_trim"], n.end - sec["start"] + cfg["lead_in_seconds"] - cfg["capture_trim"], n.pitch, n.velocity, n.track)
-                           for n in notes if n.end > sec["start"] and n.start < sec["start"] + sec["duration"]]
-                shifted = [n for n in shifted if n.end > 0]
+                inside = [n for n in notes if n.end > sec["start"] and n.start < sec["start"] + sec["duration"]]
+                first = max(min(n.start for n in inside) - sec["start"], 0.0)       # 1re note dans le MIDI découpé
+                t_on = sync.detect_first_note(cap, crop, cfg["capture_trim"])
+                if t_on is None:
+                    t_on = cfg.get("first_note_seconds", 2.5)
+                    log.warning("calage auto impossible -> repli sur %.1fs", t_on)
+                else:
+                    log.info("🎚 Calage du son : 1re note visible à %.1fs dans la vidéo", t_on)
+                shift = t_on - first
+                shifted = [type(n)(n.start - sec["start"] + shift, n.end - sec["start"] + shift, n.pitch, n.velocity, n.track)
+                           for n in inside]
                 synth.write_wav(td / "a.wav", synth.render_audio(shifted, 0, sec["duration"]))
                 compose.compose_vertical(cap, td / "a.wav", out, cfg["capture_trim"], sec["duration"], meta["title"],
                                        subtitle=meta.get("artist", ""), hook=content.get("hook", ""), cta=content.get("cta", ""), crop=crop)
