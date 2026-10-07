@@ -75,7 +75,8 @@ def pick_song(conn, s, seed) -> tuple[int, Path, dict]:
     return pick_song(conn, s, seed + 1000003) if seed < 10_000_000 else (_ for _ in ()).throw(RuntimeError("aucun morceau disponible"))
 
 
-def _render(s, notes, sec, out, meta, tempo) -> str:
+def _render(s, notes, sec, out, meta, tempo, content=None) -> str:
+    content = content or {}
     """Synthesia (app de l'utilisateur) si disponible, sinon rendu intégré : la production ne s'arrête jamais."""
     cfg = s.get("synthesia", {})
     if s.get("engine", "auto") != "builtin" and mac.ready(cfg):
@@ -89,7 +90,8 @@ def _render(s, notes, sec, out, meta, tempo) -> str:
                            for n in notes if n.end > sec["start"] and n.start < sec["start"] + sec["duration"]]
                 shifted = [n for n in shifted if n.end > 0]
                 synth.write_wav(td / "a.wav", synth.render_audio(shifted, 0, sec["duration"]))
-                compose.compose_vertical(cap, td / "a.wav", out, cfg["capture_trim"], sec["duration"], meta["title"], crop=crop)
+                compose.compose_vertical(cap, td / "a.wav", out, cfg["capture_trim"], sec["duration"], meta["title"],
+                                       subtitle=meta.get("artist", ""), hook=content.get("hook", ""), cta=content.get("cta", ""), crop=crop)
             return "synthesia"
         except Exception as e:
             log.error("Synthesia a échoué (%s) -> rendu intégré", e)
@@ -124,7 +126,7 @@ def run_one(s, seed=None, dry_run=False, publish=True) -> dict:
     report = {**report}
     for attempt in range(1, 4):
         try:
-            engine = _render(s, notes, sec, out, meta, tempo)
+            engine = _render(s, notes, sec, out, meta, tempo, content)
             report["engine"] = engine
             result = qc.check(out, dur_range=(3, s["duration_range"][1] + 5))
             if qc.verdict(result["score"], **{"publish_min": s["qc"]["publish_min"], "autofix_min": s["qc"]["autofix_min"]}) == "PUBLISH":

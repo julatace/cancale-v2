@@ -52,6 +52,6 @@ def test_compose_vertical_from_fake_capture(tmp_path):
     cap, wav = tmp_path / "c.mp4", tmp_path / "a.wav"
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=30:duration=6", "-c:v", "libx264", str(cap)], check=True)
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=330:duration=4", str(wav)], check=True)
-    out = compose.compose_vertical(cap, wav, tmp_path / "o.mp4", 1, 4, "Test title")
+    out = compose.compose_vertical(cap, wav, tmp_path / "o.mp4", 1, 4, "Für Elise : l'été", "Beethoven", "Tu connais ce morceau ?", "Suis-moi", crop=(0.1, 0.05, 0.5, 0.9))
     from app.quality_control import qc
     assert qc.check(out, dur_range=(3, 6))["score"] >= 70

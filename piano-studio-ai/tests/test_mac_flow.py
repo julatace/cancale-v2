@@ -65,3 +65,18 @@ def test_start_playback_raises_when_not_allowed():
     run = lambda cmd, **k: NS(returncode=1, stdout="0, 0, 1000, 700", stderr="osascript n'est pas autorisé")
     with pytest.raises(RuntimeError):
         mac.start_playback({**CFG, "start_mode": "return"}, run, sleep=lambda s: None)
+
+
+def test_portrait_window_is_resized_in_9_16_zone():
+    log = []
+    geo = mac.arrange_window_portrait({**CFG, "portrait_margin_points": 70}, fake_run(log))
+    sets = [s for s in log if "set size" in s]
+    assert sets and "{" in sets[0]
+    h = 832 - 70
+    assert f"{{{int(h * 1080 / 1650)}, {h}}}" in sets[0]
+
+
+def test_content_has_hook_cta_and_platform_captions():
+    from app.content_generator.generate import generate
+    c = generate({"title": "Für Elise", "artist": "Beethoven"}, "Facile", 4, set())
+    assert c["hook"] and c["cta"] and c["tiktok_caption"] and c["instagram_caption"] and "#" in c["description"]

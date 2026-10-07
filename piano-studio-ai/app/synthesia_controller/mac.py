@@ -103,6 +103,17 @@ def start_playback(cfg: dict, run=sh, sleep=time.sleep) -> str:
     return "return"
 
 
+def arrange_window_portrait(cfg: dict, run=sh) -> tuple[int, int, int, int]:
+    """Fenêtre Synthesia en portrait (même rapport que la zone 1080x1650 du montage), collée en haut, centrée."""
+    sw, sh_ = screen_points(run)
+    h = sh_ - cfg.get("portrait_margin_points", 70)
+    w = int(h * 1080 / 1650)
+    x, y = (sw - w) // 2, 28
+    osa(f'tell application "System Events" to tell process "Synthesia" to set position of window 1 to {{{x}, {y}}}', run)
+    osa(f'tell application "System Events" to tell process "Synthesia" to set size of window 1 to {{{w}, {h}}}', run)
+    return window_geometry(run)
+
+
 def crop_fractions(cfg: dict, run=sh) -> tuple[float, float, float, float] | None:
     """Zone de la fenêtre Synthesia (sans barre de titre) en fractions de l'écran, pour recadrer la capture."""
     try:
@@ -135,13 +146,20 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
     sleep(2)
     run(["open", "-a", str(cfg["app_path"]), str(midi)])
     sleep(cfg["load_seconds"])
-    crop = crop_fractions(cfg, run)
     cap = subprocess.Popen(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "avfoundation", "-framerate", "30",
                             "-capture_cursor", "0", "-i", f"{screen}:none", "-t", str(total), "-c:v", "libx264",
                             "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p", str(out)], stderr=subprocess.PIPE)
     sleep(1.0)
     try:
-        start_playback(cfg, run)
+        start_playback(cfg, run)            # la lecture démarre dans la fenêtre large (disposition connue)
+        crop = None
+        if cfg.get("portrait", True):
+            try:
+                arrange_window_portrait(cfg, run)   # gros plan : fenêtre verticale
+                sleep(1.5)
+            except Exception:
+                pass                                # repli : fenêtre telle quelle
+        crop = crop_fractions(cfg, run)
         cap.wait(timeout=total + 30)
     except Exception:
         cap.kill()
