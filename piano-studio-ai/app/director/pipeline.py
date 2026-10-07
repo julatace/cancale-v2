@@ -23,6 +23,7 @@ from app.director import control, difficulty
 from app.visualizer import falling, synth
 from app.synthesia_controller import mac, sync
 from app.renderer import compose
+from app.renderer.thumbnail import make_thumbnail
 from app.midi_analyzer.writer import trim_midi
 
 log = logging.getLogger("piano.director")
@@ -216,6 +217,7 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
         log.info("✂ [%s] Passage retenu : %ss → %ss (%s)", fmt_name, sec["start"], sec["end"], sec["reason"])
         content = generate(song, diff, seed + k, used, lv["bpm"], lang or s.get("language", "fr"))
         content["format"], content["shorts"] = fmt_name, bool(F.get("shorts", True))
+        content["song_title"], content["song_artist"] = meta["title"], _subtitle(meta, content)
         used.add(content["title"])
         if meta.get("credit"):
             content["description"] += f"\n\nMIDI : {meta['credit']}"
@@ -365,6 +367,8 @@ def _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish, kb_lo
                                          cta=content.get("cta", ""), crop=use if (maximized or not wide) else crop,
                                          size=(F["width"], F["height"]), top=F["banner"], bg=bg)
             report["engine"] = "synthesia"
+            _w, _h, _y = compose.app_box(compose._probe_size(cap), use if not (wide and not maximized) else None, F["width"], F["height"], F["banner"])
+            content["banner_px"] = max(int(_y), F["banner"]) if not (wide and not maximized) else 0
             log.info("✔ Contrôle qualité...")
             low = 5 if sec.get("stopped_early") else (min(30, F.get("max_duration", 300) * 0.5) if full else 3)
             hi = (F.get("max_duration", 300) + 10) if full else (s["duration_range"][1] + 5)
@@ -409,7 +413,19 @@ def _finalize(s, conn, sid, level, fmt_name, F, out, sec, content, report, publi
     """Contrôle qualité déjà fait : enregistre la vidéo en base et publie."""
     ok = result is not None and result["score"] >= s["qc"]["publish_min"]
     log.info("✔ [%s] Score qualité : %s/100 -> %s", fmt_name, result["score"] if result else 0, "OK" if ok else "REFUSÉE")
+    if ok:                                                      # miniature : image de la vidéo + titre du morceau
+        try:
+            banner = content.get("banner_px")
+            if banner is None:                                  # rendu intégré : hauteur du bandeau selon le format
+                banner = falling.HORIZONTAL.TOP if F["width"] > F["height"] else falling.VERTICAL.TOP
+            th = make_thumbnail(out, Path(out).with_suffix(".jpg"), content.get("song_title") or content["title"], content.get("song_artist", ""),
+                                top_crop=int(banner))
+            content["thumbnail"] = str(th)
+            log.info("🖼 [%s] Miniature créée : %s", fmt_name, th.name)
+        except Exception as e:
+            log.warning("miniature non créée (%s)", e)
     post = {k: content.get(k) for k in ("title", "description", "tiktok_caption", "instagram_caption", "youtube_title", "pinned_comment", "hashtags")}
+    post["thumbnail"] = Path(content["thumbnail"]).name if content.get("thumbnail") else None
     vid = conn.execute("INSERT INTO videos(song_id,style,duration,output_path,quality_score,status,title,meta,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
                        (sid, f"{level}|{fmt_name}", sec["duration"], str(out), result["score"] if result else 0,
                         "READY" if ok else "FAILED", content["title"], json.dumps(post, ensure_ascii=False), db.now())).lastrowid
@@ -420,7 +436,7 @@ def _finalize(s, conn, sid, level, fmt_name, F, out, sec, content, report, publi
         report["error"] = last_err
         log.error("✖ ÉCHEC : %s", last_err)
     if ok and publish:
-        for ad in adapters(s):
+        for ad in adapters(s, fmt=fmt_name):
             try:
                 r = ad.publish(out, content, f"{vid}")
             except Exception as e:  # une plateforme ne bloque jamais les autres

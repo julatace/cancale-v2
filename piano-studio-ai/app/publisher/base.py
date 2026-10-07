@@ -35,6 +35,8 @@ class Outbox:
         d.mkdir(parents=True, exist_ok=True)
         shutil.copy2(video, d / "video.mp4")
         (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
+        if meta.get("thumbnail") and Path(meta["thumbnail"]).exists():
+            shutil.copy2(meta["thumbnail"], d / "miniature.jpg")
         return Result(self.platform, "EXPORTED", key, str(d))
 
 

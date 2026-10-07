@@ -216,7 +216,7 @@ def make_handler(settings_loader):
                 end = min(int(b), size - 1) if (b and a) else size - 1
                 code = 206
             self.send_response(code)
-            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Content-Type", "image/jpeg" if f.suffix.lower() == ".jpg" else "video/mp4")
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Length", str(end - start + 1))
             if code == 206:
@@ -272,6 +272,14 @@ def make_handler(settings_loader):
             if u.path == "/api/search":
                 q = parse_qs(u.query).get("q", [""])[0]
                 return self._json(msearch.search(s, q))
+            if u.path == "/api/check-platforms":
+                from app.publisher import adapters as _ads
+                out = []
+                for ad in _ads(s):
+                    if hasattr(ad, "check"):
+                        ok, msg = ad.check()
+                        out.append({"platform": ad.platform, "ok": ok, "message": msg})
+                return self._json(out)
             if u.path == "/api/latest":
                 return self._json(msearch.latest())
             if u.path == "/api/popular":

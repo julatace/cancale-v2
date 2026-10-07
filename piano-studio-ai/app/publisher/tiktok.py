@@ -63,6 +63,15 @@ class TikTok:
             raise RuntimeError("jeton TikTok refusé ou expiré : relancez `piano tiktok-login`")
         return r["access_token"]
 
+    def check(self) -> tuple[bool, str]:
+        try:
+            self._token()
+            return True, f"connecté (mode {self.mode})"
+        except NotConfigured as e:
+            return False, f"variable manquante : {e}"
+        except Exception as e:
+            return False, str(e)[:160] or type(e).__name__
+
     def publish(self, video, meta, key) -> Result:
         try:
             token = self._token()

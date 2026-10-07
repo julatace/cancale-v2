@@ -178,6 +178,18 @@ def cmd_tiktok_login(s, a):
     return 0
 
 
+def cmd_publish_check(s, a):
+    """Vérifie pour de vrai les connexions YouTube et TikTok (demande un jeton à chaque plateforme)."""
+    from .publisher import adapters
+    code = 0
+    for ad in adapters(s):
+        if hasattr(ad, "check"):
+            ok, msg = ad.check()
+            print(f"{'✅' if ok else '❌'} {ad.platform:<8} {msg}")
+            code |= not ok
+    return code
+
+
 def cmd_mac_install(s, a):
     from .scheduler import launchd
     p = launchd.install(s["publish_times"], config.ROOT)
@@ -205,6 +217,7 @@ def main(argv=None):
     cmds["mac-rec-test"] = cmd_mac_rec_test
     cmds["ui"] = cmd_ui
     cmds["youtube-login"] = cmd_youtube_login
+    cmds["publish-check"] = cmd_publish_check
     cmds["tiktok-login"] = cmd_tiktok_login
     cmds["mac-setup"] = cmd_mac_setup
     cmds["auto"] = cmds["run"] = cmds["dry-run"] = cmd_run

@@ -54,7 +54,7 @@ def test_failing_platform_does_not_block_others(s, monkeypatch):
     class Boom:
         platform = "boom"
         def publish(self, *a): raise RuntimeError("API down")
-    monkeypatch.setattr(pipeline, "adapters", lambda st: [Boom(), Outbox(config.resolve(st, "data_dir") / "published")])
+    monkeypatch.setattr(pipeline, "adapters", lambda st, fmt=None: [Boom(), Outbox(config.resolve(st, "data_dir") / "published")])
     r = pipeline.run_one(s, seed=6)
     assert [p["status"] for p in r["publications"]] == ["FAILED", "EXPORTED"]
 

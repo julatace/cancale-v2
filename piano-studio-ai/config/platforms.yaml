@@ -1,4 +1,5 @@
-tiktok:    {enabled: true,  adapter: tiktok}
-youtube:   {enabled: true,  adapter: youtube}
-instagram: {enabled: true,  adapter: instagram}
-facebook:  {enabled: true,  adapter: facebook}
+# Chaque vidéo n'est envoyée qu'aux plateformes qui acceptent son format.
+youtube:   {enabled: true,  formats: [vertical, horizontal]}   # vertical -> YouTube Shorts ; horizontal -> YouTube vidéo longue
+tiktok:    {enabled: true,  formats: [vertical]}               # TikTok : vertical uniquement
+instagram: {enabled: true,  formats: [vertical]}
+facebook:  {enabled: true,  formats: [vertical]}

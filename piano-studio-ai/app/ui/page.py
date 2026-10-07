@@ -130,6 +130,8 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
     <label class="sw">Langue des textes <select id="lang" class="sel" style="flex:none;padding:6px 10px"></select></label>
     <label class="sw"><input type="checkbox" id="synth" checked> Utiliser mon application Synthesia (sinon rendu intégré)</label>
     <label class="sw"><input type="checkbox" id="publish"> <span id="pubtxt">Publier ensuite</span></label>
+    <button class="btn alt" id="chk" style="padding:6px 12px;font-size:13px">Tester mes connexions</button>
+    <span id="chkres" class="note" style="margin:0"></span>
     <span class="est" id="est"></span>
   </div>
 </section>
@@ -238,12 +240,23 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-post]');if
   const txt=(POSTS[+b.dataset.post]||{})[b.dataset.k];if(!txt)return;
   const ok=()=>{const o=b.textContent;b.textContent='Copié ✓';b.classList.add('done');setTimeout(()=>{b.textContent=o;b.classList.remove('done')},1600)};
   (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject()).then(ok).catch(()=>{const a=document.createElement('textarea');a.value=txt;document.body.appendChild(a);a.select();try{document.execCommand('copy');ok()}catch(_){}a.remove()})});
+$('#chk').onclick=()=>{$('#chk').disabled=true;$('#chkres').textContent='Vérification…';
+  api('/api/check-platforms').then(r=>{$('#chkres').innerHTML=r.length?r.map(x=>`<b style="color:var(--${x.ok?'ok':'bad'})">${x.ok?'✓':'✗'} ${esc(x.platform)}</b> ${esc(x.message)}`).join(' · '):'Aucune plateforme à tester.'})
+   .catch(()=>{$('#chkres').textContent='Test impossible.'}).finally(()=>{$('#chk').disabled=false})};
+function pubResult(x){
+  if(!x.publications||!x.publications.length)return '';
+  const names={youtube:x.format==='horizontal'?'YouTube (vidéo longue)':'YouTube Shorts',tiktok:'TikTok',outbox:'Dossier prêt à poster'};
+  return '<div class="pubnote" style="margin-top:8px">'+x.publications.filter(p=>p.platform!=='outbox'||x.publications.length===1).map(p=>{
+    const ok=p.status==='PUBLISHED'||p.status==='DRAFT'||p.status==='EXPORTED';
+    const label=p.status==='PUBLISHED'?'publié':p.status==='DRAFT'?'brouillon prêt dans TikTok':p.status==='NOT_CONFIGURED'?'non connecté':p.status==='EXPORTED'?'prêt':'échec';
+    const link=/^https?:/.test(p.detail||'')?` · <a href="${esc(p.detail.split(' ')[0])}" target="_blank" rel="noopener">voir</a>`:'';
+    return `<b style="color:var(--${ok?'ok':p.status==='NOT_CONFIGURED'?'mute':'bad'})">${esc(names[p.platform]||p.platform)} : ${label}</b>${link}${!ok&&p.detail?' — '+esc(p.detail):''}`}).join('<br>')+'</div>'}
 function stepper(){$('#stepper').innerHTML=STEPS.map((s,i)=>`<li class="${i<cur?'done':i===cur?'cur':''}">${i<cur?'✓ ':''}${s}</li>`).join('')}
 function track(line){const m=line.match(/\[(vertical|horizontal)\]/);if(m)fmtLabel=m[1]==='vertical'?'Vertical':'Horizontal';
   const k=line.startsWith('♪')?0:/^[🔎✂]/u.test(line)?1:line.startsWith('🎬')?2:line.startsWith('✔')?3:line.startsWith('📤')?4:null;
   if(line.startsWith('✂'))cur=1;else if(k!==null&&k>cur)cur=k}
 function results(r){const list=r.videos||[r];$('#res').innerHTML=list.filter(x=>x&&x.video).map(x=>{const f=x.video.split('/').pop(),bad=x.status==='FAILED';
-  return `<div class="vid"><div class="meta"><span>${x.format==='horizontal'?'Horizontal long':'Vertical court'} ${x.engine?`<span class="tag ${x.engine==='synthesia'?'mine':''}">${x.engine==='synthesia'?'Fait avec Synthesia':'Rendu intégré'}</span>`:''}</span><span class="chip ${bad?'bad':'ok'}">${bad?'Échec':'Qualité '+(x.qc?x.qc.score:'-')+'/100'}</span></div>${bad?`<p class="err">${esc(x.error||'La fabrication a échoué')}</p>`:`<video controls playsinline preload="metadata" src="/files/${encodeURIComponent(f)}"></video><a href="/files/${encodeURIComponent(f)}" download="${esc(f)}">⬇ Télécharger</a>${pubBox(x.post)}`}</div>`}).join('')}
+  return `<div class="vid"><div class="meta"><span>${x.format==='horizontal'?'Horizontal long':'Vertical court'} ${x.engine?`<span class="tag ${x.engine==='synthesia'?'mine':''}">${x.engine==='synthesia'?'Fait avec Synthesia':'Rendu intégré'}</span>`:''}</span><span class="chip ${bad?'bad':'ok'}">${bad?'Échec':'Qualité '+(x.qc?x.qc.score:'-')+'/100'}</span></div>${bad?`<p class="err">${esc(x.error||'La fabrication a échoué')}</p>`:`<video controls playsinline preload="metadata" src="/files/${encodeURIComponent(f)}"></video><a href="/files/${encodeURIComponent(f)}" download="${esc(f)}">⬇ Télécharger</a>${pubBox(x.post)}${pubResult(x)}${x.post&&x.post.thumbnail?`<a href="/files/${encodeURIComponent(x.post.thumbnail)}" download="${esc(x.post.thumbnail)}" style="margin-left:14px">🖼 Miniature</a>`:''}`}</div>`}).join('')}
 function poll(){api('/api/status?since='+since).then(s=>{
   since=s.last;const L=$('#log');s.logs.forEach(l=>track(l));
   if(s.logs.length){L.textContent+=s.logs.join('\n')+'\n';L.scrollTop=L.scrollHeight;const last=s.logs[s.logs.length-1];$('#now').textContent=(fmtLabel&&s.status==='running'?fmtLabel+' · ':'')+last.replace(/\s*\[(vertical|horizontal)\]\s*/,' ').trim()}
