@@ -281,7 +281,12 @@ def make_handler(settings_loader):
 
 
 def serve(port=8765, open_browser=True, settings_loader=config.load_settings):
-    srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(settings_loader))
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(settings_loader))
+    except OSError as e:
+        print(f"❌ Le port {port} est déjà utilisé ({e.strerror}) : une ancienne page tourne encore.\n"
+              f"   Fermez-la (Ctrl+C dans son Terminal) ou lancez : lsof -ti tcp:{port} | xargs kill")
+        raise SystemExit(1)
     url = f"http://127.0.0.1:{srv.server_address[1]}"
     print(f"Interface Piano Studio AI : {url}   (Ctrl+C pour arrêter)")
     stock.refill_in_background(settings_loader())         # réserve de morceaux prête avant même le premier clic
