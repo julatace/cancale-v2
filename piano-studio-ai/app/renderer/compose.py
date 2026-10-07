@@ -49,8 +49,8 @@ def build_filter(td: Path, duration: float, title="", subtitle="", hook="", cta=
     """Retourne (filtre, entrées PNG supplémentaires)."""
     c = f"crop=iw*{crop[2]:.4f}:ih*{crop[3]:.4f}:iw*{crop[0]:.4f}:ih*{crop[1]:.4f}," if crop else ""
     chain = (f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=40:5,eq=brightness=-0.3[bg];"
-             f"[1:v]{c}scale={W}:{H - TOP}:force_original_aspect_ratio=increase,crop={W}:{H - TOP}[fg];"
-             f"[bg][fg]overlay=0:{TOP}[v0]")
+             f"[1:v]{c}scale={W}:{H - TOP}:force_original_aspect_ratio=decrease:flags=lanczos[fg];"   # fenêtre entière, jamais rognée
+             f"[bg][fg]overlay=(W-w)/2:{TOP}+(({H - TOP})-h)/2[v0]")
     cur, extra, idx = "v0", [], 3          # entrées 0,1 = capture ; 2 = audio ; 3.. = PNG
     layers = []
     if title or subtitle:
@@ -78,8 +78,8 @@ def compose_vertical(capture, audio_wav, out, trim: float, duration: float, titl
                "-ss", str(trim), "-t", str(duration), "-i", str(capture), "-i", str(audio_wav)]
         for p in pngs:
             cmd += ["-i", p]
-        cmd += ["-filter_complex", chain, "-map", "[v]", "-map", "2:a", "-r", str(fps), "-c:v", "libx264", "-preset", "medium",
-                "-crf", "19", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(out)]
+        cmd += ["-filter_complex", chain, "-map", "[v]", "-map", "2:a", "-r", str(fps), "-c:v", "libx264", "-preset", "slow",
+                "-crf", "16", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(out)]
         r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode or not Path(out).exists():
         raise RuntimeError(f"compose: {r.stderr[-300:]}")

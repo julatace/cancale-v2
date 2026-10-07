@@ -110,15 +110,26 @@ def start_playback(cfg: dict, run=sh, sleep=time.sleep) -> str:
     return "return"
 
 
-def arrange_window_portrait(cfg: dict, run=sh) -> tuple[int, int, int, int]:
-    """Fenêtre Synthesia en portrait (même rapport que la zone 1080x1650 du montage), collée en haut, centrée."""
+def arrange_window_portrait(cfg: dict, run=sh, sleep=time.sleep) -> tuple[int, int, int, int]:
+    """Fenêtre Synthesia en portrait (même rapport que la zone 1080x1650 du montage), collée en haut, centrée.
+    Vérifie le résultat réel ; réessaie une fois dans l'autre ordre si la fenêtre est restée large."""
     sw, sh_ = screen_points(run)
     h = sh_ - cfg.get("portrait_margin_points", 70)
     w = int(h * 1080 / 1650)
     x, y = (sw - w) // 2, 28
-    osa(f'tell application "System Events" to tell process "Synthesia" to set position of window 1 to {{{x}, {y}}}', run)
-    osa(f'tell application "System Events" to tell process "Synthesia" to set size of window 1 to {{{w}, {h}}}', run)
-    return window_geometry(run)
+    geo = (0, 0, 1, 1)
+    for order in (("size", "pos"), ("pos", "size", "size")):
+        for what in order:
+            val = f"{{{w}, {h}}}" if what == "size" else f"{{{x}, {y}}}"
+            prop = "size" if what == "size" else "position"
+            osa(f'tell application "System Events" to tell process "Synthesia" to set {prop} of window 1 to {val}', run)
+            sleep(0.4)
+        geo = window_geometry(run)
+        log.info("fenêtre Synthesia après redimensionnement : x=%s y=%s largeur=%s hauteur=%s (visé %sx%s)", *geo, w, h)
+        if geo[2] / max(geo[3], 1) < 0.85:
+            return geo
+    log.warning("la fenêtre Synthesia n'est pas devenue verticale (%sx%s) : le gros plan sera limité", geo[2], geo[3])
+    return geo
 
 
 def crop_fractions(cfg: dict, run=sh) -> tuple[float, float, float, float] | None:
