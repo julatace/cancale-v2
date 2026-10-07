@@ -2,6 +2,7 @@
 import logging
 import random
 import tempfile
+import time
 from pathlib import Path
 
 from app import config
@@ -48,12 +49,18 @@ def _from_mutopia(conn, s, midi_dir, seed):
     return None
 
 
-def pick_song(conn, s, seed) -> tuple[int, Path, dict]:
-    """1) MIDI LEGAL_CONFIRMED inutilisé en base ; 2) mélodie du domaine public ; 3) composition originale."""
-    rows = conn.execute("SELECT id, midi_path, title, artist FROM songs WHERE license='LEGAL_CONFIRMED' ORDER BY id").fetchall()
-    for r in rows:
-        if r["midi_path"] and Path(r["midi_path"]).exists() and db.song_usable(conn, r["id"], s["same_song_cooldown_days"])[0]:
-            return r["id"], Path(r["midi_path"]), {"title": r["title"], "artist": r["artist"]}
+def _credit(source: str) -> str:
+    return "Mutopia Project (CC BY)" if "CC-BY" in (source or "") else ""
+
+
+def pick_song(conn, s, seed, exclude=()) -> tuple[int, Path, dict]:
+    """1) MIDI de la réserve (légal, pas utilisé récemment, tiré au hasard) ; 2) recherche en ligne ; 3) domaine public / composition."""
+    rows = conn.execute("SELECT id, midi_path, title, artist, source FROM songs WHERE license='LEGAL_CONFIRMED' ORDER BY id").fetchall()
+    ok = [r for r in rows if r["id"] not in exclude and r["midi_path"] and Path(r["midi_path"]).exists()
+          and db.song_usable(conn, r["id"], s["same_song_cooldown_days"])[0]]
+    if ok:
+        r = random.Random(seed).choice(ok)
+        return r["id"], Path(r["midi_path"]), {"title": r["title"], "artist": r["artist"], "credit": _credit(r["source"])}
     midi_dir = config.resolve(s, "data_dir") / "midi"
     midi_dir.mkdir(parents=True, exist_ok=True)
     got = _from_mutopia(conn, s, midi_dir, seed)
@@ -123,18 +130,32 @@ def _render(s, notes, sec, out, meta, tempo, content=None, F=None) -> str:
     return "builtin"
 
 
-def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None) -> dict:
+def _target(F, s, ana) -> float:
+    if F.get("duration") == "full":
+        return min(F.get("max_duration", 300), ana["duration"])
+    return min(s["duration_target"], ana["duration"])
+
+
+def _formats(s, fmt, formats) -> list[tuple[str, dict]]:
+    names = list(formats) if formats else [fmt or s.get("default_format", "vertical")]
+    fm = s.get("formats", {})
+    return [(n, fm.get(n) or {"width": 1080, "height": 1920, "banner": 300, "shorts": True}) for n in names]
+
+
+def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, formats=None) -> dict:
+    """Une création : UN morceau et UN niveau, rendus dans chaque format demandé (vertical court et/ou horizontal long)."""
     conn = db.connect(config.resolve(s, "database"))
     seed = seed if seed is not None else random.SystemRandom().randrange(1, 1_000_000)
-    log.info("▶ Nouvelle vidéo : recherche d'un morceau libre de droits...")
+    fmts = _formats(s, fmt, formats)
+    log.info("▶ Nouvelle création : recherche d'un morceau libre de droits...")
     done = conn.execute("SELECT COUNT(*) FROM videos").fetchone()[0]
     level, lv = difficulty.choose_level(s, done, level)
-    fmt_name = fmt or s.get("default_format", "vertical")
-    F = s.get("formats", {}).get(fmt_name) or {"width": 1080, "height": 1920, "banner": 300, "shorts": True}
-    full = F.get("duration") == "full"
-    log.info("🎯 Niveau : %s (%s BPM) | Format : %s %sx%s%s", lv["label"], lv["bpm"], fmt_name, F["width"], F["height"], " (morceau entier)" if full else "")
-    for attempt_song in range(6):                   # niveaux faciles : on écarte les morceaux trop denses
-        sid, midi, meta = pick_song(conn, s, seed + attempt_song * 7919)
+    needs_full = any(F.get("duration") == "full" for _, F in fmts)
+    log.info("🎯 Niveau : %s (%s BPM) | Formats : %s", lv["label"], lv["bpm"], ", ".join(n for n, _ in fmts))
+    tried = set()
+    for attempt_song in range(6):                   # on écarte les morceaux trop denses / trop courts pour la demande
+        sid, midi, meta = pick_song(conn, s, seed + attempt_song * 7919, exclude=tried)
+        tried.add(sid)
         log.info("♪ Morceau choisi : %s - %s", meta["title"], meta["artist"])
         notes, tempo = parse_midi(midi)
         notes = fold_notes(notes, s["keyboard"]["lowest_key"], s["keyboard"]["keys"])  # plage du clavier
@@ -143,42 +164,53 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None) -> 
         tempo = [(0.0, lv["bpm"])]
         ana = analyze(notes, tempo)
         log.info("🔎 Analyse : %s notes, durée %ss (tempo x%.2f -> %s BPM)", ana["note_count"], ana["duration"], factor, lv["bpm"])
-        target = min(F.get("max_duration", 300), ana["duration"]) if full else min(s["duration_target"], ana["duration"])
-        sec = select_section(notes, target)
-        too_short = full and ana["duration"] < F.get("min_duration", 90)
-        if sec["density"] <= lv["max_density"] and not too_short:
+        first_sec = select_section(notes, _target(fmts[0][1], s, ana))
+        too_short = needs_full and ana["duration"] < min(F.get("min_duration", 90) for _, F in fmts if F.get("duration") == "full")
+        if first_sec["density"] <= lv["max_density"] and not too_short:
             break
-        if too_short:
-            log.info("↻ Morceau trop court pour un format long (%.0fs) : autre morceau", ana["duration"])
-            continue
-        log.info("↻ Trop dense pour le niveau %s (%.1f notes/s > %s) : autre morceau", lv["label"], sec["density"], lv["max_density"])
-    log.info("✂ Passage retenu : %ss → %ss (%s)", sec["start"], sec["end"], sec["reason"])
-    diff = lv["label"]
+        log.info("↻ Morceau écarté (%s) : autre morceau",
+                 f"trop court {ana['duration']:.0f}s" if too_short else f"trop dense {first_sec['density']:.1f} notes/s")
+    song = {"title": meta["title"], "artist": meta["artist"]}
     used = {r[0] for r in conn.execute("SELECT title FROM videos WHERE title IS NOT NULL")}
-    content = generate({"title": meta["title"], "artist": meta["artist"]}, diff, seed, used, lv["bpm"])
-    content["format"], content["shorts"] = fmt_name, bool(F.get("shorts", True))
-    log.info("✍ Titre : %s | niveau %s", content["title"], diff)
-    if meta.get("credit"):
-        content["description"] += f"\n\nMIDI : {meta['credit']}"
-    report = {"song": meta["title"], "section": sec, "difficulty": diff, "bpm": lv["bpm"], "format": fmt_name, "title": content["title"]}
-    if dry_run:
-        return {**report, "status": "DRY_RUN"}
+    diff = lv["label"]
+    reports = []
+    for k, (fmt_name, F) in enumerate(fmts):
+        sec = select_section(notes, _target(F, s, ana))
+        log.info("✂ [%s] Passage retenu : %ss → %ss (%s)", fmt_name, sec["start"], sec["end"], sec["reason"])
+        content = generate(song, diff, seed + k, used, lv["bpm"])
+        content["format"], content["shorts"] = fmt_name, bool(F.get("shorts", True))
+        used.add(content["title"])
+        if meta.get("credit"):
+            content["description"] += f"\n\nMIDI : {meta['credit']}"
+        log.info("✍ [%s] Titre : %s", fmt_name, content["title"])
+        report = {"song": meta["title"], "section": sec, "difficulty": diff, "bpm": lv["bpm"], "format": fmt_name, "title": content["title"]}
+        if dry_run:
+            reports.append({**report, "status": "DRY_RUN"})
+            break
+        reports.append(_produce(s, conn, sid, level, fmt_name, F, notes, tempo, sec, meta, content, report, publish))
+    if len(reports) == 1:
+        return reports[0]
+    ok = [r["status"] in ("READY", "PUBLISHED") for r in reports]
+    return {"song": meta["title"], "difficulty": diff, "bpm": lv["bpm"], "videos": reports,
+            "status": "READY" if all(ok) else "PARTIAL" if any(ok) else "FAILED"}
+
+
+def _produce(s, conn, sid, level, fmt_name, F, notes, tempo, sec, meta, content, report, publish) -> dict:
+    full = F.get("duration") == "full"
     out_dir = config.resolve(s, "data_dir") / "rendered"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"{sid}_{seed}_{fmt_name}.mp4"
-    result = None
-    last_err = ""
-    report = {**report}
+    out = out_dir / f"{sid}_{int(time.time())}_{fmt_name}.mp4"
+    result, last_err = None, ""
     for attempt in range(1, 4):
         try:
-            log.info("🎬 Fabrication de la vidéo (tentative %d/3)...", attempt)
+            log.info("🎬 [%s] Fabrication de la vidéo (tentative %d/3)...", fmt_name, attempt)
             engine = _render(s, notes, sec, out, meta, tempo, content, F)
             report["engine"] = engine
-            log.info("🎬 Vidéo prête avec le moteur « %s »", engine)
+            log.info("🎬 [%s] Vidéo prête avec le moteur « %s »", fmt_name, engine)
             log.info("✔ Contrôle qualité...")
             dur_range = (min(30, F.get("max_duration", 300) * 0.5), F.get("max_duration", 300) + 10) if full else (3, s["duration_range"][1] + 5)
             result = qc.check(out, expect_w=F["width"], expect_h=F["height"], dur_range=dur_range)
-            if qc.verdict(result["score"], **{"publish_min": s["qc"]["publish_min"], "autofix_min": s["qc"]["autofix_min"]}) == "PUBLISH":
+            if qc.verdict(result["score"], publish_min=s["qc"]["publish_min"], autofix_min=s["qc"]["autofix_min"]) == "PUBLISH":
                 break
             log.warning("QC %s (tentative %d): %s", result["score"], attempt, result["issues"])
         except Exception as e:
@@ -188,7 +220,7 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None) -> 
             if s.get("engine") == "synthesia":
                 break                                   # mode forcé : une seule tentative, on veut l'erreur
     ok = result is not None and result["score"] >= s["qc"]["publish_min"]
-    log.info("✔ Score qualité : %s/100 -> %s", result["score"] if result else 0, "OK" if ok else "REFUSÉE")
+    log.info("✔ [%s] Score qualité : %s/100 -> %s", fmt_name, result["score"] if result else 0, "OK" if ok else "REFUSÉE")
     vid = conn.execute("INSERT INTO videos(song_id,style,duration,output_path,quality_score,status,title,created_at) VALUES(?,?,?,?,?,?,?,?)",
                        (sid, f"{level}|{fmt_name}", sec["duration"], str(out), result["score"] if result else 0,
                         "READY" if ok else "FAILED", content["title"], db.now())).lastrowid

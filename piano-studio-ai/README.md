@@ -15,3 +15,5 @@ Config : `config/settings.yaml`, `config/platforms.yaml`, `templates/*.json`. Se
 ```bash
 ./p.sh ui      # ouvre http://127.0.0.1:8765 : niveau (facile/moyen/difficile) + format (vertical court / horizontal long)
 ```
+
+`piano ui` crée d'office les deux formats (vertical court + horizontal long) avec le même morceau, et garde `stock.target` morceaux d'avance téléchargés en arrière-plan (réserve visible en haut de la page).

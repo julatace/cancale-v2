@@ -14,10 +14,10 @@ def srv(tmp_path, monkeypatch):
     st = config.load_settings()
     st["paths"] = {**st["paths"], "data_dir": str(tmp_path), "database": str(tmp_path / "d.sqlite3"), "logs_dir": str(tmp_path / "l")}
     calls = []
-    def fake(settings, level=None, fmt=None, publish=True, **k):
+    def fake(settings, level=None, formats=None, publish=True, **k):
         import logging
         logging.getLogger("piano.director").info("🎬 étape test")
-        calls.append((level, fmt, publish))
+        calls.append((level, tuple(formats), publish))
         time.sleep(0.2)
         return {"status": "READY", "video": str(tmp_path / "x.mp4"), "qc": {"score": 100}}
     monkeypatch.setattr(server, "RUNNER", fake)
@@ -52,21 +52,21 @@ def test_page_and_options(srv):
 
 def test_run_with_level_and_format_and_live_logs(srv):
     base, calls = srv
-    req = urllib.request.Request(base + "/api/run", json.dumps({"level": "difficile", "format": "horizontal", "publish": False}).encode(),
+    req = urllib.request.Request(base + "/api/run", json.dumps({"level": "difficile", "formats": ["vertical", "horizontal"], "publish": False}).encode(),
                                  {"Content-Type": "application/json"})
     assert json.load(urllib.request.urlopen(req))["ok"]
     for _ in range(40):
         st = get(base + "/api/status")
         if st["status"] != "running": break
         time.sleep(0.1)
-    assert st["status"] == "done" and calls == [("difficile", "horizontal", False)]
+    assert st["status"] == "done" and calls == [("difficile", ("vertical", "horizontal"), False)]
     assert any("étape test" in m for m in st["logs"])
 
 
 def test_rejects_unknown_choices_foreign_origin_and_parallel(srv):
     base, _ = srv
     assert post(base + "/api/run", {"level": "dieu"})[0] == 400
-    assert post(base + "/api/run", {"format": "carre"})[0] == 400
+    assert post(base + "/api/run", {"formats": ["carre"]})[0] == 400
     assert post(base + "/api/run", {"level": "facile"}, {"Origin": "https://evil.example"})[0] == 403
     assert get(base + "/files/..%2F..%2Fetc%2Fpasswd") if False else True
     try:
