@@ -84,6 +84,15 @@ def options(s) -> dict:
     }
 
 
+def _version() -> str:
+    try:
+        import subprocess
+        return subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=Path(__file__).parent, timeout=5).stdout.strip() or "?"
+    except Exception:
+        return "?"
+
+
+VERSION = _version()                # version du code réellement chargée par ce serveur
 _ENGINE = {"at": 0, "value": None, "busy": False}
 
 
@@ -102,7 +111,7 @@ def info(s) -> dict:
     if time.time() - _ENGINE["at"] > 60 and not _ENGINE["busy"]:
         _ENGINE["busy"] = True
         threading.Thread(target=_probe_engine, args=(s,), daemon=True).start()
-    return {"stock": stock.count(s), "stock_target": s.get("stock", {}).get("target", 3), "engine": _ENGINE["value"]}
+    return {"stock": stock.count(s), "stock_target": s.get("stock", {}).get("target", 3), "engine": _ENGINE["value"], "version": VERSION}
 
 
 def _origin(src: str) -> str:
