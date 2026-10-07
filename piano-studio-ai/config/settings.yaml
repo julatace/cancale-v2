@@ -89,4 +89,4 @@ stock:
 ui_default_formats: [vertical, horizontal]   # les deux formats sont créés d'office
 language: fr            # langue des textes de la vidéo et de la publication : fr | en | es
 tiktok:
-  mode: draft            # draft = la vidéo arrive dans la boîte de réception TikTok (vous touchez « Publier ») ; direct = publication immédiate (privée tant que l'app n'est pas approuvée)
+  mode: draft            # web = pilote Safari déjà connecté (sans clé API, voir tiktok-web) ; draft = la vidéo arrive dans la boîte de réception TikTok (vous touchez « Publier ») ; direct = publication immédiate (privée tant que l'app n'est pas approuvée)

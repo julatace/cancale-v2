@@ -178,6 +178,29 @@ def cmd_tiktok_login(s, a):
     return 0
 
 
+def cmd_tiktok_web(s, a):
+    """Poste une vidéo sur TikTok en pilotant Safari (compte déjà connecté dans Safari)."""
+    from .publisher import tiktok_web
+    from .database import db
+    video, cap = a.video, a.caption
+    if not video:
+        conn = db.connect(config.resolve(s, "database"))
+        row = conn.execute("SELECT output_path, meta FROM videos WHERE status='READY' AND style LIKE '%|vertical' ORDER BY id DESC LIMIT 1").fetchone()
+        if not row:
+            print("❌ Aucune vidéo verticale prête : crée-en une d'abord.")
+            return 1
+        video = row[0]
+        import json
+        m = json.loads(row[1] or "{}")
+        cap = cap or m.get("tiktok_caption") or m.get("description") or m.get("title") or ""
+    try:
+        print("✅", tiktok_web.post(video, cap, publish=a.post, say=lambda m: print(m)))
+    except Exception as e:
+        print(f"❌ {e}")
+        return 1
+    return 0
+
+
 def cmd_publish_check(s, a):
     """Vérifie pour de vrai les connexions YouTube et TikTok (demande un jeton à chaque plateforme)."""
     from .publisher import adapters
@@ -219,6 +242,7 @@ def main(argv=None):
     cmds["youtube-login"] = cmd_youtube_login
     cmds["publish-check"] = cmd_publish_check
     cmds["tiktok-login"] = cmd_tiktok_login
+    cmds["tiktok-web"] = cmd_tiktok_web
     cmds["mac-setup"] = cmd_mac_setup
     cmds["auto"] = cmds["run"] = cmds["dry-run"] = cmd_run
     for n in cmds:
@@ -230,6 +254,8 @@ def main(argv=None):
             sp.add_argument("--count", type=int, default=1); sp.add_argument("--dry-run", action="store_true", default=(n == "dry-run")); sp.add_argument("--force-synthesia", action="store_true")
         if n in ("youtube-login", "tiktok-login"):
             sp.add_argument("--port", type=int, default=8085)
+        if n == "tiktok-web":
+            sp.add_argument("--video"); sp.add_argument("--caption", default=""); sp.add_argument("--post", action="store_true", help="clique aussi sur Publier")
         if n == "ui":
             sp.add_argument("--port", type=int, default=8765); sp.add_argument("--no-browser", action="store_true")
         if n == "analyze":

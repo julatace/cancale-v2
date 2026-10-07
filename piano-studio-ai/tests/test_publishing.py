@@ -148,3 +148,17 @@ def test_thumbnail_drops_the_banner_so_the_title_is_not_doubled(tmp_path):
     assert not (r > 180 and g < 80 and b < 80)           # plus de rouge en haut : le bandeau a été retiré
     r2, g2, b2 = make_thumbnail(v, tmp_path / "t2.jpg", "Titre", "", top_crop=0) and Image.open(tmp_path / "t2.jpg").convert("RGB").getpixel((640, 12))
     assert r2 > 180 and g2 < 80                          # sans recadrage, il serait resté
+
+
+def test_tiktok_web_flow_prepares_without_publishing(tmp_path, monkeypatch):
+    from app.publisher import tiktok_web as tw
+    v = tmp_path / "v.mp4"; v.write_bytes(b"x")
+    calls = []
+    monkeypatch.setattr(tw, "_osa", lambda s, timeout=30: calls.append(s) or "")
+    monkeypatch.setattr(tw, "_js", lambda c: calls.append(c) or ("false" if "connecter" in c else "true"))
+    monkeypatch.setattr(tw, "_keys", lambda *l: calls.append("keys"))
+    monkeypatch.setattr(tw, "_clip", lambda t: calls.append("clip:" + t[:5]))
+    monkeypatch.setattr(tw.time, "sleep", lambda s: None)
+    out = tw.post(v, "légende #piano", publish=False)
+    assert "non publié" in out and not any("publier|post" in str(c) for c in calls)
+    assert tw.post(v, "x", publish=True) == "publié"
