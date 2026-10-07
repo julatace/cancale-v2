@@ -9,7 +9,8 @@ from app import config
 from app.content_generator.generate import difficulty_of, generate
 from app.database import db
 from app.midi_analyzer.analyzer import analyze
-from app.midi_analyzer.parser import parse_midi
+from app.midi_analyzer.parser import parse_midi, parse_midi_info
+from app.midi_analyzer.arrange import arrange_for_piano
 from app.midi_analyzer.fold import choose_lowest, fold_notes
 from app.renderer import framing
 from app.music_discovery import generator, importer
@@ -178,6 +179,13 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
         tried.add(sid)
         log.info("♪ Morceau choisi : %s - %s", meta["title"], meta["artist"])
         notes, tempo = parse_midi(midi)
+        try:
+            n_tracks = len({n.track for n in notes})
+            notes = arrange_for_piano(notes, parse_midi_info(midi))       # fichier de groupe (karaoké...) -> arrangement de piano
+            if n_tracks > 2:
+                log.info("🎹 Arrangement de piano : %d pistes -> %d (mélodie, basse, accompagnement), batterie exclue", n_tracks, len({n.track for n in notes}))
+        except Exception as e:
+            log.warning("arrangement ignoré (%s)", e)
         kb = s["keyboard"]
         kb_lo = choose_lowest(notes, kb["keys"]) if kb.get("adaptive", True) else kb["lowest_key"]
         notes = fold_notes(notes, kb_lo, kb["keys"])                                    # plage jouée, choisie selon le morceau

@@ -117,8 +117,8 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
   <div style="margin:8px 0 2px"><button class="btn alt" id="lat">✨ Voir les nouveautés (derniers morceaux libres de droits)</button></div>
   <div id="qres"></div>
   <div class="songs" id="songs" role="radiogroup" aria-label="Morceau" style="margin-top:12px"></div>
-  <div class="drop" id="drop" tabindex="0"><b>＋ Ajouter mes morceaux</b>Glissez des fichiers .mid ici, ou cliquez pour les choisir</div>
-  <input type="file" id="file" accept=".mid,.midi" multiple hidden>
+  <div class="drop" id="drop" tabindex="0"><b>＋ Ajouter mes morceaux</b>Glissez des fichiers .mid / .kar ici, ou cliquez pour les choisir</div>
+  <input type="file" id="file" accept=".mid,.midi,.kar" multiple hidden>
   <p class="note" style="margin:6px 0 0">Les chansons récentes sont protégées : un fichier MIDI trouvé sur le web n'est pas forcément libre de droits. Sa publication peut entraîner une réclamation, la coupure du son ou la suppression de la vidéo.</p>
   <label class="rights"><input type="checkbox" id="rights"> Je confirme avoir les droits d'utiliser cette musique (composition à moi, domaine public ou licence qui l'autorise).</label>
   <p id="msg" hidden></p>
@@ -185,7 +185,7 @@ function say(m,ok){const e=$('#msg');e.hidden=false;e.textContent=m;e.className=
 async function upload(files){
   if(!$('#rights').checked){say('Cochez d\'abord la case qui confirme que vous avez les droits sur cette musique.',false);return}
   for(const f of files){
-    if(!/\.midi?$/i.test(f.name)){say(`« ${f.name} » n'est pas un fichier MIDI (.mid). Un MP3 ne contient pas de notes.`,false);continue}
+    if(!/\.(midi?|kar)$/i.test(f.name)){say(`« ${f.name} » n'est pas un fichier MIDI (.mid, .kar). Un MP3 ne contient pas de notes.`,false);continue}
     const r=await fetch('/api/upload',{method:'POST',headers:{'X-Filename':encodeURIComponent(f.name),'X-Rights':'1'},body:f}).then(r=>r.json());
     say(`${f.name} : ${r.message||r.error}`,!r.error&&r.status!=='REJECTED');if(r.song_id&&!r.error)songId=r.song_id}
   songs()}

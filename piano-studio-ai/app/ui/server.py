@@ -155,6 +155,8 @@ def songs(s) -> list[dict]:
 def import_upload(s, name: str, data: bytes, title: str = "", artist: str = "") -> dict:
     """Import d'un MIDI fourni par l'utilisateur (droits confirmés dans la page). Le fichier est validé avant d'être gardé."""
     raw = Path(name).stem.replace("_", " ").strip()
+    for bad, good in (("Mai tre", "Maître"), ("Ã©", "é"), ("Ã¨", "è"), ("Ãª", "ê")):       # accents abîmés dans les noms de fichiers
+        raw = raw.replace(bad, good)
     if " - " in raw and not (title or artist):             # « Artiste - Titre.mid » : l'artiste et le titre sont lus dans le nom du fichier
         artist, title = (x.strip() for x in raw.split(" - ", 1))
     stem = raw.replace("-", " ").strip() or "Mon morceau"
@@ -233,8 +235,8 @@ def make_handler(settings_loader):
             if n <= 0 or n > 8 * 1024 * 1024:
                 return self._json({"error": "fichier vide ou trop gros (8 Mo max)"}, 400)
             name = unquote(self.headers.get("X-Filename", "morceau.mid"))
-            if not name.lower().endswith((".mid", ".midi")):
-                return self._json({"error": "Seuls les fichiers MIDI (.mid) sont acceptés. Un MP3 ne contient pas de notes."}, 400)
+            if not name.lower().endswith((".mid", ".midi", ".kar")):
+                return self._json({"error": "Seuls les fichiers MIDI (.mid, .midi, .kar) sont acceptés. Un MP3 ne contient pas de notes."}, 400)
             r = import_upload(settings_loader(), name, self.rfile.read(n), unquote(self.headers.get("X-Title", "")), unquote(self.headers.get("X-Artist", "")))
             msg = {"LEGAL_CONFIRMED": "Morceau ajouté.", "DUPLICATE": "Ce morceau est déjà dans votre bibliothèque.",
                    "REJECTED": "Fichier MIDI invalide ou vide."}.get(r["status"], "Morceau non accepté.")

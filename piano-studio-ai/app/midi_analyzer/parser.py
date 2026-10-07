@@ -10,6 +10,7 @@ class Note:
     pitch: int
     velocity: int
     track: int
+    channel: int = 0
 
 
 class MidiError(ValueError):
@@ -60,10 +61,12 @@ def parse_midi(path_or_bytes) -> tuple[list[Note], list[tuple[float, float]]]:
                 n = 1 if kind in (0xC0, 0xD0) else 2
                 a = data[j]; b = data[j + 1] if n == 2 else 0
                 j += n
+                if status & 0x0F == 9:
+                    continue                               # canal 10 = batterie : jamais joué au piano
                 if kind == 0x90 and b > 0:
-                    tracks.append((tick, "on", a, b, t))
+                    tracks.append((tick, "on", a, b, t, status & 0x0F))
                 elif kind == 0x80 or (kind == 0x90 and b == 0):
-                    tracks.append((tick, "off", a, 0, t))
+                    tracks.append((tick, "off", a, 0, t, status & 0x0F))
         i = end
     tempo_events.sort()
     if not tempo_events or tempo_events[0][0] != 0:
@@ -81,14 +84,48 @@ def parse_midi(path_or_bytes) -> tuple[list[Note], list[tuple[float, float]]]:
 
     tracks.sort(key=lambda e: (e[0], e[1] == "on"))
     open_notes, notes = {}, []
-    for tick, kind, p, v, t in tracks:
-        key = (t, p)
+    for tick, kind, p, v, t, ch in tracks:
+        key = (t, ch, p)
         if kind == "on":
             open_notes.setdefault(key, []).append((tick, v))
         elif open_notes.get(key):
             st, vel = open_notes[key].pop(0)
             if tick > st:
-                notes.append(Note(to_sec(st), to_sec(tick), p, vel, t))
+                notes.append(Note(to_sec(st), to_sec(tick), p, vel, t, ch))
     notes.sort(key=lambda n: (n.start, n.pitch))
     tempo_map = [(s, 60e6 / us) for _, s, us in segs]
     return notes, tempo_map
+
+
+def parse_midi_info(path_or_bytes) -> dict[int, dict]:
+    """Par piste : nom, programmes (instruments GM), nombre d'événements de texte/paroles (fichiers karaoké). Les paroles ne sont pas lues."""
+    data = path_or_bytes if isinstance(path_or_bytes, (bytes, bytearray)) else open(path_or_bytes, "rb").read()
+    if data[:4] != b"MThd":
+        raise MidiError("pas un fichier MIDI")
+    ntrk = struct.unpack(">H", data[10:12])[0]
+    i = 8 + struct.unpack(">I", data[4:8])[0]
+    info = {}
+    for t in range(ntrk):
+        if data[i:i + 4] != b"MTrk":
+            break
+        ln = struct.unpack(">I", data[i + 4:i + 8])[0]
+        j, end, status = i + 8, i + 8 + ln, 0
+        rec = {"name": "", "programs": set(), "texts": 0}
+        while j < min(end, len(data)):
+            _, j = _vlq(data, j)
+            if data[j] & 0x80:
+                status = data[j]; j += 1
+            if status == 0xFF:
+                typ = data[j]; l, j = _vlq(data, j + 1)
+                if typ == 0x03: rec["name"] = data[j:j + l].decode("latin-1", "replace")[:40]
+                if typ in (0x01, 0x05): rec["texts"] += 1
+                j += l
+            elif status in (0xF0, 0xF7):
+                l, j = _vlq(data, j); j += l
+            else:
+                k = status & 0xF0
+                if k == 0xC0: rec["programs"].add(data[j])
+                j += 1 if k in (0xC0, 0xD0) else 2
+        info[t] = rec
+        i = end
+    return info
