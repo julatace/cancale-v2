@@ -39,6 +39,7 @@ synthesia:
   continue_from_right_px: 88       # bouton « Continuer »
   continue_from_top_px: 71
   titlebar_points: 24
+  capture_backend: screencapture   # enregistreur intégré à macOS (plus fiable que ffmpeg avfoundation) ; ffmpeg en secours
   portrait: true          # redimensionne la fenêtre Synthesia en vertical (gros plan)
   portrait_margin_points: 70
   capture_trim: 5.5     # secondes à couper au début de la capture (étalonner pour caler l'audio)

@@ -113,3 +113,15 @@ def test_record_aborts_early_without_screen_permission(tmp_path):
         raise subprocess.TimeoutExpired(cmd, 1)
     with pytest.raises(RuntimeError, match="Enregistrement d'écran impossible"):
         mac.record(tmp_path / "a.mid", 5, tmp_path / "o.mp4", CFG, run=run, sleep=lambda s: None)
+
+
+def test_default_backend_is_native_macos_recorder(tmp_path):
+    seen = []
+    def run(cmd, **k):
+        seen.append(cmd[0])
+        if cmd[0] == "screencapture":
+            (tmp_path / "r.mov").write_bytes(b"x" * 9000)
+            return NS(returncode=0, stdout="", stderr="")
+        return NS(returncode=0, stdout="", stderr="lavfi.signalstats.YAVG=90.0")
+    ok, msg = mac.rec_test(tmp_path / "r.mov", run=run)
+    assert ok and seen[0] == "screencapture"

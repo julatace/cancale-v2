@@ -147,10 +147,11 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
     ok, why = accessibility_ok(run)
     if not ok:
         raise RuntimeError(f"Accessibilité non autorisée : {why}")
-    ok, why = rec_test(out.with_name("preflight.mp4"), seconds=1, run=run)
+    backend = cfg.get("capture_backend", "screencapture")
+    ok, why = rec_test(out.with_name("preflight.mov"), seconds=1, run=run, backend=backend)
     if not ok:
         raise RuntimeError(f"Enregistrement d'écran impossible : {why}")
-    screen = screen_devices(run)[0][0]
+    screen = screen_devices(run)[0][0] if backend == "ffmpeg" else None
     total = duration + cfg["lead_in_seconds"] + cfg["tail_seconds"]
     log.info("1/5 relance de Synthesia et ouverture du MIDI")
     osa('tell application "Synthesia" to quit', run)   # état propre à chaque vidéo
@@ -158,9 +159,7 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
     run(["open", "-a", str(cfg["app_path"]), str(midi)])
     sleep(cfg["load_seconds"])
     log.info("2/5 démarrage de l'enregistrement d'écran (%.0f s)", total)
-    cap = subprocess.Popen(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "avfoundation", "-framerate", "30",
-                            "-capture_cursor", "0", "-i", f"{screen}:none", "-t", str(total), "-c:v", "libx264",
-                            "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p", str(out)], stderr=subprocess.PIPE)
+    cap = subprocess.Popen(_capture_cmd(backend, screen, total, out), stderr=subprocess.PIPE)
     sleep(1.0)
     try:
         log.info("3/5 lancement de la lecture")
@@ -187,21 +186,31 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
     return out, crop
 
 
-def rec_test(out: Path, seconds=3, run=sh) -> tuple[bool, str]:
+def _capture_cmd(backend: str, screen_idx, seconds, out: Path) -> list[str]:
+    if backend == "ffmpeg":
+        return ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "avfoundation", "-framerate", "30",
+                "-capture_cursor", "0", "-i", f"{screen_idx}:none", "-t", str(seconds), "-c:v", "libx264",
+                "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p", str(out)]
+    return ["screencapture", "-x", "-v", "-V", str(int(seconds)), str(out)]   # enregistreur vidéo intégré à macOS
+
+
+def rec_test(out: Path, seconds=3, run=sh, backend="screencapture") -> tuple[bool, str]:
     """Teste uniquement l'enregistrement d'écran : fichier créé, taille, image non noire."""
-    dev = screen_devices(run)
-    if not dev:
-        return False, "aucun écran capturable (ffmpeg avfoundation)"
+    idx = None
+    if backend == "ffmpeg":
+        dev = screen_devices(run)
+        if not dev:
+            return False, "aucun écran capturable (ffmpeg avfoundation)"
+        idx = dev[0][0]
+    out.unlink(missing_ok=True)
     try:
-        r = run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "avfoundation", "-framerate", "30",
-                 "-i", f"{dev[0][0]}:none", "-t", str(seconds), "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(out)],
-                timeout=seconds + 15)
+        r = run(_capture_cmd(backend, idx, seconds, out), timeout=seconds + 20)
     except subprocess.TimeoutExpired:
         return False, ("l'enregistrement reste bloqué : macOS n'a pas accordé « Enregistrement de l'écran » au Terminal. "
                        "Réglages Système > Confidentialité et sécurité > Enregistrement de l'écran et audio système > activer Terminal, "
                        "puis Cmd+Q sur le Terminal et relancer")
     if r.returncode != 0 or not out.exists():
-        return False, "ffmpeg a échoué : " + r.stderr.strip()[-300:] + " -> autorisez le Terminal dans Enregistrement de l'écran"
+        return False, "l'enregistrement a échoué : " + (r.stderr or r.stdout or "").strip()[-300:] + " -> autorisez le Terminal dans Enregistrement de l'écran"
     s = run(["ffmpeg", "-hide_banner", "-i", str(out), "-vf", "signalstats,metadata=print", "-f", "null", "-"]).stderr
     ys = [float(v) for v in re.findall(r"lavfi.signalstats.YAVG=([\d.]+)", s)]
     if ys and max(ys) < 3:

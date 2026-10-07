@@ -84,7 +84,7 @@ def _render(s, notes, sec, out, meta, tempo, content=None) -> str:
             with tempfile.TemporaryDirectory() as td:
                 td = Path(td)
                 (td / "s.mid").write_bytes(trim_midi(notes, sec["start"], sec["start"] + sec["duration"]))
-                cap, crop = mac.record(td / "s.mid", sec["duration"], td / "cap.mp4", cfg)
+                cap, crop = mac.record(td / "s.mid", sec["duration"], td / "cap.mov", cfg)
                 mac.debug_frames(cap, config.resolve(s, "data_dir") / "debug")
                 shifted = [type(n)(n.start - sec["start"] + cfg["lead_in_seconds"] - cfg["capture_trim"], n.end - sec["start"] + cfg["lead_in_seconds"] - cfg["capture_trim"], n.pitch, n.velocity, n.track)
                            for n in notes if n.end > sec["start"] and n.start < sec["start"] + sec["duration"]]
