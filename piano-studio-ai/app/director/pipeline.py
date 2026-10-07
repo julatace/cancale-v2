@@ -196,7 +196,7 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
     song = {"title": meta["title"], "artist": meta["artist"]}
     used = {r[0] for r in conn.execute("SELECT title FROM videos WHERE title IS NOT NULL")}
     diff = lv["label"]
-    reports = []
+    reports, plans = [], []
     for k, (fmt_name, F) in enumerate(fmts):
         sec = select_section(notes, _target(F, s, ana))
         log.info("✂ [%s] Passage retenu : %ss → %ss (%s)", fmt_name, sec["start"], sec["end"], sec["reason"])
@@ -210,12 +210,108 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
         if dry_run:
             reports.append({**report, "status": "DRY_RUN"})
             break
-        reports.append(_produce(s, conn, sid, level, fmt_name, F, notes, tempo, sec, meta, content, report, publish))
+        plans.append((fmt_name, F, sec, content, report))
+    if plans and not dry_run:
+        reports = _make_videos(s, conn, sid, level, plans, notes, tempo, meta, lv, publish)
     if len(reports) == 1:
         return reports[0]
     ok = [r["status"] in ("READY", "PUBLISHED") for r in reports]
     return {"song": meta["title"], "difficulty": diff, "bpm": lv["bpm"], "videos": reports,
             "status": "READY" if all(ok) else "PARTIAL" if any(ok) else "FAILED"}
+
+
+def _failed(s, conn, sid, level, plans, err) -> list[dict]:
+    log.error("✖ ÉCHEC : %s", err)
+    out = []
+    for fmt_name, F, sec, content, report in plans:
+        db.log_error(conn, "render", err)
+        path = config.resolve(s, "data_dir") / "rendered" / f"{sid}_{int(time.time())}_{fmt_name}.mp4"
+        out.append(_finalize(s, conn, sid, level, fmt_name, F, path, sec, content, report, False, None, err))
+    return out
+
+
+def _make_videos(s, conn, sid, level, plans, notes, tempo, meta, lv, publish) -> list[dict]:
+    """Synthesia : UN SEUL enregistrement dont on tire tous les formats. Sinon (ou en secours) rendu intégré, format par format."""
+    cfg = s.get("synthesia", {})
+    mode = s.get("engine", "auto")
+    ready = mode != "builtin" and mac.ready(cfg)
+    if mode == "synthesia" and not ready:
+        return _failed(s, conn, sid, level, plans, "RuntimeError: engine=synthesia mais le Mac n'est pas prêt")
+    if ready:
+        try:
+            return _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish)
+        except control.Cancelled:
+            raise
+        except Exception as e:
+            if mode == "synthesia":                             # forcé : on montre l'erreur, pas de repli discret
+                return _failed(s, conn, sid, level, plans, f"{type(e).__name__}: {e}")
+            log.error("Synthesia a échoué (%s) -> rendu intégré", e)
+    s_builtin = {**s, "engine": "builtin"}
+    return [_produce(s_builtin, conn, sid, level, fmt_name, F, notes, tempo, sec, meta, content, report, publish)
+            for fmt_name, F, sec, content, report in plans]
+
+
+def _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish) -> list[dict]:
+    cfg = s["synthesia"]
+    out_dir = config.resolve(s, "data_dir") / "rendered"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    full_plans = [p for p in plans if p[1].get("duration") == "full"]
+    R = dict((full_plans[0] if full_plans else plans[0])[2])            # l'enregistrement couvre le format le plus long
+    reports = []
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        log.info("🎥 Un seul enregistrement de %.0f s pour %d format(s)", R["duration"], len(plans))
+        (td / "s.mid").write_bytes(trim_midi(notes, R["start"], R["start"] + R["duration"], bpm=lv["bpm"]))
+        cap, crop, recorded = mac.record(td / "s.mid", R["duration"], td / "cap.mov", cfg, layout=(1080, 1920, 300))
+        avail = None                                                   # durée de vidéo utilisable si arrêt anticipé
+        if recorded is not None:
+            avail = recorded - cfg["capture_trim"]
+            if avail < 10:
+                raise RuntimeError("Enregistrement arrêté trop tôt : moins de 10 secondes de vidéo utile.")
+        mac.debug_frames(cap, config.resolve(s, "data_dir") / "debug")
+        inside = [n for n in notes if n.end > R["start"] and n.start < R["start"] + R["duration"]]
+        first = max(min(n.start for n in inside) - R["start"], 0.0)
+        t_on = sync.detect_first_note(cap, crop, cfg["capture_trim"])
+        if t_on is None:
+            t_on = cfg.get("first_note_seconds", 2.5)
+            log.warning("calage auto impossible -> repli sur %.1fs", t_on)
+        else:
+            log.info("🎚 Calage du son : 1re note visible à %.1fs dans la vidéo", t_on)
+        for fmt_name, F, sec, content, report in plans:
+            control.check()
+            full = F.get("duration") == "full"
+            v0, dur = 0.0, min(R["duration"], avail) if avail else R["duration"]
+            if not full:                                               # extrait vertical : meilleur passage DANS l'enregistrement
+                inner = [type(n)(n.start - R["start"], n.end - R["start"], n.pitch, n.velocity, n.track) for n in inside]
+                sub = select_section(inner, min(s["duration_target"], R["duration"] if avail is None else min(R["duration"], avail)))
+                v0, dur = sub["start"], sub["duration"]
+            d = t_on + v0 - first                                      # instant vidéo où commence l'extrait
+            trim = cfg["capture_trim"] + max(d, 0.0)
+            shift = t_on - first - max(d, 0.0)
+            if avail is not None:
+                dur = min(dur, avail - max(d, 0.0))
+            sec = {**sec, "start": R["start"] + v0, "end": R["start"] + v0 + dur, "duration": round(dur, 1),
+                   **({"stopped_early": True} if avail is not None and dur < sec["duration"] - 0.5 else {})}
+            clip = [type(n)(n.start - R["start"] + shift, n.end - R["start"] + shift, n.pitch, n.velocity, n.track) for n in inside]
+            wav = td / f"a_{fmt_name}.wav"
+            synth.write_wav(wav, synth.render_audio([type(n)(n.start - v0, n.end - v0, n.pitch, n.velocity, n.track) for n in clip], 0, dur))
+            out = out_dir / f"{sid}_{int(time.time())}_{fmt_name}.mp4"
+            log.info("🎬 [%s] Montage depuis l'enregistrement (%.0f s)", fmt_name, dur)
+            sub_txt = _subtitle(meta, content)
+            if F["width"] > F["height"]:
+                compose.compose_landscape(cap, wav, out, trim, dur, meta["title"], meta.get("artist", ""),
+                                          f"{content.get('level', '')} · {content.get('bpm', '')} BPM", content.get("hook", ""), content.get("cta", ""), crop=crop)
+            else:
+                compose.compose_vertical(cap, wav, out, trim, dur, meta["title"], subtitle=sub_txt, hook=content.get("hook", ""),
+                                         cta=content.get("cta", ""), crop=crop, size=(F["width"], F["height"]), top=F["banner"])
+            report["engine"] = "synthesia"
+            log.info("✔ Contrôle qualité...")
+            low = 5 if sec.get("stopped_early") else (min(30, F.get("max_duration", 300) * 0.5) if full else 3)
+            hi = (F.get("max_duration", 300) + 10) if full else (s["duration_range"][1] + 5)
+            result = qc.check(out, expect_w=F["width"], expect_h=F["height"], dur_range=(low, hi))
+            report["section"] = sec
+            reports.append(_finalize(s, conn, sid, level, fmt_name, F, out, sec, content, report, publish, result))
+    return reports
 
 
 def _produce(s, conn, sid, level, fmt_name, F, notes, tempo, sec, meta, content, report, publish) -> dict:
@@ -246,6 +342,11 @@ def _produce(s, conn, sid, level, fmt_name, F, notes, tempo, sec, meta, content,
             log.error("rendu échoué (tentative %d): %s", attempt, e)
             if s.get("engine") == "synthesia":
                 break                                   # mode forcé : une seule tentative, on veut l'erreur
+    return _finalize(s, conn, sid, level, fmt_name, F, out, sec, content, report, publish, result, last_err)
+
+
+def _finalize(s, conn, sid, level, fmt_name, F, out, sec, content, report, publish, result, last_err="") -> dict:
+    """Contrôle qualité déjà fait : enregistre la vidéo en base et publie."""
     ok = result is not None and result["score"] >= s["qc"]["publish_min"]
     log.info("✔ [%s] Score qualité : %s/100 -> %s", fmt_name, result["score"] if result else 0, "OK" if ok else "REFUSÉE")
     vid = conn.execute("INSERT INTO videos(song_id,style,duration,output_path,quality_score,status,title,created_at) VALUES(?,?,?,?,?,?,?,?)",

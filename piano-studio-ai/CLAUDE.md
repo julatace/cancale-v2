@@ -31,3 +31,5 @@ Tu es l'ingénieur principal du projet. Objectif : un studio automatisé de tuto
 - Niveau = tempo cible (`difficulty.levels` dans settings.yaml) : facile 80 / moyen 100 / difficile 130 BPM. `director/difficulty.py` étire les notes au tempo voulu et écarte les morceaux trop denses pour le niveau.
 - Format (`formats` dans settings.yaml) : `vertical` 1080x1920 ≈ 1 min (TikTok/Shorts/Reels) ; `horizontal` 1920x1080, morceau entier (≥ 90 s, ≤ 300 s). La fenêtre Synthesia est redimensionnée à la forme du format (`mac.fit_window`).
 - `piano ui` ouvre http://127.0.0.1:8765 : choix niveau/format, création, journal en direct, vidéos récentes. Local uniquement (127.0.0.1, origine contrôlée).
+- Un seul enregistrement par création (`pipeline._synthesia_batch`) : la fenêtre Synthesia est toujours verticale ; le format horizontal est monté depuis la même capture (`compose.compose_landscape` : app au centre, titre sur les côtés) et le vertical court en est le meilleur extrait de ~1 min.
+- Boutons : « Arrêter l'enregistrement » (`control.STOP_RECORD`, garde ce qui est enregistré et monte la vidéo) et « Annuler » (`control.CANCEL`).

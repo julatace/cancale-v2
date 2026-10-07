@@ -262,7 +262,9 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
         dock_autohide(False, run)                          # remet le Dock comme avant
     if (cap.returncode != 0 and stopped_after is None) or not out.exists() or out.stat().st_size < 100_000:
         err = (cap.stderr.read().decode()[-300:] if cap.stderr else "")
-        raise RuntimeError(f"capture écran échouée (autorisation « Enregistrement de l'écran » pour le Terminal ?) {err}")
+        raise RuntimeError("capture écran échouée (code %s). Causes possibles : une autre application enregistre déjà l'écran "
+                           "(icône d'enregistrement en haut de l'écran : arrêtez-la), ou l'autorisation « Enregistrement de l'écran » "
+                           "manque pour le Terminal. %s" % (cap.returncode, err))
     return out, crop, stopped_after
 
 

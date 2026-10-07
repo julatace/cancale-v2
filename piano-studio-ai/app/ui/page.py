@@ -95,7 +95,7 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
   <div class="step"><span class="num">1</span><div><h2>Niveau de difficulté</h2><p>Plus le tempo est rapide, plus c'est difficile à jouer.</p></div></div>
   <div class="grid g3" id="levels" role="radiogroup" aria-label="Niveau"></div>
 
-  <div class="step" style="margin-top:26px"><span class="num">2</span><div><h2>Formats</h2><p>Les deux sont créés d'office avec le même morceau. Décochez-en un si besoin.</p></div></div>
+  <div class="step" style="margin-top:26px"><span class="num">2</span><div><h2>Formats</h2><p>Un seul enregistrement de Synthesia donne les deux vidéos. Décochez-en une si besoin.</p></div></div>
   <div class="grid g2" id="formats" aria-label="Formats"></div>
 
   <div class="step" style="margin-top:26px"><span class="num">3</span><div><h2>Musique</h2><p>Laissez l'agent choisir, ou utilisez l'un de vos morceaux (fichiers MIDI).</p></div></div>
@@ -139,7 +139,7 @@ const STEPS=['Morceau','Passage','Fabrication','Qualité','Publication'];
 const dev=f=>f.width>f.height
   ?'<svg width="64" height="40" viewBox="0 0 64 40" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="58" height="34" rx="6"/><path d="M12 28h40" stroke-width="5" stroke-linecap="round" opacity=".35"/></svg>'
   :'<svg width="40" height="64" viewBox="0 0 40 64" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="34" height="58" rx="7"/><path d="M12 52h16" stroke-width="5" stroke-linecap="round" opacity=".35"/></svg>';
-const estimate=()=>{const n=formats.size;$('#est').textContent=n?`Environ ${n>1?'5 à 6':[...formats].some(k=>opts.formats.find(f=>f.key===k).long)?'4 à 5':'2 à 3'} minutes${n>1?' pour les deux vidéos':''}`:'Choisissez au moins un format';
+const estimate=()=>{const n=formats.size;$('#est').textContent=n?`Environ ${[...formats].some(k=>opts.formats.find(f=>f.key===k).long)?'4 à 5':'2 à 3'} minutes${n>1?' pour les deux vidéos (un seul enregistrement)':''}`:'Choisissez au moins un format';
   $('#go').disabled=!n||!level;$('#go').textContent=n>1?'Créer les 2 vidéos':n===1?'Créer la vidéo':'Choisissez un format'};
 function render(){
   $('#levels').innerHTML=opts.levels.map((l,i)=>`<button class="opt" role="radio" aria-checked="${l.key===level}" data-k="${l.key}"><span class="tick">✓</span><span class="t">${esc(l.label)}</span><span class="bpm">${l.bpm}<small>BPM</small></span><span class="meter">${[0,1,2].map(j=>`<i class="${j<=i?'on':''}"></i>`).join('')}</span></button>`).join('');
@@ -175,7 +175,7 @@ function track(line){const m=line.match(/\[(vertical|horizontal)\]/);if(m)fmtLab
   const k=line.startsWith('♪')?0:/^[🔎✂]/u.test(line)?1:line.startsWith('🎬')?2:line.startsWith('✔')?3:line.startsWith('📤')?4:null;
   if(line.startsWith('✂'))cur=1;else if(k!==null&&k>cur)cur=k}
 function results(r){const list=r.videos||[r];$('#res').innerHTML=list.filter(x=>x&&x.video).map(x=>{const f=x.video.split('/').pop(),bad=x.status==='FAILED';
-  return `<div class="vid"><div class="meta"><span>${x.format==='horizontal'?'Horizontal long':'Vertical court'} <span class="tag ${x.engine==='synthesia'?'mine':''}">${x.engine==='synthesia'?'Fait avec Synthesia':'Rendu intégré'}</span></span><span class="chip ${bad?'bad':'ok'}">${bad?'Échec':'Qualité '+(x.qc?x.qc.score:'-')+'/100'}</span></div>${bad?`<p class="err">${esc(x.error||'La fabrication a échoué')}</p>`:`<video controls playsinline preload="metadata" src="/files/${encodeURIComponent(f)}"></video><a href="/files/${encodeURIComponent(f)}" download="${esc(f)}">⬇ Télécharger</a>`}</div>`}).join('')}
+  return `<div class="vid"><div class="meta"><span>${x.format==='horizontal'?'Horizontal long':'Vertical court'} ${x.engine?`<span class="tag ${x.engine==='synthesia'?'mine':''}">${x.engine==='synthesia'?'Fait avec Synthesia':'Rendu intégré'}</span>`:''}</span><span class="chip ${bad?'bad':'ok'}">${bad?'Échec':'Qualité '+(x.qc?x.qc.score:'-')+'/100'}</span></div>${bad?`<p class="err">${esc(x.error||'La fabrication a échoué')}</p>`:`<video controls playsinline preload="metadata" src="/files/${encodeURIComponent(f)}"></video><a href="/files/${encodeURIComponent(f)}" download="${esc(f)}">⬇ Télécharger</a>`}</div>`}).join('')}
 function poll(){api('/api/status?since='+since).then(s=>{
   since=s.last;const L=$('#log');s.logs.forEach(l=>track(l));
   if(s.logs.length){L.textContent+=s.logs.join('\n')+'\n';L.scrollTop=L.scrollHeight;const last=s.logs[s.logs.length-1];$('#now').textContent=(fmtLabel&&s.status==='running'?fmtLabel+' · ':'')+last.replace(/\s*\[(vertical|horizontal)\]\s*/,' ').trim()}
