@@ -60,7 +60,7 @@ def _background(pos, title, subtitle):
     return np.asarray(img).copy()
 
 
-def render_video(notes, start: float, duration: float, out_path, title="", subtitle="", fps=30, hand_split=60):
+def render_video(notes, start: float, duration: float, out_path, title="", subtitle="", fps=30, hand_split=60, key_range=None):
     ns = [n for n in notes if n.end > start and n.start < start + duration]
     if not ns:
         raise ValueError("aucune note dans la section")
@@ -69,6 +69,10 @@ def render_video(notes, start: float, duration: float, out_path, title="", subti
     while hi % 12 in _BLACK: hi += 1
     if hi - lo < 36:
         c = (lo + hi) // 2; lo, hi = c - 18, c + 18
+        while lo % 12 in _BLACK: lo -= 1
+        while hi % 12 in _BLACK: hi += 1
+    if key_range:
+        lo, hi = key_range
         while lo % 12 in _BLACK: lo -= 1
         while hi % 12 in _BLACK: hi += 1
     pos = key_layout(lo, hi)

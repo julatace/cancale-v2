@@ -46,19 +46,74 @@ def ready(cfg, run=sh, system=platform.system) -> bool:
     return all(ok for _, ok, _ in check(cfg, run, system))
 
 
-def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time.sleep) -> Path:
-    """Ouvre le MIDI dans Synthesia, lance la lecture et capture l'écran pendant `duration`+marge."""
+def _ints(s: str) -> list[int]:
+    return [int(float(x)) for x in re.findall(r"-?\d+(?:\.\d+)?", s)]
+
+
+def screen_points(run=sh) -> tuple[int, int]:
+    b = _ints(osa('tell application "Finder" to get bounds of window of desktop', run).stdout)
+    return b[2], b[3]
+
+
+def window_geometry(run=sh) -> tuple[int, int, int, int]:
+    """(x, y, largeur, hauteur) de la fenêtre Synthesia, en points écran."""
+    r = osa('tell application "System Events" to tell process "Synthesia" to get {position, size} of window 1', run)
+    v = _ints(r.stdout)
+    if r.returncode or len(v) != 4:
+        raise RuntimeError(f"fenêtre Synthesia introuvable: {r.stderr.strip()[:100]}")
+    return tuple(v)
+
+
+def start_playback(cfg: dict, run=sh) -> str:
+    """Écran « Regarder et écouter seulement » -> clic sur « Continuer » (haut droite de la fenêtre) ou touche Entrée."""
+    osa('tell application "Synthesia" to activate', run)
+    if cfg.get("start_mode", "click") == "click":
+        x, y, w, _h = window_geometry(run)
+        cx, cy = x + w - cfg["continue_from_right"], y + cfg["continue_from_top"]
+        r = osa(f'tell application "System Events" to click at {{{cx}, {cy}}}', run)
+        if r.returncode == 0:
+            return f"click({cx},{cy})"
+    osa('tell application "System Events" to key code 36', run)
+    return "return"
+
+
+def crop_fractions(cfg: dict, run=sh) -> tuple[float, float, float, float] | None:
+    """Zone de la fenêtre Synthesia (sans barre de titre) en fractions de l'écran, pour recadrer la capture."""
+    try:
+        sw, sh_ = screen_points(run)
+        x, y, w, h = window_geometry(run)
+    except Exception:
+        return None
+    tb = cfg.get("titlebar_points", 24)
+    return (max(x, 0) / sw, (max(y, 0) + tb) / sh_, min(w, sw) / sw, (h - tb) / sh_)
+
+
+def debug_frames(video: Path, outdir: Path, times=(2, 8, 25), run=sh) -> list[Path]:
+    outdir.mkdir(parents=True, exist_ok=True)
+    out = []
+    for t in times:
+        f = outdir / f"{video.stem}_{t}s.jpg"
+        run(["ffmpeg", "-y", "-loglevel", "error", "-ss", str(t), "-i", str(video), "-frames:v", "1", "-vf", "scale=1000:-2", str(f)])
+        if f.exists(): out.append(f)
+    return out
+
+
+def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time.sleep) -> tuple[Path, tuple | None]:
+    """Relance Synthesia sur le MIDI, clique « Continuer », capture l'écran. Retourne (capture, zone de recadrage)."""
     screen = screen_devices(run)[0][0]
     total = duration + cfg["lead_in_seconds"] + cfg["tail_seconds"]
-    sh(["open", "-a", str(cfg["app_path"]), str(midi)])
+    osa('tell application "Synthesia" to quit', run)   # état propre à chaque vidéo
+    sleep(2)
+    run(["open", "-a", str(cfg["app_path"]), str(midi)])
     sleep(cfg["load_seconds"])
+    crop = crop_fractions(cfg, run)
     cap = subprocess.Popen(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "avfoundation", "-framerate", "30",
                             "-capture_cursor", "0", "-i", f"{screen}:none", "-t", str(total), "-c:v", "libx264",
                             "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p", str(out)], stderr=subprocess.PIPE)
     sleep(1.0)
-    osa(f'tell application "System Events" to key code {cfg["play_key_code"]}', run)  # 49=espace, 36=entrée
+    start_playback(cfg, run)
     cap.wait(timeout=total + 30)
-    osa('tell application "System Events" to key code 53', run)  # Échap : retour au menu
+    osa('tell application "Synthesia" to quit', run)
     if cap.returncode != 0 or not out.exists() or out.stat().st_size < 100_000:
         raise RuntimeError("capture Synthesia échouée")
-    return out
+    return out, crop

@@ -5,8 +5,10 @@ from pathlib import Path
 _FONT = next((f for f in ("/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf") if Path(f).exists()), None)
 
 
-def compose_vertical(capture, audio_wav, out, trim: float, duration: float, title="", fps=30) -> Path:
-    fg = "[1:v]scale=1080:-2[fg]"
+def compose_vertical(capture, audio_wav, out, trim: float, duration: float, title="", fps=30, crop=None) -> Path:
+    """crop = (x, y, w, h) en fractions de l'image capturée (zone de la fenêtre Synthesia)."""
+    c = f"crop=iw*{crop[2]:.4f}:ih*{crop[3]:.4f}:iw*{crop[0]:.4f}:ih*{crop[1]:.4f}," if crop else ""
+    fg = f"[1:v]{c}scale=1080:-2[fg]"
     bg = "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=40:5,eq=brightness=-0.15[bg]"
     chain = f"{bg};{fg};[bg][fg]overlay=(W-w)/2:(H-h)/2[v]"
     if title and _FONT:

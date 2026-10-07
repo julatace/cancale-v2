@@ -9,6 +9,7 @@ from app.content_generator.generate import difficulty_of, generate
 from app.database import db
 from app.midi_analyzer.analyzer import analyze
 from app.midi_analyzer.parser import parse_midi
+from app.midi_analyzer.fold import fold_notes
 from app.music_discovery import generator, importer
 from app.publisher import adapters
 from app.quality_control import qc
@@ -54,18 +55,21 @@ def _render(s, notes, sec, out, meta, tempo) -> str:
             with tempfile.TemporaryDirectory() as td:
                 td = Path(td)
                 (td / "s.mid").write_bytes(trim_midi(notes, sec["start"], sec["start"] + sec["duration"]))
-                cap = mac.record(td / "s.mid", sec["duration"], td / "cap.mp4", cfg)
+                cap, crop = mac.record(td / "s.mid", sec["duration"], td / "cap.mp4", cfg)
+                mac.debug_frames(cap, config.resolve(s, "data_dir") / "debug")
                 shifted = [type(n)(n.start - sec["start"] + cfg["lead_in_seconds"] - cfg["capture_trim"], n.end - sec["start"] + cfg["lead_in_seconds"] - cfg["capture_trim"], n.pitch, n.velocity, n.track)
                            for n in notes if n.end > sec["start"] and n.start < sec["start"] + sec["duration"]]
                 shifted = [n for n in shifted if n.end > 0]
                 synth.write_wav(td / "a.wav", synth.render_audio(shifted, 0, sec["duration"]))
-                compose.compose_vertical(cap, td / "a.wav", out, cfg["capture_trim"], sec["duration"], meta["title"])
+                compose.compose_vertical(cap, td / "a.wav", out, cfg["capture_trim"], sec["duration"], meta["title"], crop=crop)
             return "synthesia"
         except Exception as e:
             log.error("Synthesia a échoué (%s) -> rendu intégré", e)
     elif s.get("engine") == "synthesia":
         raise RuntimeError("engine=synthesia mais le Mac n'est pas prêt")
-    falling.render_video(notes, sec["start"], sec["duration"], out, meta["title"], meta["artist"], fps=30)
+    kb = s["keyboard"]
+    falling.render_video(notes, sec["start"], sec["duration"], out, meta["title"], meta["artist"], fps=30,
+                         key_range=(kb["lowest_key"], kb["lowest_key"] + kb["keys"] - 1))
     return "builtin"
 
 
@@ -74,6 +78,7 @@ def run_one(s, seed=None, dry_run=False, publish=True) -> dict:
     seed = seed if seed is not None else random.SystemRandom().randrange(1, 1_000_000)
     sid, midi, meta = pick_song(conn, s, seed)
     notes, tempo = parse_midi(midi)
+    notes = fold_notes(notes, s["keyboard"]["lowest_key"], s["keyboard"]["keys"])  # clavier 28 touches
     ana = analyze(notes, tempo)
     sec = select_section(notes, min(s["duration_target"], ana["duration"]))
     diff = difficulty_of(ana)

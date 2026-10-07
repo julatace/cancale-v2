@@ -68,7 +68,9 @@ def compose(seed: int) -> tuple[bytes, dict]:
 def pd_song(name: str) -> tuple[bytes, dict]:
     comp, lo, mel = PD_SONGS[name]
     ev, b = [], 0.0
-    for _ in range(2):
+    total = sum(d for _, d in mel)
+    loops = max(2, -(-int(75 * 96 / 60) // int(total)))  # >= 75 s à 96 bpm
+    for _ in range(loops):
         for p, d in mel:
             ev.append((b, d * 0.95, p + 12 if p < lo + 4 else p, 95))
             if int(b) % 2 == 0 and b == int(b):

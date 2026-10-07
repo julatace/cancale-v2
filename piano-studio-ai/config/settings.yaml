@@ -1,8 +1,8 @@
 mode: manual            # manual | auto
 videos_per_day: 2
 publish_times: ["09:00", "19:00"]
-duration_target: 45
-duration_range: [35, 55]
+duration_target: 62
+duration_range: [60, 75]
 styles_allowed: [viral, clean]
 languages: [fr, en]
 same_song_cooldown_days: 30
@@ -31,5 +31,11 @@ synthesia:
   load_seconds: 6       # attente du chargement du MIDI
   lead_in_seconds: 3    # délai (s) entre le début de la capture et la 1re note, à étalonner
   tail_seconds: 2
-  play_key_code: 49     # 49 = espace ; 36 = entrée
+  start_mode: click      # click = bouton Continuer de l'écran « Regarder et écouter seulement » ; return = touche Entrée
+  continue_from_right: 56   # points, depuis le bord droit de la fenêtre
+  continue_from_top: 45     # points, depuis le haut de la fenêtre (barre de titre incluse)
+  titlebar_points: 24
   capture_trim: 4.0     # secondes à couper au début de la capture (étalonner pour caler l'audio)
+keyboard:
+  keys: 28              # clavier affiché : 28 touches (réglage à faire une fois dans Synthesia)
+  lowest_key: 47        # B2 ; la musique est ramenée dans cette plage (47..74)
