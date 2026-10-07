@@ -84,3 +84,59 @@ def import_found(s: dict, page_url: str, get=mutopia.http_get) -> dict:
     finally:
         tmp.unlink(missing_ok=True)
     return {"status": r["status"], "song_id": r.get("song_id"), "title": info["title"], "license": info["license"]}
+
+
+# ---------- sélection à parcourir ----------
+POPULAR = [  # (titre affiché, compositeur, mots de recherche) : classiques du domaine public très écoutés
+    ("Clair de Lune", "Debussy", "clair de lune"), ("Für Elise", "Beethoven", "fur elise"),
+    ("Gymnopédie No. 1", "Satie", "gymnopedie"), ("Nocturne Op. 9 No. 2", "Chopin", "nocturne op 9"),
+    ("Prélude en Do majeur", "Bach", "prelude c major"), ("Sonate « Clair de Lune »", "Beethoven", "moonlight sonata"),
+    ("Valse minute", "Chopin", "minute waltz"), ("Rêverie", "Debussy", "reverie"),
+    ("Canon en Ré", "Pachelbel", "canon"), ("Gnossienne No. 1", "Satie", "gnossienne"),
+    ("Rondo alla Turca", "Mozart", "rondo alla turca"), ("La Campanella", "Liszt", "campanella"),
+    ("Arabesque No. 1", "Debussy", "arabesque"), ("Ode à la joie", "Beethoven", "ode to joy"),
+]
+LATEST_URLS = [mutopia.BASE + "latestadditions.html"]
+_LATEST_CACHE: dict = {"at": 0.0, "data": None}
+
+
+def _piece_id(url: str) -> int:
+    m = re.search(r"id=(\d+)", url)
+    return int(m.group(1)) if m else 0
+
+
+def latest(get=mutopia.http_get, limit: int = 10, ttl: float = 1800.0) -> dict:
+    """Derniers morceaux ajoutés au catalogue libre de droits (les identifiants les plus élevés sont les plus récents)."""
+    import time
+    if _LATEST_CACHE["data"] and time.time() - _LATEST_CACHE["at"] < ttl and get is mutopia.http_get:
+        return _LATEST_CACHE["data"]
+    urls, err = [], ""
+    for src in LATEST_URLS:
+        try:
+            urls = mutopia.list_pieces(get(src))
+            if urls:
+                break
+        except Exception as e:
+            err = f"{type(e).__name__}"
+    if not urls:
+        return {"results": [], "message": "Impossible de consulter les nouveautés" + (f" ({err})" if err else "") + ". Vérifiez votre connexion."}
+    urls = sorted(urls, key=_piece_id, reverse=True)[: limit * 2]
+
+    def one(u):
+        try:
+            info = mutopia.parse_piece(get(u), u)
+        except Exception:
+            return None
+        return {**info, "kind": "online", "page": u, "id": _piece_id(u)} if info else None
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        found = [r for r in ex.map(one, urls) if r]
+    found.sort(key=lambda r: r["id"], reverse=True)
+    out = {"results": found[:limit], "message": "" if found else "Aucune nouveauté exploitable (licence ou MIDI manquant)."}
+    if found and get is mutopia.http_get:
+        _LATEST_CACHE.update(at=time.time(), data=out)
+    return out
+
+
+def popular() -> list[dict]:
+    return [{"title": t, "composer": c, "query": q} for t, c, q in POPULAR]

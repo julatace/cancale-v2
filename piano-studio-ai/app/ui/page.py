@@ -81,6 +81,7 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 .tag.mine{background:var(--brand-soft);color:var(--brand);border-color:transparent}
 .x{background:none;border:0;color:var(--mute);cursor:pointer;font-size:18px;padding:2px 8px;border-radius:8px}.x:hover{color:var(--bad)}
 #msg{margin:8px 0 0;font-size:14px}#msg.bad{color:var(--bad)}#msg.ok{color:var(--ok)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.chip2{padding:7px 13px;border:2px solid var(--line);border-radius:99px;background:var(--surface);color:var(--ink);font:inherit;font-size:14px;cursor:pointer}.chip2:hover{border-color:var(--brand);color:var(--brand)}
 .sbox{display:flex;gap:8px;margin:2px 0 4px}
 .sbox input[type=search],.sel{flex:1;min-width:0;padding:12px 14px;border:2px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);font-size:16px}
 .sbox input:focus,.sel:focus{border-color:var(--brand);outline:none}
@@ -111,6 +112,8 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 
   <div class="step" style="margin-top:26px"><span class="num">3</span><div><h2>Musique</h2><p>Laissez l'agent choisir, ou utilisez l'un de vos morceaux (fichiers MIDI).</p></div></div>
   <div class="sbox"><input type="search" id="q" placeholder="Rechercher un morceau (ex. Clair de Lune, Für Elise, Gymnopédie…)" aria-label="Rechercher un morceau"><button class="btn" id="qgo">Chercher</button></div>
+  <div class="chips" id="pop" aria-label="Classiques populaires"></div>
+  <div style="margin:8px 0 2px"><button class="btn alt" id="lat">✨ Voir les nouveautés (derniers morceaux libres de droits)</button></div>
   <div id="qres"></div>
   <div class="songs" id="songs" role="radiogroup" aria-label="Morceau" style="margin-top:12px"></div>
   <div class="drop" id="drop" tabindex="0"><b>＋ Ajouter mes morceaux</b>Glissez des fichiers .mid ici, ou cliquez pour les choisir</div>
@@ -197,6 +200,11 @@ function runSearch(q){
     $('#qres').innerHTML=r.results.map(hit).join('')+(r.message?`<p class="note ${r.results.length?'':'bad'}">${esc(r.message)}</p>`:'');
     if(r.results.length)$('#qres').insertAdjacentHTML('afterbegin',`<p class="note" style="color:var(--ok);font-weight:700">✓ ${r.results.length} MIDI trouvé${r.results.length>1?'s':''} pour « ${esc(r.query)} »</p>`)
   }).catch(()=>{$('#qres').innerHTML='<p class="note bad">La recherche a échoué.</p>'}).finally(()=>{$('#qgo').disabled=false})}
+api('/api/popular').then(l=>{$('#pop').innerHTML='<span class="note" style="margin:0 4px 0 0;align-self:center">Classiques :</span>'+l.map(x=>`<button class="chip2" data-pop="${esc(x.query)}" title="${esc(x.composer)}">${esc(x.title)}</button>`).join('')});
+$('#pop').onclick=e=>{const b=e.target.closest('[data-pop]');if(b)runSearch(b.dataset.pop)};
+$('#lat').onclick=()=>{$('#lat').disabled=true;$('#qres').innerHTML='<p class="note">Chargement des nouveautés…</p>';
+  api('/api/latest').then(r=>{$('#qres').innerHTML=(r.results.length?`<p class="note" style="color:var(--ok);font-weight:700">✨ ${r.results.length} nouveautés libres de droits</p>`:'')+r.results.map(hit).join('')+(r.message?`<p class="note ${r.results.length?'':'bad'}">${esc(r.message)}</p>`:'')})
+   .catch(()=>{$('#qres').innerHTML='<p class="note bad">Impossible de charger les nouveautés.</p>'}).finally(()=>{$('#lat').disabled=false})};
 $('#qgo').onclick=()=>runSearch();$('#q').onkeydown=e=>{if(e.key==='Enter')runSearch()};
 $('#qres').onclick=e=>{const u=e.target.closest('[data-use]'),a=e.target.closest('[data-add]');
   if(u){songId=+u.dataset.use;songs();$('#qres').innerHTML='<p class="note" style="color:var(--ok);font-weight:700">✓ Ce morceau sera utilisé.</p>'}

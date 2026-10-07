@@ -75,3 +75,26 @@ def test_texts_follow_the_chosen_language():
     assert "Level" in en["description"] and "easy" in en["description"] and "#foryou" in en["description"] + " #foryou"
     assert "Nivel" in es["description"] and "fácil" in es["description"] and "Niveau" in fr["description"]
     assert en["hook"] != fr["hook"] and en["lang"] == "en"
+
+
+def test_latest_pieces_are_sorted_newest_first_and_filtered_by_license(monkeypatch):
+    listing = "".join(f'<a href="piece-info.cgi?id={i}">p{i}</a>' for i in (3, 9, 7, 5))
+    pages = {"id=9": page("Prélude neuf", "Public Domain"), "id=7": page("Pièce sept", "All rights reserved"),
+             "id=5": page("Pièce cinq", "Creative Commons Attribution 4.0"), "id=3": page("Pièce trois", "Public Domain")}
+    def get(url):
+        if "latestadditions" in url: return listing
+        return next(v for k, v in pages.items() if k in url)
+    r = search.latest(get=get, limit=5)
+    assert [x["id"] for x in r["results"]] == [9, 5, 3]                      # id décroissants, licence « réservée » écartée
+    assert r["results"][0]["license"] == "Public Domain" and not r["message"]
+
+
+def test_latest_offline_gives_a_message():
+    def boom(u): raise OSError("x")
+    r = search.latest(get=boom)
+    assert r["results"] == [] and "Impossible" in r["message"]
+
+
+def test_popular_selection_is_available_offline():
+    p = search.popular()
+    assert len(p) >= 10 and all(x["title"] and x["query"] for x in p)

@@ -263,6 +263,10 @@ def make_handler(settings_loader):
             if u.path == "/api/search":
                 q = parse_qs(u.query).get("q", [""])[0]
                 return self._json(msearch.search(s, q))
+            if u.path == "/api/latest":
+                return self._json(msearch.latest())
+            if u.path == "/api/popular":
+                return self._json(msearch.popular())
             if u.path == "/api/trends":
                 qs = parse_qs(u.query)
                 try:
