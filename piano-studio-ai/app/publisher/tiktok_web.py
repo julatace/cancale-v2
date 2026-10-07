@@ -46,14 +46,22 @@ def _clip(text: str):
 
 def _wait(cond_js: str, what: str, timeout: int = 90) -> None:
     end = time.monotonic() + timeout
+    last = ""
     while time.monotonic() < end:
         try:
             if _js(cond_js) == "true":
                 return
-        except RuntimeError:
-            pass
+            last = ""
+        except RuntimeError as e:
+            last = str(e)
+            if "JavaScript" in last or "allow" in last.lower() or "autoris" in last.lower():
+                raise                                              # réglage Safari manquant : inutile d'attendre 90 s
         time.sleep(2)
-    raise RuntimeError(f"TikTok : {what} (délai dépassé) — vérifie que tu es connecté dans Safari")
+    try:
+        info = _js('document.location.href + " | " + document.title + " | fichiers:" + document.querySelectorAll("input[type=file]").length')
+    except RuntimeError as e:
+        info = f"lecture de la page impossible ({e})"
+    raise RuntimeError(f"TikTok : {what} (délai dépassé). Page vue par l'agent : {info}" + (f" ; dernière erreur : {last}" if last else ""))
 
 
 def _real_click_upload(say):
@@ -93,6 +101,9 @@ def _post(video, caption, publish, say):
     video = Path(video).resolve()
     if not video.exists():
         raise RuntimeError(f"vidéo introuvable : {video}")
+    say("🔐 Test du réglage JavaScript de Safari…")
+    _osa('tell application "Safari" to activate')
+    _js("1+1")
     say("🌐 Ouverture de TikTok Studio dans Safari…")
     _osa(f'tell application "Safari"\nactivate\nif (count of windows) = 0 then make new document\n'
          f'set URL of current tab of front window to "{UPLOAD_URL}"\nend tell')
