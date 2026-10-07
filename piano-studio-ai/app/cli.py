@@ -167,6 +167,17 @@ def cmd_youtube_login(s, a):
     return 0
 
 
+def cmd_tiktok_login(s, a):
+    from .publisher import tiktok
+    try:
+        tiktok.login(config.ROOT / ".env", port=a.port)
+    except RuntimeError as e:
+        print(f"❌ {e}")
+        return 1
+    print("✅ TikTok est connecté (mode : " + s.get("tiktok", {}).get("mode", "draft") + ").")
+    return 0
+
+
 def cmd_mac_install(s, a):
     from .scheduler import launchd
     p = launchd.install(s["publish_times"], config.ROOT)
@@ -194,6 +205,7 @@ def main(argv=None):
     cmds["mac-rec-test"] = cmd_mac_rec_test
     cmds["ui"] = cmd_ui
     cmds["youtube-login"] = cmd_youtube_login
+    cmds["tiktok-login"] = cmd_tiktok_login
     cmds["mac-setup"] = cmd_mac_setup
     cmds["auto"] = cmds["run"] = cmds["dry-run"] = cmd_run
     for n in cmds:
@@ -203,7 +215,7 @@ def main(argv=None):
             sp.add_argument("--source", required=True); sp.add_argument("--license-proof")
         if n in ("auto", "run", "dry-run"):
             sp.add_argument("--count", type=int, default=1); sp.add_argument("--dry-run", action="store_true", default=(n == "dry-run")); sp.add_argument("--force-synthesia", action="store_true")
-        if n == "youtube-login":
+        if n in ("youtube-login", "tiktok-login"):
             sp.add_argument("--port", type=int, default=8085)
         if n == "ui":
             sp.add_argument("--port", type=int, default=8765); sp.add_argument("--no-browser", action="store_true")

@@ -26,3 +26,11 @@ Config : `config/settings.yaml`, `config/platforms.yaml`, `templates/*.json`. Se
 4. `./p.sh youtube-login` : autoriser dans la page Google ; le jeton est écrit dans `.env` tout seul.
 5. Cocher « Publier ensuite » dans la page. Attention : tant que le projet Google n'a pas passé l'audit de YouTube, les vidéos envoyées
    par l'API restent **privées** ; il suffit de les passer en publiques dans YouTube Studio (ou de demander l'audit).
+
+## TikTok (publication par l'API officielle)
+TikTok n'autorise la publication par programme qu'aux applications qu'il a approuvées. Étapes :
+1. https://developers.tiktok.com : créer une application, ajouter les produits **Login Kit** et **Content Posting API**.
+2. Dans l'application, ajouter l'adresse de redirection `http://127.0.0.1:8085/` et vous ajouter comme utilisateur de test (mode Sandbox).
+3. Copier la clé et le secret dans `.env` (`TIKTOK_CLIENT_KEY=...`, `TIKTOK_CLIENT_SECRET=...`), puis `./p.sh tiktok-login`.
+4. Mode `draft` (par défaut) : la vidéo arrive dans la boîte de réception de l'app TikTok, vous touchez « Publier » (le texte est à coller depuis la page).
+   Mode `direct` (réglage `tiktok.mode`) : publication immédiate, **privée** tant que TikTok n'a pas approuvé l'application.

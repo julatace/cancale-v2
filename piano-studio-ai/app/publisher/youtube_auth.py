@@ -1,11 +1,8 @@
 """Connexion à YouTube une seule fois : ouvre la page d'autorisation Google, récupère le jeton et l'écrit dans .env."""
 import json
 import os
-import threading
 import urllib.parse
 import urllib.request
-import webbrowser
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -50,39 +47,12 @@ def write_env(path: Path, updates: dict[str, str]) -> None:
 
 
 def login(env_path: Path, port: int = 8085, open_browser: bool = True, post=_post, say=print) -> str:
+    from .oauth_loopback import wait_for_code
     cid, secret = os.environ.get("YOUTUBE_CLIENT_ID", ""), os.environ.get("YOUTUBE_CLIENT_SECRET", "")
     if not cid or not secret:
         raise RuntimeError("YOUTUBE_CLIENT_ID et YOUTUBE_CLIENT_SECRET manquent dans le fichier .env (voir README, section YouTube).")
-    got: dict = {}
-    done = threading.Event()
-
-    class H(BaseHTTPRequestHandler):
-        def log_message(self, *a): pass
-
-        def do_GET(self):
-            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            got["code"] = (q.get("code") or [""])[0]
-            got["error"] = (q.get("error") or [""])[0]
-            body = ("<meta charset=utf-8><body style='font-family:sans-serif;padding:40px'><h2>"
-                    + ("✅ Connexion réussie" if got["code"] else "❌ Connexion refusée") + "</h2><p>Vous pouvez fermer cet onglet.</p>").encode()
-            self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8"); self.end_headers(); self.wfile.write(body)
-            done.set()
-
-    srv = HTTPServer(("127.0.0.1", port), H)
-    redirect = f"http://127.0.0.1:{srv.server_address[1]}"
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    url = auth_url(cid, redirect)
-    say(f"Autorisez l'accès dans la page Google qui s'ouvre. Sinon ouvrez ce lien :\n{url}")
-    if open_browser:
-        webbrowser.open(url)
-    try:
-        if not done.wait(timeout=300):
-            raise RuntimeError("Délai dépassé : aucune autorisation reçue en 5 minutes.")
-    finally:
-        srv.shutdown()
-    if not got.get("code"):
-        raise RuntimeError(f"Autorisation refusée ({got.get('error') or 'inconnue'}).")
-    token = exchange_code(got["code"], cid, secret, redirect, post)
+    code, redirect = wait_for_code(lambda r: auth_url(cid, r), port, open_browser, say)
+    token = exchange_code(code, cid, secret, redirect, post)
     write_env(env_path, {"YOUTUBE_REFRESH_TOKEN": token})
     os.environ["YOUTUBE_REFRESH_TOKEN"] = token
     return token
