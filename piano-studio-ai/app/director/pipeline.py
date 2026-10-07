@@ -130,6 +130,7 @@ def run_one(s, seed=None, dry_run=False, publish=True) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{sid}_{seed}.mp4"
     result = None
+    last_err = ""
     report = {**report}
     for attempt in range(1, 4):
         try:
@@ -143,8 +144,11 @@ def run_one(s, seed=None, dry_run=False, publish=True) -> dict:
                 break
             log.warning("QC %s (tentative %d): %s", result["score"], attempt, result["issues"])
         except Exception as e:
-            db.log_error(conn, "render", f"{type(e).__name__}: {e}", retry_count=attempt)
+            last_err = f"{type(e).__name__}: {e}"
+            db.log_error(conn, "render", last_err, retry_count=attempt)
             log.error("rendu échoué (tentative %d): %s", attempt, e)
+            if s.get("engine") == "synthesia":
+                break                                   # mode forcé : une seule tentative, on veut l'erreur
     ok = result is not None and result["score"] >= s["qc"]["publish_min"]
     log.info("✔ Score qualité : %s/100 -> %s", result["score"] if result else 0, "OK" if ok else "REFUSÉE")
     vid = conn.execute("INSERT INTO videos(song_id,style,duration,output_path,quality_score,status,title,created_at) VALUES(?,?,?,?,?,?,?,?)",
@@ -152,6 +156,9 @@ def run_one(s, seed=None, dry_run=False, publish=True) -> dict:
                         "READY" if ok else "FAILED", content["title"], db.now())).lastrowid
     conn.commit()
     report.update(video=str(out), qc=result, status="READY" if ok else "FAILED", publications=[])
+    if last_err and not ok:
+        report["error"] = last_err
+        log.error("✖ ÉCHEC : %s", last_err)
     if ok and publish:
         for ad in adapters(s):
             try:
