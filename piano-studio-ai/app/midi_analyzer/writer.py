@@ -24,3 +24,11 @@ def make_midi(events, ppq=480, bpm=120):
     return b"MThd" + struct.pack(">IHHH", 6, 0, 1, ppq) + b"MTrk" + struct.pack(">I", len(body)) + body
 
 
+
+
+def trim_midi(notes, start: float, end: float, bpm: float = 120) -> bytes:
+    """MIDI ne contenant que [start,end] recalé à t=0 : Synthesia joue toute la section sans réglage d'UI."""
+    k = bpm / 60.0  # secondes -> beats
+    ev = [((max(n.start, start) - start) * k, (min(n.end, end) - max(n.start, start)) * k, n.pitch, n.velocity)
+          for n in notes if n.end > start and n.start < end]
+    return make_midi([e for e in ev if e[1] > 0], bpm=bpm)

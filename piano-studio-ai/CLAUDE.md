@@ -21,3 +21,8 @@ Tu es l'ingénieur principal du projet. Objectif : un studio automatisé de tuto
 - Pas besoin de Synthesia/OBS : `app/visualizer` rend les notes qui tombent + audio synthétisé, en headless. `piano run` = 1 vidéo de bout en bout (morceau légal → analyse → rendu → QC → contenu → publication).
 - Sources : compositions originales générées + mélodies du domaine public transcrites (`music_discovery/generator.py`).
 - Planification : `.github/workflows/piano-studio.yml` (2/jour). YouTube nécessite les secrets OAuth ; TikTok/Instagram/Facebook exigent une app approuvée par la plateforme (adaptateurs `NOT_CONFIGURED`). L'outbox garde toujours la vidéo prête.
+
+## Mode Mac (Synthesia de l'utilisateur)
+- `engine: auto` : si `piano mac-check` est tout vert (Synthesia, Accessibility, capture écran, `synthesia.calibrated: true`), la vidéo est capturée depuis l'app Synthesia (`synthesia_controller/mac.py`, `renderer/compose.py`) ; sinon repli automatique sur le rendu intégré.
+- Section : le MIDI est découpé sur le passage choisi (`trim_midi`), Synthesia le joue en entier. Audio = piano synthétisé aligné via `lead_in_seconds`/`capture_trim` (à étalonner sur le Mac : NON testé sur un vrai Mac).
+- Planification : `piano mac-install` écrit l'agent launchd (2/jour).

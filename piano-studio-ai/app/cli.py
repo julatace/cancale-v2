@@ -70,6 +70,24 @@ def cmd_run(s, a):
     return code
 
 
+def cmd_mac_check(s, a):
+    from .synthesia_controller import mac
+    ok_all = True
+    for name, ok, detail in mac.check(s["synthesia"]):
+        print(f"{'✅' if ok else '❌'} {name}  {detail}")
+        ok_all &= ok
+    print("\nPrêt : le mode Synthesia sera utilisé." if ok_all else "\nPas prêt : le rendu intégré sera utilisé en repli.")
+    return 0 if ok_all else 1
+
+
+def cmd_mac_install(s, a):
+    from .scheduler import launchd
+    p = launchd.install(s["publish_times"], config.ROOT)
+    print(f"Planification écrite: {p}\nActivez-la avec: launchctl load {p}")
+    print("Pour réveiller le Mac aux heures prévues: sudo pmset repeat wakeorpoweron MTWRFSU 08:55:00")
+    return 0
+
+
 def not_ready(name):
     def f(s, a):
         print(f"`piano {name}`: pas encore implémenté (voir phases du cahier des charges).")
@@ -84,6 +102,7 @@ def main(argv=None):
     for n in ("setup", "start", "stop", "retry", "test"):
         cmds[n] = not_ready(n)
     cmds["import"], cmds["analyze"] = cmd_import, cmd_analyze
+    cmds["mac-check"], cmds["mac-install"] = cmd_mac_check, cmd_mac_install
     cmds["auto"] = cmds["run"] = cmds["dry-run"] = cmd_run
     for n in cmds:
         sp = sub.add_parser(n)

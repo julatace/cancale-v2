@@ -23,3 +23,13 @@ score_weights:
   difficulty: 0.10
   visual: 0.10
   novelty: 0.10
+
+engine: auto            # auto = Synthesia si le Mac est prêt, sinon rendu intégré | synthesia | builtin
+synthesia:
+  app_path: /Applications/Synthesia.app
+  calibrated: false     # passer à true après `piano mac-check` + vérification visuelle d'une vidéo test
+  load_seconds: 6       # attente du chargement du MIDI
+  lead_in_seconds: 3    # délai (s) entre le début de la capture et la 1re note, à étalonner
+  tail_seconds: 2
+  play_key_code: 49     # 49 = espace ; 36 = entrée
+  capture_trim: 4.0     # secondes à couper au début de la capture (étalonner pour caler l'audio)

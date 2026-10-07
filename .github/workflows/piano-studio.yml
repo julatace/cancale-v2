@@ -1,8 +1,10 @@
 name: Piano Studio AI
 on:
-  schedule:
-    - cron: "0 7 * * *"    # 09:00 Paris (été)
-    - cron: "0 17 * * *"   # 19:00 Paris (été)
+  # Planification cloud désactivée pour éviter les doublons avec le Mac (Synthesia).
+  # Pour la réactiver (Mac éteint) : décommenter.
+  # schedule:
+  #   - cron: "0 7 * * *"
+  #   - cron: "0 17 * * *"
   workflow_dispatch:
 jobs:
   produce:

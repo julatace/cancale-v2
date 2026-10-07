@@ -13,7 +13,10 @@ from app.music_discovery import generator, importer
 from app.publisher import adapters
 from app.quality_control import qc
 from app.section_selector.selector import select_section
-from app.visualizer import falling
+from app.visualizer import falling, synth
+from app.synthesia_controller import mac
+from app.renderer import compose
+from app.midi_analyzer.writer import trim_midi
 
 log = logging.getLogger("piano.director")
 
@@ -43,6 +46,29 @@ def pick_song(conn, s, seed) -> tuple[int, Path, dict]:
     return pick_song(conn, s, seed + 1000003) if seed < 10_000_000 else (_ for _ in ()).throw(RuntimeError("aucun morceau disponible"))
 
 
+def _render(s, notes, sec, out, meta, tempo) -> str:
+    """Synthesia (app de l'utilisateur) si disponible, sinon rendu intégré : la production ne s'arrête jamais."""
+    cfg = s.get("synthesia", {})
+    if s.get("engine", "auto") != "builtin" and mac.ready(cfg):
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                td = Path(td)
+                (td / "s.mid").write_bytes(trim_midi(notes, sec["start"], sec["start"] + sec["duration"]))
+                cap = mac.record(td / "s.mid", sec["duration"], td / "cap.mp4", cfg)
+                shifted = [type(n)(n.start - sec["start"] + cfg["lead_in_seconds"] - cfg["capture_trim"], n.end - sec["start"] + cfg["lead_in_seconds"] - cfg["capture_trim"], n.pitch, n.velocity, n.track)
+                           for n in notes if n.end > sec["start"] and n.start < sec["start"] + sec["duration"]]
+                shifted = [n for n in shifted if n.end > 0]
+                synth.write_wav(td / "a.wav", synth.render_audio(shifted, 0, sec["duration"]))
+                compose.compose_vertical(cap, td / "a.wav", out, cfg["capture_trim"], sec["duration"], meta["title"])
+            return "synthesia"
+        except Exception as e:
+            log.error("Synthesia a échoué (%s) -> rendu intégré", e)
+    elif s.get("engine") == "synthesia":
+        raise RuntimeError("engine=synthesia mais le Mac n'est pas prêt")
+    falling.render_video(notes, sec["start"], sec["duration"], out, meta["title"], meta["artist"], fps=30)
+    return "builtin"
+
+
 def run_one(s, seed=None, dry_run=False, publish=True) -> dict:
     conn = db.connect(config.resolve(s, "database"))
     seed = seed if seed is not None else random.SystemRandom().randrange(1, 1_000_000)
@@ -60,9 +86,11 @@ def run_one(s, seed=None, dry_run=False, publish=True) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{sid}_{seed}.mp4"
     result = None
+    report = {**report}
     for attempt in range(1, 4):
         try:
-            falling.render_video(notes, sec["start"], sec["duration"], out, meta["title"], meta["artist"], fps=30)
+            engine = _render(s, notes, sec, out, meta, tempo)
+            report["engine"] = engine
             result = qc.check(out, dur_range=(3, s["duration_range"][1] + 5))
             if qc.verdict(result["score"], **{"publish_min": s["qc"]["publish_min"], "autofix_min": s["qc"]["autofix_min"]}) == "PUBLISH":
                 break
