@@ -22,7 +22,7 @@ def test_not_ready_on_linux():
 def test_check_on_mac_with_mocked_tools(tmp_path):
     app = tmp_path / "Synthesia.app"; app.mkdir()
     err = "[AVFoundation indev] AVFoundation video devices:\n[AVFoundation indev] [0] FaceTime HD\n[AVFoundation indev] [1] Capture screen 0\n[AVFoundation indev] AVFoundation audio devices:\n"
-    run = lambda cmd, **k: NS(returncode=0, stdout="", stderr=err)
+    run = lambda cmd, **k: NS(returncode=0, stdout="true", stderr=err)
     res = mac.check({"app_path": str(app), "calibrated": True}, run=run, system=lambda: "Darwin")
     assert all(ok for _, ok, _ in res)
     assert mac.screen_devices(run) == [(1, "Capture screen 0")]
@@ -31,6 +31,7 @@ def test_check_on_mac_with_mocked_tools(tmp_path):
 def test_not_ready_if_accessibility_denied(tmp_path):
     app = tmp_path / "S.app"; app.mkdir()
     run = lambda cmd, **k: NS(returncode=1 if cmd[0] == "osascript" else 0, stdout="", stderr="[1] Capture screen 0" if cmd[0] != "osascript" else "not allowed")
+    assert mac.accessibility_ok(run)[0] is False
     assert not mac.ready({"app_path": str(app), "calibrated": True}, run=run, system=lambda: "Darwin")
 
 

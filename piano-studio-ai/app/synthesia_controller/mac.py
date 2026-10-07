@@ -34,8 +34,8 @@ def check(cfg: dict, run=sh, system=platform.system) -> list[tuple[str, bool, st
         return [("macOS", False, f"système={system()}")]
     app = Path(cfg["app_path"])
     res.append(("Synthesia installé", app.exists(), str(app)))
-    r = osa('tell application "System Events" to return name of first process', run)
-    res.append(("Accessibility (System Events)", r.returncode == 0, (r.stderr or "").strip()[:120]))
+    ok, why = accessibility_ok(run)
+    res.append(("Accessibilité (cliquer dans Synthesia)", ok, why))
     dev = screen_devices(run)
     res.append(("Écran capturable (ffmpeg avfoundation)", bool(dev), ", ".join(d[1] for d in dev) or "ffmpeg absent ou aucun écran"))
     res.append(("Étalonnage fait", bool(cfg.get("calibrated")), "mettre synthesia.calibrated: true après vérification visuelle"))
@@ -48,6 +48,16 @@ def ready(cfg, run=sh, system=platform.system) -> bool:
 
 def _ints(s: str) -> list[int]:
     return [int(float(x)) for x in re.findall(r"-?\d+(?:\.\d+)?", s)]
+
+
+def accessibility_ok(run=sh) -> tuple[bool, str]:
+    """Vrai test : lire la position d'une fenêtre exige l'autorisation Accessibilité du Terminal."""
+    r = osa('tell application "System Events" to get UI elements enabled', run)
+    if r.returncode != 0:
+        return False, "osascript refusé : " + (r.stderr or "").strip()[:100]
+    if "false" in r.stdout.lower():
+        return False, "Accessibilité désactivée pour le Terminal (Réglages Système > Confidentialité et sécurité > Accessibilité)"
+    return True, ""
 
 
 def screen_points(run=sh) -> tuple[int, int]:
@@ -73,7 +83,9 @@ def start_playback(cfg: dict, run=sh) -> str:
         r = osa(f'tell application "System Events" to click at {{{cx}, {cy}}}', run)
         if r.returncode == 0:
             return f"click({cx},{cy})"
-    osa('tell application "System Events" to key code 36', run)
+    r = osa('tell application "System Events" to key code 36', run)
+    if r.returncode != 0:
+        raise RuntimeError("impossible de piloter Synthesia : " + (r.stderr or "").strip()[:150])
     return "return"
 
 
@@ -100,6 +112,9 @@ def debug_frames(video: Path, outdir: Path, times=(2, 8, 25), run=sh) -> list[Pa
 
 def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time.sleep) -> tuple[Path, tuple | None]:
     """Relance Synthesia sur le MIDI, clique « Continuer », capture l'écran. Retourne (capture, zone de recadrage)."""
+    ok, why = accessibility_ok(run)
+    if not ok:
+        raise RuntimeError(f"Accessibilité non autorisée : {why}")
     screen = screen_devices(run)[0][0]
     total = duration + cfg["lead_in_seconds"] + cfg["tail_seconds"]
     osa('tell application "Synthesia" to quit', run)   # état propre à chaque vidéo
@@ -111,8 +126,13 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
                             "-capture_cursor", "0", "-i", f"{screen}:none", "-t", str(total), "-c:v", "libx264",
                             "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p", str(out)], stderr=subprocess.PIPE)
     sleep(1.0)
-    start_playback(cfg, run)
-    cap.wait(timeout=total + 30)
+    try:
+        start_playback(cfg, run)
+        cap.wait(timeout=total + 30)
+    except Exception:
+        cap.kill()
+        osa('tell application "Synthesia" to quit', run)
+        raise
     osa('tell application "Synthesia" to quit', run)
     if cap.returncode != 0 or not out.exists() or out.stat().st_size < 100_000:
         raise RuntimeError("capture Synthesia échouée")

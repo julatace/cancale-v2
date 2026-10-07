@@ -45,3 +45,18 @@ def test_return_mode_and_crop_fractions():
     assert mac.start_playback({**CFG, "start_mode": "return"}, fake_run(log)) == "return"
     x, y, w, h = mac.crop_fractions(CFG, fake_run([]))
     assert abs(x - 100 / 1280) < 1e-6 and abs(w - 1000 / 1280) < 1e-6 and 0 < y < 1 and 0 < h < 1
+
+
+def test_accessibility_disabled_is_detected_and_blocks_recording(tmp_path):
+    run = lambda cmd, **k: NS(returncode=0, stdout="false", stderr="")
+    assert mac.accessibility_ok(run)[0] is False
+    import pytest
+    with pytest.raises(RuntimeError, match="Accessibilité"):
+        mac.record(tmp_path / "a.mid", 5, tmp_path / "o.mp4", CFG, run=run, sleep=lambda s: None)
+
+
+def test_start_playback_raises_when_not_allowed():
+    import pytest
+    run = lambda cmd, **k: NS(returncode=1, stdout="0, 0, 1000, 700", stderr="osascript n'est pas autorisé")
+    with pytest.raises(RuntimeError):
+        mac.start_playback({**CFG, "start_mode": "return"}, run)
