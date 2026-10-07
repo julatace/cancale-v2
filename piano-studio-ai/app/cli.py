@@ -63,8 +63,11 @@ def cmd_run(s, a):
     import json
     from .director.pipeline import run_one
     code = 0
+    if getattr(a, "force_synthesia", False):  # test d'étalonnage : force Synthesia, sans publier
+        s["synthesia"]["calibrated"] = True
+        s["engine"] = "synthesia"
     for _ in range(a.count):
-        r = run_one(s, dry_run=a.dry_run)
+        r = run_one(s, dry_run=a.dry_run, publish=not getattr(a, 'force_synthesia', False))
         print(json.dumps(r, indent=2, ensure_ascii=False, default=str))
         code |= r["status"] not in ("PUBLISHED", "READY", "DRY_RUN")
     return code
@@ -110,7 +113,7 @@ def main(argv=None):
             sp.add_argument("file"); sp.add_argument("--title", required=True); sp.add_argument("--artist", default="")
             sp.add_argument("--source", required=True); sp.add_argument("--license-proof")
         if n in ("auto", "run", "dry-run"):
-            sp.add_argument("--count", type=int, default=1); sp.add_argument("--dry-run", action="store_true", default=(n == "dry-run"))
+            sp.add_argument("--count", type=int, default=1); sp.add_argument("--dry-run", action="store_true", default=(n == "dry-run")); sp.add_argument("--force-synthesia", action="store_true")
         if n == "analyze":
             sp.add_argument("file"); sp.add_argument("--duration", type=float)
     a = p.parse_args(argv)
