@@ -108,19 +108,42 @@ def split_caption(caption: str) -> tuple[str, list[str]]:
     return body, clean[:8]
 
 
-def _real_click_upload(say):
-    """Vrai clic souris sur la zone « Sélectionner une vidéo » (un clic JavaScript est refusé par Safari : pas de geste humain)."""
+_FIND_BTN = ("(function(){var re=/(s[ée]lectionner|select|choisir|choose|importer|upload)/i,best=null,ba=1e12;"
+             "document.querySelectorAll('button,[role=button],label,a,div,span').forEach(function(e){"
+             "var t=(e.innerText||'').trim();if(!t||t.length>40||!re.test(t))return;var r=e.getBoundingClientRect();"
+             "if(r.width<60||r.height<24||r.top<0||r.bottom>window.innerHeight||r.left<0)return;var a=r.width*r.height;if(a<ba){ba=a;best=r}});"
+             "if(!best){var el=document.querySelector('input[type=file]');if(!el)return '';"
+             "for(var k=0;k<6&&el.parentElement;k++){el=el.parentElement;var q=el.getBoundingClientRect();if(q.width>120&&q.height>40)break;}best=el.getBoundingClientRect()}"
+             "return Math.round(window.screenX+best.left+best.width/2)+','+Math.round(window.screenY+(window.outerHeight-window.innerHeight)+best.top+best.height/2);})()")
+
+
+def _sheet_open() -> bool:
+    """La fenêtre « Ouvrir » de macOS est-elle ouverte sur le navigateur ?"""
+    try:
+        return _osa(f'tell application "System Events" to tell process "{BROWSER}" to return (exists sheet 1 of window 1) or (exists window "Ouvrir") or (exists window "Open")') == "true"
+    except RuntimeError:
+        return False
+
+
+def _real_click_upload(say) -> None:
+    """Vrai clic souris sur le bouton « Sélectionner … » (un clic JavaScript est refusé : pas de geste humain). Ne continue que si la fenêtre « Ouvrir » apparaît."""
     import shutil
     if not shutil.which("cliclick"):
         raise RuntimeError("cliclick manquant : lance  brew install cliclick")
     _js('window.scrollTo(0,0); "ok"')
-    js = ("(function(){var el=document.querySelector('input[type=file]');"
-          "for(var k=0;k<6&&el.parentElement;k++){el=el.parentElement;var q=el.getBoundingClientRect();if(q.width>120&&q.height>40)break;}"
-          "var r=el.getBoundingClientRect();"
-          "return Math.round(window.screenX+r.left+r.width/2)+','+Math.round(window.screenY+(window.outerHeight-window.innerHeight)+r.top+r.height/2);})()")
-    x, y = (int(float(v)) for v in _js(js).split(","))
-    say(f"🖱 Clic sur la zone d'envoi ({x},{y})")
-    subprocess.run(["cliclick", f"m:{x},{y}", "w:300", f"c:{x},{y}"], check=True)
+    for attempt in (1, 2):
+        pos = _js(_FIND_BTN)
+        if not pos:
+            raise RuntimeError("bouton d'envoi de fichier introuvable sur la page")
+        x, y = (int(float(v)) for v in pos.split(","))
+        say(f"🖱 Clic sur le bouton d'envoi ({x},{y})")
+        subprocess.run(["cliclick", f"m:{x},{y}", "w:300", f"c:{x},{y}"], check=True)
+        for _ in range(12):                                   # jusqu'à 6 s pour voir la fenêtre « Ouvrir »
+            time.sleep(0.5)
+            if _sheet_open():
+                return
+    raise RuntimeError("la fenêtre « Ouvrir » de macOS ne s'est pas ouverte après le clic (rien n'a été tapé). "
+                       "Vérifie que Terminal a l'accès Accessibilité et que la fenêtre Chrome n'est pas cachée derrière une autre")
 
 
 def _shot(name="tiktok_web_erreur.png"):
@@ -165,7 +188,7 @@ def choose_file(path, say) -> None:
     """Vrai clic sur la zone d'envoi, puis dans la fenêtre « Ouvrir » de macOS : Aller au dossier (⇧⌘G) -> chemin collé -> Entrée."""
     say("📁 Sélection du fichier…")
     _real_click_upload(say)
-    time.sleep(2.5)
+    time.sleep(0.8)
     _clip(str(path))
     _keys('keystroke "g" using {command down, shift down}', "delay 1", 'keystroke "v" using command down', "delay 1",
           "key code 36", "delay 1.5", "key code 36")

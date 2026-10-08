@@ -237,3 +237,19 @@ def test_queue_marks_horizontal_as_normal_youtube_video_and_forces_web_publish(t
     monkeypatch.setattr(pubs, "adapters", fake_adapters)
     res = q.publish_video({"youtube": {"mode": "web"}, "tiktok": {"mode": "web"}}, c, 1)
     assert res[0]["status"] == "PUBLISHED" and seen["shorts"] is False and seen["web_publish"] == (True, True)
+
+
+def test_choose_file_never_types_when_the_open_dialog_is_missing(monkeypatch):
+    import pytest
+    from app.publisher import tiktok_web as tw
+    typed = []
+    monkeypatch.setattr(tw, "_js", lambda c: "500,400")
+    monkeypatch.setattr(tw, "_sheet_open", lambda: False)
+    monkeypatch.setattr(tw, "_keys", lambda *l: typed.append(l))
+    monkeypatch.setattr(tw, "_clip", lambda t: typed.append(t))
+    monkeypatch.setattr(tw.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(tw.shutil if hasattr(tw, "shutil") else __import__("shutil"), "which", lambda n: "/usr/bin/" + n)
+    monkeypatch.setattr(tw.time, "sleep", lambda s: None)
+    with pytest.raises(RuntimeError, match="ne s'est pas ouverte"):
+        tw.choose_file("/tmp/v.mp4", lambda m: None)
+    assert typed == []                                   # rien n'est tapé dans la page (c'est ce qui ouvrait la barre de recherche de Chrome)
