@@ -37,8 +37,42 @@ def pending(s) -> list[Path]:
     return sorted(p for p in folder(s).iterdir() if p.is_file() and p.suffix.lower() in EXT)
 
 
+def watched_dirs(s) -> list[Path]:
+    """Dossiers à surveiller en plus de data/inbox (réglage `inbox.watch`, ex. ~/Desktop/MIDI). Les originaux ne sont ni déplacés ni modifiés."""
+    return [Path(str(d)).expanduser() for d in (s.get("inbox", {}) or {}).get("watch", []) or []]
+
+
+def _key(f: Path) -> str:
+    st = f.stat()
+    return f"{f}|{st.st_size}|{int(st.st_mtime)}"
+
+
+def _seen_file(s) -> Path:
+    return folder(s) / ".seen.json"
+
+
+def _seen(s) -> dict:
+    try:
+        return json.loads(_seen_file(s).read_text())
+    except Exception:
+        return {}
+
+
+def watched_pending(s) -> list[Path]:
+    seen, out = _seen(s), []
+    for d in watched_dirs(s):
+        if d.is_dir():
+            out += [f for f in sorted(d.rglob("*")) if f.is_file() and f.suffix.lower() in EXT and not f.name.startswith(".") and _key(f) not in seen]
+    return out
+
+
+def waiting(s) -> int:
+    return len(pending(s)) + len(watched_pending(s))
+
+
 def status(s) -> dict:
-    return {"path": str(folder(s)), "waiting": len(pending(s)), "rights": rights_confirmed(s),
+    return {"path": str(folder(s)), "waiting": waiting(s), "rights": rights_confirmed(s),
+            "watch": [str(d) for d in watched_dirs(s)],
             "done": len([p for p in (folder(s) / "done").iterdir() if p.suffix.lower() in EXT])}
 
 
@@ -60,11 +94,27 @@ def scan(s, import_upload) -> list[dict]:
     """Importe chaque fichier en attente. `import_upload(s, name, data, title, artist)` fait la validation et l'inscription en base."""
     out = []
     files = pending(s)
-    if not files:
+    extra = watched_pending(s)
+    if not files and not extra:
         return out
     if not rights_confirmed(s):
-        log.warning("📥 %d fichier(s) dans la boîte de réception, mais les droits ne sont pas confirmés : rien n'est importé.", len(files))
-        return [{"file": f.name, "status": "WAITING_RIGHTS"} for f in files]
+        log.warning("📥 %d fichier(s) en attente, mais les droits ne sont pas confirmés : rien n'est importé.", len(files) + len(extra))
+        return [{"file": f.name, "status": "WAITING_RIGHTS"} for f in files + extra]
+    if extra:
+        seen = _seen(s)
+        for f in extra:                                       # dossiers surveillés : on importe une COPIE, l'original reste en place
+            try:
+                if f.stat().st_size > MAX_BYTES:
+                    raise ValueError("fichier trop gros (8 Mo max)")
+                r = import_upload(s, f.name, f.read_bytes(), "", "")
+                seen[_key(f)] = r["status"]
+                out.append({"file": f.name, "status": r["status"]})
+                log.info("📥 Lu dans %s : %s -> %s", f.parent.name, f.name, r["status"])
+            except Exception as e:
+                seen[_key(f)] = "ERROR"
+                out.append({"file": f.name, "status": "ERROR", "detail": str(e)[:200]})
+                log.warning("📥 Fichier ignoré %s : %s", f.name, e)
+        _seen_file(s).write_text(json.dumps(seen, ensure_ascii=False))
     for f in files:
         try:
             if f.stat().st_size > MAX_BYTES:

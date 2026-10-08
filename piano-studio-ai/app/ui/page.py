@@ -156,7 +156,7 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 
 <section class="card" id="inbox">
   <div class="step"><div><h2>Boîte de réception MIDI</h2><p>Un autre agent (ou toi) dépose des fichiers .mid / .kar ici : ils sont rangés tout seuls dans ta bibliothèque.</p></div></div>
-  <p class="note" style="margin:0 0 6px">Dossier : <code id="ibpath">…</code> · en attente : <b id="ibwait">0</b> · reçus : <b id="ibdone">0</b> · <b id="ibmake">0</b> morceau(x) à transformer en vidéo (l'agent prend les tiens en premier, dans l'ordre d'arrivée)</p>
+  <p class="note" style="margin:0 0 6px">Dossier : <code id="ibpath">…</code> <span id="ibwatch"></span> · en attente : <b id="ibwait">0</b> · reçus : <b id="ibdone">0</b> · <b id="ibmake">0</b> morceau(x) à transformer en vidéo (l'agent prend les tiens en premier, dans l'ordre d'arrivée)</p>
   <p class="note" style="margin:0 0 8px">Envoi direct possible : <code>curl -X POST --data-binary @fichier.mid -H "X-Filename: Artiste - Titre.mid" http://127.0.0.1:8765/api/inbox</code></p>
   <label class="rights"><input type="checkbox" id="ibrights"> Je confirme que les fichiers reçus ici sont libres de droits, ou que j'ai le droit de les utiliser. Une chanson récente n'est pas libre : sa publication peut entraîner une réclamation, la coupure du son ou la suppression de la vidéo.</label>
 </section>
@@ -270,7 +270,7 @@ function sched(){api('/api/schedule').then(d=>{
   const nm={PENDING:'⏳ programmée',RUNNING:'⏫ envoi en cours',DONE:'✅ publiée',FAILED:'❌ échec',MISSED:'⚠ manquée'};
   const un=d.unscheduled.length?`<p class="note" style="margin:10px 0 4px"><b>${d.unscheduled.length}</b> vidéo(s) prête(s) pas encore programmée(s).</p>`:'';
   $('#slist').innerHTML=un+(d.items.length?d.items.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${x.format==='horizontal'?'YouTube long':'TikTok + YouTube Shorts'} · ${esc(dfmt(x.run_at))} · ${nm[x.status]||esc(x.status)}${x.detail?' · '+esc(x.detail):''}</small></div>${x.status==='PENDING'?`<button data-cancel="${x.id}">Annuler</button>`:''}</div>`).join(''):'<p class="empty">Rien de programmé.</p>')})}
-function inb(){api('/api/inbox').then(d=>{$('#ibpath').textContent=d.path;$('#ibwait').textContent=d.waiting;$('#ibdone').textContent=d.done;$('#ibmake').textContent=d.to_make;$('#ibrights').checked=d.rights;if(d.done>inb.last)songs();inb.last=d.done})}
+function inb(){api('/api/inbox').then(d=>{$('#ibpath').textContent=d.path;$('#ibwatch').innerHTML=(d.watch||[]).length?'· surveillé aussi : '+d.watch.map(x=>'<code>'+esc(x)+'</code>').join(', '):'';$('#ibwait').textContent=d.waiting;$('#ibdone').textContent=d.done;$('#ibmake').textContent=d.to_make;$('#ibrights').checked=d.rights;if(d.done>inb.last)songs();inb.last=d.done})}
 inb.last=0;$('#ibrights').onchange=e=>api('/api/inbox/rights',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmed:e.target.checked})}).then(inb);
 function west(){const n=+$('#wcount').value||1,m=+$('#wmin').value||30,per=+$('#wper').value||1;const fit=Math.max(1,Math.floor(m/3.5));
   $('#west').textContent=`Compte environ 3 à 4 minutes de fabrication par morceau (les deux formats) : ${m} min = environ ${fit} morceau(x). ${n} vidéos à ${per}/jour = ${Math.ceil(n/per)} jour(s).`+(n>fit?' Augmente le temps ou baisse le nombre, sinon l\'agent s\'arrêtera à '+fit+' et programmera ce qu\'il a fait.':'')}

@@ -269,7 +269,7 @@ def due_runner(settings_loader, every=60, stop=None):
         while not (stop and stop.is_set()):
             try:
                 s = settings_loader()
-                if inbox.pending(s) and inbox.rights_confirmed(s):
+                if inbox.waiting(s) and inbox.rights_confirmed(s):
                     inbox.scan(s, import_upload)
                 conn = db.connect(config.resolve(s, "database"))
                 due = conn.execute("SELECT 1 FROM schedule WHERE status='PENDING' AND run_at<=? LIMIT 1", (datetime.now(timezone.utc).isoformat(),)).fetchone()

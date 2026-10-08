@@ -61,3 +61,18 @@ def test_my_songs_are_used_first_in_arrival_order(tmp_path):
     sid = pipeline.pick_song(conn, st, 1)[0]
     assert pipeline.pick_song(conn, st, 1, exclude={sid})[2]["title"] == "Deuxième"
     assert st["songs"]["prefer_mine"] is True
+
+
+def test_watched_folder_is_read_without_moving_originals(tmp_path):
+    st = _st(tmp_path)
+    mine = tmp_path / "Desktop" / "MIDI"; (mine / "sous").mkdir(parents=True)
+    (mine / "Gars - A.mid").write_bytes(song()); (mine / "sous" / "Gars - B.kar").write_bytes(song(sparse_beats=20)); (mine / "note.txt").write_text("x")
+    st["inbox"] = {"watch": [str(mine)]}
+    assert inbox.waiting(st) == 2 and inbox.scan(st, srv_mod.import_upload)[0]["status"] == "WAITING_RIGHTS"
+    inbox.set_rights(st, True)
+    out = inbox.scan(st, srv_mod.import_upload)
+    assert sorted(r["status"] for r in out) == ["LEGAL_CONFIRMED", "LEGAL_CONFIRMED"]
+    assert (mine / "Gars - A.mid").exists() and (mine / "sous" / "Gars - B.kar").exists()            # originaux intacts
+    assert inbox.waiting(st) == 0 and inbox.scan(st, srv_mod.import_upload) == []                    # jamais relu deux fois
+    (mine / "Gars - C.mid").write_bytes(song(sparse_beats=24))
+    assert inbox.waiting(st) == 1

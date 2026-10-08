@@ -100,3 +100,5 @@ youtube:
   category: "10"
 songs:
   prefer_mine: true     # les morceaux que tu fournis (boîte de réception, ajout dans la page) sont utilisés en premier, dans l'ordre d'arrivée
+inbox:
+  watch: ["~/Desktop/MIDI"]    # dossiers lus en plus de data/inbox : chaque MIDI est copié dans la bibliothèque, l'original ne bouge pas
