@@ -15,7 +15,31 @@ from .base import Result
 
 log = logging.getLogger("piano.tiktok_web")
 BROWSER = "Google Chrome"      # "Safari" ou "Google Chrome" (réglé par --browser)
+PROFILE = ""            # profil Chrome à utiliser (dossier, ex. « Profile 2 », ou nom affiché) ; vide = celui de la fenêtre au premier plan
 UPLOAD_URL = "https://www.tiktok.com/tiktokstudio/upload?from=webapp"
+
+
+def chrome_profiles() -> list[dict]:
+    """Profils Chrome du Mac : [{dir, name, email}] (lus dans le fichier « Local State » de Chrome)."""
+    f = Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "Local State"
+    try:
+        cache = json.loads(f.read_text()).get("profile", {}).get("info_cache", {})
+    except Exception:
+        return []
+    return [{"dir": d, "name": v.get("name", d), "email": v.get("user_name", "")} for d, v in sorted(cache.items())]
+
+
+def resolve_profile(wanted: str) -> str:
+    """Nom affiché, e-mail ou dossier -> dossier du profil. Erreur claire si introuvable."""
+    if not wanted:
+        return ""
+    profs = chrome_profiles()
+    for p in profs:
+        if wanted.lower() in (p["dir"].lower(), p["name"].lower(), p["email"].lower()):
+            return p["dir"]
+    if profs:
+        raise RuntimeError(f"profil Chrome « {wanted} » introuvable. Profils : " + ", ".join(f"{p['name']} ({p['dir']})" for p in profs))
+    return wanted                                           # liste illisible : on tente tel quel
 
 
 def _osa(script: str, timeout: int = 30) -> str:
@@ -128,6 +152,12 @@ def _post(video, caption, publish, say):
     if BROWSER == "Safari":
         _osa(f'tell application "Safari"\nactivate\nif (count of windows) = 0 then make new document\n'
              f'set URL of current tab of front window to "{UPLOAD_URL}"\nend tell')
+    elif PROFILE:                                            # ouvre la page DANS le bon profil : sa fenêtre passe au premier plan
+        d = resolve_profile(PROFILE)
+        say(f"👤 Profil Chrome utilisé : {d}")
+        subprocess.run(["open", "-a", BROWSER, "--args", f"--profile-directory={d}", UPLOAD_URL], check=True)
+        time.sleep(3)
+        _osa(f'tell application "{BROWSER}" to activate')
     else:
         _osa(f'tell application "{BROWSER}"\nactivate\nif (count of windows) = 0 then make new window\n'
              f'set URL of active tab of front window to "{UPLOAD_URL}"\nend tell')

@@ -5,6 +5,7 @@ import logging
 import threading
 import time
 import webbrowser
+from datetime import date, datetime, timedelta, timezone
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -13,7 +14,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 from app import config
 from app.database import db
 from app.director import control, difficulty, pipeline, stock
-from app.music_discovery import importer, search as msearch, trends as mtrends
+from app.music_discovery import importer, inbox, search as msearch, trends as mtrends
+from app.scheduler import queue as squeue
 from .page import PAGE
 
 RUNNER = pipeline.run_one          # remplaçable dans les tests
@@ -34,19 +36,52 @@ class Job:
             self.n += 1
             self.logs.append((self.n, msg))
 
-    def start(self, settings, level, formats, publish, count=1, song_id=None, lang=None) -> bool:
+    def start(self, settings, level, formats, publish, count=1, song_id=None, lang=None, plan=None) -> bool:
         with self.lock:
             if self.state["status"] == "running":
                 return False
             control.CANCEL.clear()
             control.STOP_RECORD.clear()
-            self.state = {"status": "running", "params": {"level": level, "formats": formats, "publish": publish, "count": count},
+            self.state = {"status": "running", "params": {"level": level, "formats": formats, "publish": publish, "count": count, "plan": bool(plan)},
                           "result": None, "error": None, "started": time.time()}
             self.logs.clear()
-        threading.Thread(target=self._run, args=(settings, level, formats, publish, count, song_id, lang), daemon=True).start()
+        threading.Thread(target=self._run, args=(settings, level, formats, publish, count, song_id, lang, plan), daemon=True).start()
         return True
 
-    def _run(self, settings, level, formats, publish, count, song_id=None, lang=None):
+    def start_task(self, name, fn) -> bool:
+        """Tâche courte (publier maintenant, publications programmées…) avec le même journal en direct que la création."""
+        with self.lock:
+            if self.state["status"] == "running":
+                return False
+            control.CANCEL.clear()
+            self.state = {"status": "running", "params": {"task": name}, "result": None, "error": None, "started": time.time()}
+            self.logs.clear()
+
+        def work():
+            job = self
+
+            class H(logging.Handler):
+                def emit(self, record):
+                    job._add(record.getMessage())
+
+            h = H(level=logging.INFO)
+            lg = logging.getLogger("piano")
+            lg.addHandler(h)
+            try:
+                res = fn()
+                with self.lock:
+                    self.state.update(status="done", result={"task": name, "summary": res})
+            except Exception as e:
+                self._add(f"✖ ERREUR : {type(e).__name__}: {e}")
+                with self.lock:
+                    self.state.update(status="failed", error=f"{type(e).__name__}: {e}")
+            finally:
+                lg.removeHandler(h)
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
+    def _run(self, settings, level, formats, publish, count, song_id=None, lang=None, plan=None):
         job = self
 
         class H(logging.Handler):
@@ -57,7 +92,7 @@ class Job:
         lg = logging.getLogger("piano")
         lg.addHandler(h)
         try:
-            results = [RUNNER(settings, level=level, formats=formats, publish=publish, song_id=song_id, lang=lang) for _ in range(count)]
+            results = self._produce(settings, level, formats, publish, count, song_id, lang, plan)
             with self.lock:
                 self.state.update(status="done", result=results[-1] if count == 1 else results)
         except control.Cancelled:
@@ -71,6 +106,30 @@ class Job:
         finally:
             lg.removeHandler(h)
             stock.refill_in_background(settings)          # prépare déjà le(s) prochain(s) morceau(x)
+
+    def _produce(self, settings, level, formats, publish, count, song_id, lang, plan):
+        """Crée `count` vidéos ; en mode « semaine » : s'arrête quand le temps alloué est écoulé, puis programme les publications."""
+        if not plan:
+            return [RUNNER(settings, level=level, formats=formats, publish=publish, song_id=song_id, lang=lang) for _ in range(count)]
+        budget = float(plan.get("minutes") or 0) * 60
+        t0, results, made = time.time(), [], 0
+        for i in range(count):
+            spent = time.time() - t0
+            avg = spent / i if i else 0
+            if budget and i and spent + avg * 0.8 > budget:
+                self._add(f"⏱ Temps alloué ({plan['minutes']:g} min) bientôt écoulé : {i} création(s) faite(s).")
+                break
+            self._add(f"━━ Création {i + 1}/{count} ━━")
+            results.append(RUNNER(settings, level=level, formats=formats, publish=False, song_id=song_id, lang=lang, ))
+            made += 1
+        ids = [v["video_id"] for r in results for v in (r.get("videos") or [r]) if v.get("video_id") and v.get("status") != "FAILED"]
+        conn = db.connect(config.resolve(settings, "database"))
+        when = squeue.slots(plan["first_day"], max(len(ids), 1) * 1, plan["per_day"], plan["times"])
+        planned = squeue.plan(conn, ids, when)
+        n_slots = len({p["run_at"] for p in planned})
+        self._add(f"🗓 {n_slots} publication(s) programmée(s) : du {planned[0]['run_at'].replace('T', ' ')} au {planned[-1]['run_at'].replace('T', ' ')}." if planned
+                  else "🗓 Rien à programmer (aucune vidéo réussie).")
+        return results
 
     def stop(self) -> bool:
         with self.lock:
@@ -192,6 +251,29 @@ def videos(s, limit=12) -> list[dict]:
     return out
 
 
+def schedule_view(s) -> dict:
+    conn = db.connect(config.resolve(s, "database"))
+    return {"items": squeue.listing(conn), "unscheduled": squeue.unscheduled(conn)}
+
+
+def due_runner(settings_loader, every=60, stop=None):
+    """Tant que l'interface est ouverte : publie à l'heure dite les vidéos programmées (jamais pendant une création)."""
+    def loop():
+        while not (stop and stop.is_set()):
+            try:
+                s = settings_loader()
+                if inbox.pending(s) and inbox.rights_confirmed(s):
+                    inbox.scan(s, import_upload)
+                conn = db.connect(config.resolve(s, "database"))
+                due = conn.execute("SELECT 1 FROM schedule WHERE status='PENDING' AND run_at<=? LIMIT 1", (datetime.now(timezone.utc).isoformat(),)).fetchone()
+                if due:
+                    JOB.start_task("due", lambda: "; ".join(f"{d['status']}" for d in squeue.run_due(s, db.connect(config.resolve(s, "database")))))
+            except Exception as e:
+                logging.getLogger("piano").warning("programmation : %s", e)
+            time.sleep(every)
+    threading.Thread(target=loop, daemon=True).start()
+
+
 def make_handler(settings_loader):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -246,6 +328,59 @@ def make_handler(settings_loader):
                    "REJECTED": "Fichier MIDI invalide ou vide."}.get(r["status"], "Morceau non accepté.")
             return self._json({"status": r["status"], "message": msg, "song_id": r.get("song_id")}, 200 if r["status"] in ("LEGAL_CONFIRMED", "DUPLICATE") else 400)
 
+        def _inbox_post(self):
+            """Réception d'un MIDI envoyé par un autre programme : le corps est le fichier, X-Filename son nom. Droits : voir inbox.py."""
+            s = settings_loader()
+            tok = os.environ.get("INBOX_TOKEN", "")
+            if tok and self.headers.get("X-Token", "") != tok:
+                return self._json({"error": "jeton refusé"}, 403)
+            if not inbox.rights_confirmed(s):
+                return self._json({"error": "droits non confirmés : coche la case dans la page (Boîte de réception) avant d'envoyer"}, 403)
+            n = int(self.headers.get("Content-Length", 0) or 0)
+            name = Path(unquote(self.headers.get("X-Filename", "morceau.mid"))).name
+            if n <= 0 or n > inbox.MAX_BYTES or not name.lower().endswith(inbox.EXT):
+                return self._json({"error": "fichier .mid/.midi/.kar de 8 Mo maximum attendu (en-tête X-Filename)"}, 400)
+            (inbox.folder(s) / name).write_bytes(self.rfile.read(n))
+            meta = {k: unquote(self.headers.get(h, "")) for k, h in (("title", "X-Title"), ("artist", "X-Artist")) if self.headers.get(h)}
+            if meta:
+                (inbox.folder(s) / name).with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False))
+            res = inbox.scan(s, import_upload)
+            return self._json({"results": res})
+
+        def _plan(self, s, body):
+            """Programme les vidéos prêtes (toutes, ou celles demandées) sur les créneaux choisis."""
+            try:
+                first = date.fromisoformat(body.get("first_day") or (date.today() + timedelta(days=1)).isoformat())
+                per_day = min(max(int(body.get("per_day", 2) or 2), 1), 6)
+            except ValueError:
+                return self._json({"error": "date invalide"}, 400)
+            conn = db.connect(config.resolve(s, "database"))
+            ids = [int(i) for i in body.get("video_ids") or []] or [v["id"] for v in squeue.unscheduled(conn)]
+            if not ids:
+                return self._json({"error": "Aucune vidéo prête à programmer. Créez-en d'abord."}, 400)
+            at = body.get("at")                              # une seule vidéo à une date/heure précise (« mardi 19 h »)
+            if at:
+                try:
+                    when = [datetime.fromisoformat(at).astimezone()]
+                except ValueError:
+                    return self._json({"error": "date/heure invalide"}, 400)
+            else:
+                when = squeue.slots(first, len(ids), per_day, squeue.parse_times(body.get("times") or ["12:30", "19:00"]))
+            planned = squeue.plan(conn, ids, when)
+            return self._json({"planned": planned, "message": f"{len({p['run_at'] for p in planned})} publication(s) programmée(s)."})
+
+        def _publish_now(self, s, body):
+            vid = int(body.get("video_id", 0))
+
+            def work():
+                conn = db.connect(config.resolve(s, "database"))
+                res = squeue.publish_video(s, conn, vid)
+                return "; ".join(f"{r['platform']}: {r['status']}" for r in res) or "aucune plateforme configurée"
+
+            if not JOB.start_task("publish", work):
+                return self._json({"error": "une opération est déjà en cours"}, 409)
+            return self._json({"ok": True})
+
         def _delete_song(self):
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0)) or 0) or b"{}")
             s = settings_loader()
@@ -291,6 +426,10 @@ def make_handler(settings_loader):
                     return self._json({"items": items, "message": ""})
                 except mtrends.TrendsUnavailable as e:
                     return self._json({"items": [], "message": str(e)})
+            if u.path == "/api/inbox":
+                return self._json(inbox.status(s))
+            if u.path == "/api/schedule":
+                return self._json(schedule_view(s))
             if u.path == "/api/songs":
                 return self._json(songs(s))
             if u.path == "/api/videos":
@@ -304,7 +443,8 @@ def make_handler(settings_loader):
 
         def do_POST(self):
             path = urlparse(self.path).path
-            if path not in ("/api/run", "/api/upload", "/api/songs/delete", "/api/stop", "/api/stop-recording", "/api/import-found"):
+            if path not in ("/api/run", "/api/upload", "/api/songs/delete", "/api/stop", "/api/stop-recording", "/api/import-found",
+                        "/api/schedule/plan", "/api/schedule/cancel", "/api/publish-now", "/api/week", "/api/inbox", "/api/inbox/rights"):
                 return self._send(404, b'{"error":"not found"}')
             origin = self.headers.get("Origin", "")
             if origin and not (origin.startswith("http://127.0.0.1") or origin.startswith("http://localhost")):
@@ -323,6 +463,8 @@ def make_handler(settings_loader):
                 return self._json({"ok": True, "was_running": JOB.stop()})
             if path == "/api/upload":
                 return self._upload()
+            if path == "/api/inbox":
+                return self._inbox_post()
             if path == "/api/songs/delete":
                 return self._delete_song()
             try:
@@ -330,20 +472,45 @@ def make_handler(settings_loader):
             except json.JSONDecodeError:
                 return self._json({"error": "JSON invalide"}, 400)
             s = settings_loader()
+            if path == "/api/inbox/rights":
+                inbox.set_rights(s, bool(body.get("confirmed")))
+                return self._json(inbox.status(s))
+            if path == "/api/schedule/plan":
+                return self._plan(s, body)
+            if path == "/api/schedule/cancel":
+                conn = db.connect(config.resolve(s, "database"))
+                return self._json({"ok": squeue.cancel(conn, int(body.get("id", 0)))})
+            if path == "/api/publish-now":
+                return self._publish_now(s, body)
             opt = options(s)
+            if path == "/api/week":
+                body = {**body, "week": True}
             level = body.get("level") or None
             formats = body.get("formats") or ([body["format"]] if body.get("format") else opt["default_formats"])
             if level not in {l["key"] for l in opt["levels"]} | {None}:
                 return self._json({"error": "niveau inconnu"}, 400)
             if not formats or not all(f in {x["key"] for x in opt["formats"]} for f in formats):
                 return self._json({"error": "format inconnu"}, 400)
-            count = max(1, min(int(body.get("count", 1) or 1), 5))
+            plan = None
+            if body.get("week"):
+                try:
+                    plan = {"minutes": min(max(float(body.get("minutes", 30) or 30), 5), 600),
+                            "per_day": min(max(int(body.get("per_day", 2) or 2), 1), 6),
+                            "times": squeue.parse_times(body.get("times") or ["12:30", "19:00"]) or ["12:30", "19:00"],
+                            "first_day": date.fromisoformat(body.get("first_day") or (date.today() + timedelta(days=1)).isoformat())}
+                except ValueError:
+                    return self._json({"error": "date ou durée invalide"}, 400)
+                count = max(1, min(int(body.get("count", 14) or 14), 30))
+                publish = False                                   # en mode semaine, rien ne part à la création : tout est programmé
+            else:
+                count = max(1, min(int(body.get("count", 1) or 1), 5))
+                publish = bool(body.get("publish", False))
             if body.get("synthesia", True):
                 s = {**s, "engine": "synthesia"}              # Synthesia obligatoire : une erreur s'affiche, pas de repli silencieux
             else:
                 s = {**s, "engine": "builtin"}
-            if not JOB.start(s, level, formats, bool(body.get("publish", False)), count, int(body["song_id"]) if body.get("song_id") else None,
-                         body.get("lang") if body.get("lang") in ("fr", "en", "es") else None):
+            if not JOB.start(s, level, formats, publish, count, int(body["song_id"]) if body.get("song_id") and not plan else None,
+                         body.get("lang") if body.get("lang") in ("fr", "en", "es") else None, plan):
                 return self._json({"error": "une vidéo est déjà en cours de création"}, 409)
             self._json({"ok": True})
 
@@ -359,6 +526,7 @@ def serve(port=8765, open_browser=True, settings_loader=config.load_settings):
         raise SystemExit(1)
     url = f"http://127.0.0.1:{srv.server_address[1]}"
     print(f"Interface Piano Studio AI : {url}   (Ctrl+C pour arrêter)")
+    due_runner(settings_loader)                          # publications programmées
     stock.refill_in_background(settings_loader())         # réserve de morceaux prête avant même le premier clic
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

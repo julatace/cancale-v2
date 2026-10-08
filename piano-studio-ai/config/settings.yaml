@@ -72,7 +72,7 @@ formats:
     label: "Vertical court (TikTok · YouTube Shorts · Reels)"
     width: 1080
     height: 1920
-    banner: 300
+    banner: 460               # titre sous la zone masquée par TikTok (haut 150 px) ; le bas (220 px) est laissé libre pour la légende
     min_duration: 60          # morceaux plus courts écartés (la vidéo doit faire au moins 1 minute)
     shorts: true
   horizontal:               # YouTube long : 16:9, le morceau entier (plafonné)
@@ -89,4 +89,6 @@ stock:
 ui_default_formats: [vertical, horizontal]   # les deux formats sont créés d'office
 language: fr            # langue des textes de la vidéo et de la publication : fr | en | es
 tiktok:
-  mode: draft            # web = pilote Safari déjà connecté (sans clé API, voir tiktok-web) ; draft = la vidéo arrive dans la boîte de réception TikTok (vous touchez « Publier ») ; direct = publication immédiate (privée tant que l'app n'est pas approuvée)
+  web_publish: false     # mode web : false = prépare tout et vous cliquez sur Publier ; true = clique aussi sur Publier (la programmation force true)
+  chrome_profile: ""      # profil Chrome du compte TikTok (voir  ./p.sh chrome-profiles ) ; vide = fenêtre Chrome au premier plan
+  mode: web              # web = pilote Safari déjà connecté (sans clé API, voir tiktok-web) ; draft = la vidéo arrive dans la boîte de réception TikTok (vous touchez « Publier ») ; direct = publication immédiate (privée tant que l'app n'est pas approuvée)

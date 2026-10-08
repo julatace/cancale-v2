@@ -11,4 +11,8 @@ if [ "$1" = "ui" ]; then
   echo "→ Version du programme : $(git rev-parse --short HEAD)"
   echo "→ Si la page ne s'ouvre pas toute seule, ouvrez http://127.0.0.1:8765 dans Safari."
 fi
+if [ "$1" = "ui" ] && command -v caffeinate >/dev/null; then
+  echo "→ Le Mac reste éveillé tant que cette page tourne (publications programmées)."
+  exec caffeinate -dis piano "$@"
+fi
 piano "$@"

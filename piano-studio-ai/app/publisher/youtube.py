@@ -68,7 +68,8 @@ class YouTube:
         lang = {"fr": "fr", "en": "en", "es": "es"}.get(meta.get("lang", "fr"), "fr")
         return {"snippet": {"title": title, "description": desc[:4900], "tags": tags, "categoryId": category,
                             "defaultLanguage": lang, "defaultAudioLanguage": lang},
-                "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": False, "embeddable": True, "publicStatsViewable": True}}
+                "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": False, "embeddable": True, "publicStatsViewable": True,
+                           **({"privacyStatus": "private", "publishAt": meta["publish_at"]} if meta.get("publish_at") else {})}}   # publish_at : YouTube publie lui-même à l'heure (ISO 8601 UTC)
 
     def publish(self, video, meta, key) -> Result:
         try:

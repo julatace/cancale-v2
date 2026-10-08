@@ -43,8 +43,17 @@ def _probe_size(path) -> tuple[int, int] | None:
         return None
 
 
-def app_box(src: tuple[int, int] | None, crop, W: int, H: int, top: int, bottom_margin: int = 28) -> tuple[float, float, float]:
+SAFE_TOP = 150           # TikTok / Shorts masquent le haut (onglets, recherche) : le titre commence plus bas
+SAFE_BOTTOM_TALL = 220   # ... et le bas (pseudo, légende, musique) : l'app s'arrête plus haut en vertical
+
+
+def bottom_for(W: int, H: int) -> int:
+    return SAFE_BOTTOM_TALL if H > W else 28
+
+
+def app_box(src: tuple[int, int] | None, crop, W: int, H: int, top: int, bottom_margin: int | None = None) -> tuple[float, float, float]:
     """(largeur, hauteur, y) de l'app dans la vidéo : la plus grande possible, CENTRÉE verticalement (sans toucher le titre)."""
+    bottom_margin = bottom_for(W, H) if bottom_margin is None else bottom_margin
     avail_h = H - top - bottom_margin
     if src:
         cw = (crop[2] if crop else 1.0) * src[0]
@@ -117,16 +126,19 @@ def _banner(path: Path, title: str, subtitle: str, w: int = W, top: int = TOP, b
         k = (y / top) ** 0.8
         d.line([(0, y), (w, y)], fill=tuple(int(dark[i] + (bg[i] - dark[i]) * k) for i in range(3)) + (255,))
     tall = top >= 250
-    start = 86 if top >= 420 else 78 if tall else 58
+    start = 72 if top >= 340 else 78 if tall else 58
     f, lines = _wrap(d, title, start, w - 100, 2 if tall else 1)
-    sub_h = (46 if tall else 38) if subtitle else 0
+    sub_h = ((42 if top >= 340 else 46) if tall else 38) if subtitle else 0
     block = int(len(lines) * f.size * 1.12) + sub_h
-    y = max(26 if tall else 14, int((top - block) / 2 - (top * 0.10 if top >= 420 else 0)))
+    if top >= 340:                                        # vertical : le bloc titre est centré SOUS la zone masquée par TikTok
+        y = int(SAFE_TOP + max((top - SAFE_TOP - 96 - block) / 2, 4))      # 96 px sous le texte restent pour la pastille d'accroche
+    else:
+        y = max(26 if tall else 14, int((top - block) / 2))
     for l in lines:
         d.text((w / 2, y), l, font=f, fill=(255, 255, 255, 255), anchor="mt", stroke_width=2, stroke_fill=(0, 0, 0, 160))
         y += int(f.size * 1.12)
     if subtitle:
-        d.text((w / 2, y + (6 if tall else 2)), subtitle, font=_font(42 if top >= 420 else 40 if tall else 30), fill=(200, 206, 235, 255), anchor="mt")
+        d.text((w / 2, y + (6 if tall else 2)), subtitle, font=_font(38 if top >= 340 else 40 if tall else 30), fill=(200, 206, 235, 255), anchor="mt")
         y += sub_h
     img.save(path)
     return y
@@ -150,7 +162,7 @@ def build_filter(td: Path, duration: float, title="", subtitle="", hook="", cta=
     W, H, TOP = size[0], size[1], top
     c = f"crop=iw*{crop[2]:.4f}:ih*{crop[3]:.4f}:iw*{crop[0]:.4f}:ih*{crop[1]:.4f}," if crop else ""
     chain = (f"color=c={_hex(bg)}:s={W}x{H}:r=30:d={duration:.2f}[bg];"                      # fond = gris de Synthesia
-             f"[1:v]{c}scale={W}:{H - TOP - 28}:force_original_aspect_ratio=decrease:flags=lanczos[fg];"   # fenêtre entière, jamais rognée
+             f"[1:v]{c}scale={W}:{H - TOP - bottom_for(W, H)}:force_original_aspect_ratio=decrease:flags=lanczos[fg];"   # fenêtre entière, jamais rognée
              f"[bg][fg]overlay=(W-w)/2:{int(app_box(src, crop, W, H, TOP)[2])}[v0]")           # app centrée, le gris du fond occupe le reste
     cur, extra, idx = "v0", [], 3          # entrées 0,1 = capture ; 2 = audio ; 3.. = PNG
     layers = []
@@ -164,7 +176,8 @@ def build_filter(td: Path, duration: float, title="", subtitle="", hook="", cta=
     if hook:
         p = td / "hook.png"; _tag(p, hook[:60], W); layers.append((p, pill_y, ":enable='between(t,0,3.5)'"))
     if cta:
-        p = td / "cta.png"; _tag(p, cta[:60], W); layers.append((p, cta_y, f":enable='gt(t,{max(duration - 3.5, 0):.1f})'"))
+        p = td / "cta.png"; _tag(p, cta[:60], W)
+        layers.append((p, pill_y if H > W else cta_y, f":enable='gt(t,{max(duration - 3.5, 0):.1f})'"))   # vertical : sous le titre, hors de la zone de légende TikTok
     for n, (p, y, en) in enumerate(layers):
         out = "v" if n == len(layers) - 1 else f"vl{n}"
         chain += f";[{cur}][{idx}:v]overlay=0:{y}{en}[{out}]"
@@ -173,6 +186,16 @@ def build_filter(td: Path, duration: float, title="", subtitle="", hook="", cta=
     if not layers:
         chain = chain.replace("[v0]", "[v]")
     return chain, extra
+
+
+def encode_args(duration: float, fps: int = 30) -> list[str]:
+    """Réglages d'export pour TikTok / YouTube : H.264 High, débit plafonné, BT.709, 30 i/s constants ; son AAC 48 kHz normalisé à -14 LUFS
+    (niveau de la plateforme : ni trop faible, ni écrêté) avec une entrée/sortie en fondu pour éviter les claquements."""
+    af = f"loudnorm=I=-14:TP=-1.5:LRA=11,afade=t=in:d=0.04,afade=t=out:st={max(duration - 0.7, 0):.2f}:d=0.7"
+    return ["-af", af, "-r", str(fps), "-fps_mode", "cfr", "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-profile:v", "high", "-level", "4.2",
+            "-maxrate", "14M", "-bufsize", "28M", "-g", str(fps * 2), "-bf", "2", "-pix_fmt", "yuv420p",
+            "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-shortest", "-movflags", "+faststart"]
 
 
 def compose_vertical(capture, audio_wav, out, trim: float, duration: float, title="", subtitle="", hook="", cta="",
@@ -184,8 +207,7 @@ def compose_vertical(capture, audio_wav, out, trim: float, duration: float, titl
                "-ss", str(trim), "-t", str(duration), "-i", str(capture), "-i", str(audio_wav)]
         for p in pngs:
             cmd += ["-i", p]
-        cmd += ["-filter_complex", chain, "-map", "[v]", "-map", "2:a", "-r", str(fps), "-c:v", "libx264", "-preset", "medium",
-                "-crf", "17", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(out)]
+        cmd += ["-filter_complex", chain, "-map", "[v]", "-map", "2:a"] + encode_args(duration, fps) + [str(out)]
         r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode or not Path(out).exists():
         raise RuntimeError(f"compose: {r.stderr[-300:]}")
@@ -241,8 +263,7 @@ def compose_landscape(capture, audio_wav, out, trim: float, duration: float, tit
                "-ss", str(trim), "-t", str(duration), "-i", str(capture), "-i", str(audio_wav)]
         for p, *_ in layers:
             cmd += ["-i", str(p)]
-        cmd += ["-filter_complex", chain, "-map", "[v]", "-map", "2:a", "-r", str(fps), "-c:v", "libx264", "-preset", "medium",
-                "-crf", "17", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(out)]
+        cmd += ["-filter_complex", chain, "-map", "[v]", "-map", "2:a"] + encode_args(duration, fps) + [str(out)]
         r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode or not Path(out).exists():
         raise RuntimeError(f"compose: {r.stderr[-300:]}")

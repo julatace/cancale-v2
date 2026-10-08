@@ -177,3 +177,21 @@ def test_hashtags_are_targeted_on_song_and_composer():
     c = generate({"title": "Invention 8", "artist": "J. S. Bach"}, "Facile", 3, set(), 80)
     assert c["hashtags"][:4] == ["#pianocover", "#pianotutorial", "#easypiano", "#piano"]
     assert "#bach" in c["hashtags"] and "#invention8" in c["hashtags"] and len(c["hashtags"]) <= 6
+
+
+def test_youtube_native_scheduling_sets_publish_at():
+    from app.publisher.youtube import YouTube
+    sn = YouTube.build_snippet({"title": "T", "description": "d", "hashtags": [], "publish_at": "2030-01-06T17:00:00Z"}, "public", "10")
+    assert sn["status"]["privacyStatus"] == "private" and sn["status"]["publishAt"] == "2030-01-06T17:00:00Z"
+    assert YouTube.build_snippet({"title": "T", "description": "d", "hashtags": []}, "public", "10")["status"]["privacyStatus"] == "public"
+
+
+def test_chrome_profile_resolution(tmp_path, monkeypatch):
+    from app.publisher import tiktok_web as tw
+    d = tmp_path / "Library/Application Support/Google/Chrome"; d.mkdir(parents=True)
+    (d / "Local State").write_text('{"profile":{"info_cache":{"Default":{"name":"Julien","user_name":"a@b.c"},"Profile 2":{"name":"Piano","user_name":""}}}}')
+    monkeypatch.setattr(tw.Path, "home", staticmethod(lambda: tmp_path))
+    assert tw.resolve_profile("piano") == "Profile 2" and tw.resolve_profile("A@B.C") == "Default" and tw.resolve_profile("") == ""
+    import pytest
+    with pytest.raises(RuntimeError, match="introuvable"):
+        tw.resolve_profile("nope")

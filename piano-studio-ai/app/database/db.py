@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS publications(
   id INTEGER PRIMARY KEY, video_id INTEGER REFERENCES videos(id), platform TEXT,
   post_id TEXT, status TEXT, published_at TEXT,
   UNIQUE(video_id, platform));
+CREATE TABLE IF NOT EXISTS schedule(
+  id INTEGER PRIMARY KEY, video_id INTEGER REFERENCES videos(id), run_at TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING', detail TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS analytics(
   id INTEGER PRIMARY KEY, publication_id INTEGER REFERENCES publications(id),
   views INT, likes INT, comments INT, shares INT, saves INT,

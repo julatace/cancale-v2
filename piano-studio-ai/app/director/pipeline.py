@@ -357,7 +357,7 @@ def _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish, kb_lo
             else:
                 use = content_crop
                 if maximized and not wide:                             # zoom sur la zone où les notes tombent réellement
-                    aspect = F["width"] / (F["height"] - F["banner"])
+                    aspect = F["width"] / (F["height"] - F["banner"] - compose.bottom_for(F["width"], F["height"]))
                     if played is not None:
                         use = framing.crop_from_range(content_crop, screen_pts, played[0], played[1], aspect)
                     else:                                              # mesure impossible : estimation d'après le clavier supposé
@@ -431,7 +431,7 @@ def _finalize(s, conn, sid, level, fmt_name, F, out, sec, content, report, publi
                         "READY" if ok else "FAILED", content["title"], json.dumps(post, ensure_ascii=False), db.now())).lastrowid
     report["post"] = post
     conn.commit()
-    report.update(video=str(out), qc=result, status="READY" if ok else "FAILED", publications=[])
+    report.update(video_id=vid, video=str(out), qc=result, status="READY" if ok else "FAILED", publications=[])
     if last_err and not ok:
         report["error"] = last_err
         log.error("✖ ÉCHEC : %s", last_err)

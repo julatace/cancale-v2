@@ -11,6 +11,8 @@ def adapters(settings, platforms_cfg=None, fmt=None):
     cfg = platforms_cfg or yaml.safe_load(open(config.ROOT / "config" / "platforms.yaml"))
     out = [Outbox(config.resolve(settings, "data_dir") / "published")]
     yt = settings.get("youtube", {})
+    from . import tiktok_web
+    tiktok_web.PROFILE = str(settings.get("tiktok", {}).get("chrome_profile", "") or "")
     reg = {"youtube": YouTube(privacy=yt.get("privacy", "public"), category=str(yt.get("category", "10"))),
            "tiktok": (TikTokWeb(publish=bool(settings.get("tiktok", {}).get("web_publish", False))) if settings.get("tiktok", {}).get("mode") == "web"
               else TikTok(mode=settings.get("tiktok", {}).get("mode", "draft"))),

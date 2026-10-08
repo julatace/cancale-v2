@@ -154,6 +154,27 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
   <div id="tres"><p class="empty">Cliquez sur « Afficher » pour consulter les tendances.</p></div>
 </section>
 
+<section class="card" id="inbox">
+  <div class="step"><div><h2>Boîte de réception MIDI</h2><p>Un autre agent (ou toi) dépose des fichiers .mid / .kar ici : ils sont rangés tout seuls dans ta bibliothèque.</p></div></div>
+  <p class="note" style="margin:0 0 6px">Dossier : <code id="ibpath">…</code> · en attente : <b id="ibwait">0</b> · reçus : <b id="ibdone">0</b></p>
+  <p class="note" style="margin:0 0 8px">Envoi direct possible : <code>curl -X POST --data-binary @fichier.mid -H "X-Filename: Artiste - Titre.mid" http://127.0.0.1:8765/api/inbox</code></p>
+  <label class="rights"><input type="checkbox" id="ibrights"> Je confirme que les fichiers reçus ici sont libres de droits, ou que j'ai le droit de les utiliser. Une chanson récente n'est pas libre : sa publication peut entraîner une réclamation, la coupure du son ou la suppression de la vidéo.</label>
+</section>
+
+<section class="card" id="sched">
+  <div class="step"><div><h2>Programmation</h2><p>L'agent fabrique les vidéos puis les publie tout seul à l'heure choisie. Laisse cette page ouverte et le Mac allumé (il ne se met pas en veille tant que la page tourne).</p></div></div>
+  <div class="row">
+    <label class="sw">Vidéos <input type="number" id="wcount" value="14" min="1" max="30" class="sel" style="width:76px;flex:none"></label>
+    <label class="sw">Temps de fabrication (min) <input type="number" id="wmin" value="30" min="5" max="600" class="sel" style="width:84px;flex:none"></label>
+    <label class="sw">Par jour <input type="number" id="wper" value="2" min="1" max="6" class="sel" style="width:64px;flex:none"></label>
+    <label class="sw">Heures <input type="text" id="wtimes" value="12:30, 19:00" class="sel" style="width:130px;flex:none" aria-label="Heures de publication"></label>
+    <label class="sw">Premier jour <input type="date" id="wday" class="sel" style="flex:none"></label>
+  </div>
+  <p class="note" id="west" style="margin:4px 0 8px"></p>
+  <div class="row"><button class="btn" id="wgo">🗓 Fabriquer et programmer</button><button class="btn alt" id="wplan">Programmer les vidéos déjà prêtes</button><span id="wmsg" class="note" style="margin:0"></span></div>
+  <div id="slist"></div>
+</section>
+
 <section class="card hist">
   <div class="step"><div><h2>Vidéos récentes</h2></div></div>
   <div id="vids"><p class="empty">Aucune vidéo pour l'instant.</p></div>
@@ -228,7 +249,7 @@ $('#tgo').onclick=()=>{$('#tgo').disabled=true;$('#tres').innerHTML='<p class="e
 $('#tres').onclick=e=>{const b=e.target.closest('[data-q]');if(b){$('#q').scrollIntoView({behavior:'smooth',block:'center'});runSearch(b.dataset.q)}};
 function info(){api('/api/info').then(i=>{$('#pubtxt').innerHTML='Publier ensuite : '+[['YouTube',i.youtube],['TikTok',i.tiktok]].map(([n,ok])=>`${n} <b style="color:var(--${ok?'ok':'bad'})">${ok?'✓':'non connecté'}</b>`).join(' · ');$('#ver').innerHTML=`version <b>${esc(i.version||'?')}</b>`;$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'');
   $('#engine').innerHTML=`Moteur : <b>${i.engine==='synthesia'?'Synthesia':i.engine?'rendu intégré':'vérification…'}</b>`;$('#engine').title=i.engine==='synthesia'?'Votre application Synthesia pilotée automatiquement':'Synthesia non prêt : rendu intégré utilisé'})}
-function vids(){api('/api/videos').then(v=>{if(!v.length)return;$('#vids').innerHTML=v.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${esc(x.level)} · ${esc(x.format)} · ${x.duration}s · qualité ${x.quality??'-'}/100 · ${esc(x.status)} · ${esc(x.at)}</small></div>${x.file?`<button data-f="${esc(x.file)}">Voir</button>`:''}</div>${x.post&&x.file?pubBox(x.post):''}`).join('')})}
+function vids(){api('/api/videos').then(v=>{if(!v.length)return;$('#vids').innerHTML=v.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${esc(x.level)} · ${esc(x.format)} · ${x.duration}s · qualité ${x.quality??'-'}/100 · ${esc(x.status)} · ${esc(x.at)}</small></div>${x.file?`<button data-f="${esc(x.file)}">Voir</button>`:''}</div>${x.file&&x.status!=='FAILED'?`<div class="pub"><button data-now="${x.id}">🚀 Publier maintenant</button><input type="datetime-local" data-when="${x.id}" class="sel" style="flex:none;padding:6px 8px"><button data-at="${x.id}">🗓 Programmer</button></div>`:''}${x.post&&x.file?pubBox(x.post):''}`).join('')})}
 $('#vids').onclick=e=>{const f=e.target.dataset.f;if(f){$('#player').innerHTML=`<video controls autoplay playsinline style="width:100%;max-height:70vh;border-radius:12px;background:#000;margin-top:12px" src="/files/${encodeURIComponent(f)}"></video>`;$('#player').scrollIntoView({behavior:'smooth',block:'center'})}};
 const POSTS=[];
 function pubBox(post,wide){
@@ -243,6 +264,32 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-post]');if
 $('#chk').onclick=()=>{$('#chk').disabled=true;$('#chkres').textContent='Vérification…';
   api('/api/check-platforms').then(r=>{$('#chkres').innerHTML=r.length?r.map(x=>`<b style="color:var(--${x.ok?'ok':'bad'})">${x.ok?'✓':'✗'} ${esc(x.platform)}</b> ${esc(x.message)}`).join(' · '):'Aucune plateforme à tester.'})
    .catch(()=>{$('#chkres').textContent='Test impossible.'}).finally(()=>{$('#chk').disabled=false})};
+
+const dfmt=iso=>new Date(iso).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+function sched(){api('/api/schedule').then(d=>{
+  const nm={PENDING:'⏳ programmée',RUNNING:'⏫ envoi en cours',DONE:'✅ publiée',FAILED:'❌ échec',MISSED:'⚠ manquée'};
+  const un=d.unscheduled.length?`<p class="note" style="margin:10px 0 4px"><b>${d.unscheduled.length}</b> vidéo(s) prête(s) pas encore programmée(s).</p>`:'';
+  $('#slist').innerHTML=un+(d.items.length?d.items.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${x.format==='horizontal'?'YouTube long':'TikTok + YouTube Shorts'} · ${esc(dfmt(x.run_at))} · ${nm[x.status]||esc(x.status)}${x.detail?' · '+esc(x.detail):''}</small></div>${x.status==='PENDING'?`<button data-cancel="${x.id}">Annuler</button>`:''}</div>`).join(''):'<p class="empty">Rien de programmé.</p>')})}
+function inb(){api('/api/inbox').then(d=>{$('#ibpath').textContent=d.path;$('#ibwait').textContent=d.waiting;$('#ibdone').textContent=d.done;$('#ibrights').checked=d.rights;if(d.done>inb.last)songs();inb.last=d.done})}
+inb.last=0;$('#ibrights').onchange=e=>api('/api/inbox/rights',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmed:e.target.checked})}).then(inb);
+function west(){const n=+$('#wcount').value||1,m=+$('#wmin').value||30,per=+$('#wper').value||1;const fit=Math.max(1,Math.floor(m/3.5));
+  $('#west').textContent=`Compte environ 3 à 4 minutes de fabrication par morceau (les deux formats) : ${m} min = environ ${fit} morceau(x). ${n} vidéos à ${per}/jour = ${Math.ceil(n/per)} jour(s).`+(n>fit?' Augmente le temps ou baisse le nombre, sinon l\'agent s\'arrêtera à '+fit+' et programmera ce qu\'il a fait.':'')}
+['wcount','wmin','wper'].forEach(i=>$('#'+i).oninput=west);
+{const d=new Date();d.setDate(d.getDate()+1);$('#wday').value=d.toISOString().slice(0,10)}west();
+function watch(txt){$('#job').hidden=false;$('#log').textContent='';$('#res').innerHTML='';$('#err').hidden=true;since=0;cur=-1;fmtLabel='';stepper();$('#now').textContent=txt||'En cours…';
+  $('#job').scrollIntoView({behavior:'smooth',block:'start'});if(!timer)timer=setInterval(poll,1500);poll()}
+const wbody=()=>({count:+$('#wcount').value,minutes:+$('#wmin').value,per_day:+$('#wper').value,times:$('#wtimes').value,first_day:$('#wday').value});
+$('#wgo').onclick=()=>{if(!confirm('Lancer la fabrication de '+$('#wcount').value+' morceaux, puis programmer leur publication ? Ne touche pas au Mac pendant la fabrication.'))return;
+  api('/api/week',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...wbody(),formats:[...formats],synthesia:$('#synth').checked,lang:$('#lang').value})})
+   .then(r=>{if(r.error){$('#wmsg').textContent=r.error;return}$('#wmsg').textContent='';watch('Démarrage de la production…')})};
+$('#wplan').onclick=()=>api('/api/schedule/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(wbody())})
+  .then(r=>{$('#wmsg').textContent=r.error||r.message;sched()});
+document.addEventListener('click',e=>{
+  const c=e.target.closest('[data-cancel]');if(c){api('/api/schedule/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:+c.dataset.cancel})}).then(sched);return}
+  const n=e.target.closest('[data-now]');if(n){if(!confirm('Publier cette vidéo maintenant ? Ne touche ni à la souris ni au clavier pendant l\'envoi.'))return;
+    api('/api/publish-now',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_id:+n.dataset.now})}).then(r=>{if(r.error){alert(r.error);return}watch('Publication en cours…')});return}
+  const s=e.target.closest('[data-at]');if(s){const v=document.querySelector(`input[data-when="${s.dataset.at}"]`).value;if(!v){alert('Choisis d\'abord la date et l\'heure.');return}
+    api('/api/schedule/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_ids:[+s.dataset.at],at:v})}).then(r=>{if(r.error){alert(r.error);return}sched();s.textContent='Programmée ✓'})}});
 function pubResult(x){
   if(!x.publications||!x.publications.length)return '';
   const names={youtube:x.format==='horizontal'?'YouTube (vidéo longue)':'YouTube Shorts',tiktok:'TikTok',outbox:'Dossier prêt à poster'};
@@ -262,9 +309,10 @@ function poll(){api('/api/status?since='+since).then(s=>{
   if(s.logs.length){L.textContent+=s.logs.join('\n')+'\n';L.scrollTop=L.scrollHeight;const last=s.logs[s.logs.length-1];$('#now').textContent=(fmtLabel&&s.status==='running'?fmtLabel+' · ':'')+last.replace(/\s*\[(vertical|horizontal)\]\s*/,' ').trim()}
   stepper();const run=s.status==='running';$('#bar').hidden=!run;$('#stop').hidden=!run;$('#stoprec').hidden=!run;if(run&&!$('#stoprec').dataset.busy){$('#stop').disabled=false;$('#stoprec').disabled=false};if(!run)delete $('#stoprec').dataset.busy;estimate();if(run){$('#go').disabled=true;$('#go').textContent='Création en cours…'}
   $('#chip').textContent=run?'En cours':s.status==='done'?'Terminé':s.status==='cancelled'?'Arrêté':'Échec';$('#chip').className='chip '+(s.status==='done'?'ok':s.status==='failed'||s.status==='cancelled'?'bad':'');
-  if(!run){clearInterval(timer);timer=null;vids();info();cur=s.status==='done'?5:cur;stepper();
+  if(!run){clearInterval(timer);timer=null;vids();info();sched();cur=s.status==='done'?5:cur;stepper();
     if(s.status==='cancelled'){$('#now').textContent='Création arrêtée'}
     if(s.status==='failed'){$('#err').hidden=false;$('#err').textContent=s.error}
+    else if(s.result&&s.result.task){$('#now').textContent='Terminé : '+s.result.summary}
     else if(s.result){$('#now').textContent='Terminé';results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result)}}
 })}
 $('#stoprec').onclick=()=>{$('#stoprec').disabled=true;$('#stoprec').dataset.busy=1;$('#now').textContent='Arrêt de l\'enregistrement… la vidéo sera montée avec ce qui est enregistré';api('/api/stop-recording',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(()=>setTimeout(()=>{delete $('#stoprec').dataset.busy},4000))};
@@ -275,7 +323,7 @@ $('#go').onclick=()=>{
   api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked,synthesia:$('#synth').checked,song_id:songId,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#now').textContent=r.error;return}if(!timer)timer=setInterval(poll,1500);poll()})};
 api('/api/options').then(o=>{opts=o;$('#lang').innerHTML=o.languages.map(l=>`<option value="${l.key}"${l.key===o.default_language?' selected':''}>${l.label}</option>`).join('');$('#tc').innerHTML=o.countries.map(c=>`<option value="${c.key}">${c.label}</option>`).join('');level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
-info();vids();songs();setInterval(info,20000);
+info();vids();songs();sched();inb();setInterval(info,20000);setInterval(sched,30000);setInterval(inb,15000);
 api('/api/status').then(s=>{if(s.status==='running'){$('#job').hidden=false;since=0;timer=setInterval(poll,1500);poll()}});
 </script></div></body></html>
 """

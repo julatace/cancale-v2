@@ -99,6 +99,7 @@ def test_registry_uses_the_real_adapter_now(tmp_path):
     from app import config
     from app.publisher import adapters
     s = config.load_settings(); s["paths"] = {**s["paths"], "data_dir": str(tmp_path)}
+    s["tiktok"] = {**s.get("tiktok", {}), "mode": "draft"}                  # « web » (par défaut) pilote le navigateur ; « draft » = API officielle
     names = [getattr(a, "platform", "") for a in adapters(s)]
     assert "tiktok" in names
     assert isinstance([a for a in adapters(s) if getattr(a, "platform", "") == "tiktok"][0], tiktok.TikTok)

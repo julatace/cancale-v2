@@ -182,6 +182,7 @@ def cmd_tiktok_web(s, a):
     """Poste une vidéo sur TikTok en pilotant Safari (compte déjà connecté dans Safari)."""
     from .publisher import tiktok_web
     tiktok_web.BROWSER = {"chrome": "Google Chrome", "safari": "Safari"}[a.browser]
+    tiktok_web.PROFILE = a.profile or str(s.get("tiktok", {}).get("chrome_profile", "") or "")
     from .database import db
     video, cap = a.video, a.caption
     if not video:
@@ -204,6 +205,68 @@ def cmd_tiktok_web(s, a):
     except Exception as e:
         print(f"❌ {e}")
         return 1
+    return 0
+
+
+def cmd_schedule(s, a):
+    """Liste les publications programmées."""
+    from .scheduler import queue
+    conn = db.connect(config.resolve(s, "database"))
+    items = queue.listing(conn)
+    for x in items:
+        print(f"{x['run_at'].replace('T', ' ')}  {x['status']:<9} {x['format'] or '?':<10} {x['title']}  {x['detail']}")
+    print(f"{len(items)} ligne(s) ; {len(queue.unscheduled(conn))} vidéo(s) prête(s) non programmée(s).")
+    return 0
+
+
+def cmd_publish_due(s, a):
+    """Publie ce dont l'heure est passée (à lancer toutes les 10 min par launchd si l'interface n'est pas ouverte)."""
+    from .scheduler import queue
+    conn = db.connect(config.resolve(s, "database"))
+    done = queue.run_due(s, conn)
+    for d in done:
+        print(d)
+    print(f"{len(done)} publication(s) traitée(s).")
+    return 0 if all(d["status"] != "FAILED" for d in done) else 1
+
+
+def cmd_publish_now(s, a):
+    from .scheduler import queue
+    conn = db.connect(config.resolve(s, "database"))
+    try:
+        for r in queue.publish_video(s, conn, a.video_id):
+            print(f"{'✅' if r['status'] in queue.GOOD else '❌'} {r['platform']}: {r['status']} {r['detail']}")
+    except RuntimeError as e:
+        print(f"❌ {e}")
+        return 1
+    return 0
+
+
+def cmd_inbox(s, a):
+    """Importe les fichiers MIDI déposés dans data/inbox/."""
+    from .music_discovery import inbox
+    from .ui.server import import_upload
+    st = inbox.status(s)
+    print(f"Dossier de réception : {st['path']}  (en attente : {st['waiting']})")
+    if a.confirm_rights:
+        inbox.set_rights(s, True)
+        print("✅ Droits confirmés pour cette boîte de réception.")
+    for r in inbox.scan(s, import_upload):
+        print(f"  {r['file']}: {r['status']} {r.get('detail', '')}")
+    return 0
+
+
+def cmd_chrome_profiles(s, a):
+    """Liste les profils Chrome pour choisir celui du compte TikTok."""
+    from .publisher import tiktok_web
+    profs = tiktok_web.chrome_profiles()
+    if not profs:
+        print("Aucun profil Chrome trouvé (Chrome est-il installé et lancé au moins une fois ?).")
+        return 1
+    cur = str(s.get("tiktok", {}).get("chrome_profile", "") or "")
+    for p in profs:
+        print(f"  {p['dir']:<12} {p['name']:<24} {p['email']}" + ("   ← utilisé" if cur and cur.lower() in (p['dir'].lower(), p['name'].lower(), p['email'].lower()) else ""))
+    print("\nPour en choisir un, écris son nom dans config/settings.yaml (tiktok > chrome_profile) ou lance :  ./p.sh tiktok-web --profile \"Nom\"")
     return 0
 
 
@@ -249,6 +312,9 @@ def main(argv=None):
     cmds["publish-check"] = cmd_publish_check
     cmds["tiktok-login"] = cmd_tiktok_login
     cmds["tiktok-web"] = cmd_tiktok_web
+    cmds["chrome-profiles"] = cmd_chrome_profiles
+    cmds["inbox"] = cmd_inbox
+    cmds["schedule"], cmds["publish-due"], cmds["publish-now"] = cmd_schedule, cmd_publish_due, cmd_publish_now
     cmds["mac-setup"] = cmd_mac_setup
     cmds["auto"] = cmds["run"] = cmds["dry-run"] = cmd_run
     for n in cmds:
@@ -261,7 +327,11 @@ def main(argv=None):
         if n in ("youtube-login", "tiktok-login"):
             sp.add_argument("--port", type=int, default=8085)
         if n == "tiktok-web":
-            sp.add_argument("--video"); sp.add_argument("--caption", default=""); sp.add_argument("--browser", choices=["chrome", "safari"], default="chrome"); sp.add_argument("--post", action="store_true", help="clique aussi sur Publier")
+            sp.add_argument("--video"); sp.add_argument("--caption", default=""); sp.add_argument("--browser", choices=["chrome", "safari"], default="chrome"); sp.add_argument("--profile", default=""); sp.add_argument("--post", action="store_true", help="clique aussi sur Publier")
+        if n == "inbox":
+            sp.add_argument("--confirm-rights", action="store_true", help="je confirme avoir les droits sur les fichiers reçus")
+        if n == "publish-now":
+            sp.add_argument("video_id", type=int)
         if n == "ui":
             sp.add_argument("--port", type=int, default=8765); sp.add_argument("--no-browser", action="store_true")
         if n == "analyze":
