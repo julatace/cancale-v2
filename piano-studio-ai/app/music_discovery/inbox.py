@@ -70,9 +70,14 @@ def waiting(s) -> int:
     return len(pending(s)) + len(watched_pending(s))
 
 
+LAST_CHECK = {"at": 0.0}        # dernière vérification des dossiers (secondes depuis 1970), affichée dans la page
+
+
 def status(s) -> dict:
-    return {"path": str(folder(s)), "waiting": waiting(s), "rights": rights_confirmed(s),
+    return {"path": str(folder(s)), "waiting": waiting(s), "rights": rights_confirmed(s), "last_check": LAST_CHECK["at"],
             "watch": [str(d) for d in watched_dirs(s)],
+            "folders": [{"path": str(d), "exists": d.is_dir(),
+                         "files": len([f for f in d.rglob("*") if f.is_file() and f.suffix.lower() in EXT]) if d.is_dir() else 0} for d in watched_dirs(s)],
             "done": len([p for p in (folder(s) / "done").iterdir() if p.suffix.lower() in EXT])}
 
 

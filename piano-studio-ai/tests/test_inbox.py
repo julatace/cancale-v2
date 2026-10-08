@@ -88,3 +88,30 @@ def test_dense_song_of_mine_raises_the_level_instead_of_being_thrown_away(tmp_pa
     inbox.scan(st, srv_mod.import_upload)
     r = pipeline.run_one(st, seed=1, publish=False, formats=["vertical"])        # niveau non imposé : rotation -> « Facile », trop lent pour ce morceau
     assert r["song"] == "Alpha" and r["status"] == "READY" and r["difficulty"] != "Facile"
+
+
+def test_page_endpoints_for_my_folder(tmp_path, monkeypatch):
+    import threading, urllib.request, urllib.error
+    from http.server import ThreadingHTTPServer
+    st = _st(tmp_path)
+    mine = tmp_path / "MIDI"; mine.mkdir()
+    (mine / "Gars - Alpha.mid").write_bytes(song())
+    monkeypatch.setattr(srv_mod.config, "save_local", lambda k, v: st.__setitem__(k, {**st.get(k, {}), **v}))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), srv_mod.make_handler(lambda: st))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+    def call(path, body=None):
+        req = urllib.request.Request(base + path, data=json.dumps(body).encode() if body is not None else None, headers={"Content-Type": "application/json"}, method="POST" if body is not None else "GET")
+        try:
+            r = urllib.request.urlopen(req); return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+    assert call("/api/folder", {"path": str(tmp_path / "nope")})[0] == 400
+    code, d = call("/api/folder", {"path": str(mine)})
+    assert code == 200 and d["folders"][0]["files"] == 1 and d["waiting"] == 1
+    assert call("/api/inbox/scan", {})[0] == 403                           # droits pas encore confirmés
+    call("/api/inbox/rights", {"confirmed": True})
+    code, r = call("/api/inbox/scan", {})
+    assert code == 200 and r["imported"] == 1 and r["to_make"] == 1 and r["waiting"] == 0
+    httpd.shutdown()

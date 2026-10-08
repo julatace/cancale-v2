@@ -155,10 +155,12 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 </section>
 
 <section class="card" id="inbox">
-  <div class="step"><div><h2>Boîte de réception MIDI</h2><p>Un autre agent (ou toi) dépose des fichiers .mid / .kar ici : ils sont rangés tout seuls dans ta bibliothèque.</p></div></div>
-  <p class="note" style="margin:0 0 6px">Dossier : <code id="ibpath">…</code> <span id="ibwatch"></span> · en attente : <b id="ibwait">0</b> · reçus : <b id="ibdone">0</b> · <b id="ibmake">0</b> morceau(x) à transformer en vidéo (l'agent prend les tiens en premier, dans l'ordre d'arrivée)</p>
-  <p class="note" style="margin:0 0 8px">Envoi direct possible : <code>curl -X POST --data-binary @fichier.mid -H "X-Filename: Artiste - Titre.mid" http://127.0.0.1:8765/api/inbox</code></p>
-  <label class="rights"><input type="checkbox" id="ibrights"> Je confirme que les fichiers reçus ici sont libres de droits, ou que j'ai le droit de les utiliser. Une chanson récente n'est pas libre : sa publication peut entraîner une réclamation, la coupure du son ou la suppression de la vidéo.</label>
+  <div class="step"><div><h2>Mon dossier MIDI</h2><p>L'agent lit les fichiers .mid / .midi / .kar de ce dossier de ton ordinateur et fabrique les vidéos avec. Tes fichiers ne sont ni déplacés ni modifiés.</p></div></div>
+  <div class="sbox"><input type="text" id="fpath" placeholder="/Users/toi/Desktop/MIDI" aria-label="Dossier MIDI"><button class="btn alt" id="fsave">Utiliser ce dossier</button><button class="btn" id="fscan">📥 Importer maintenant</button></div>
+  <p class="note" id="fstat" style="margin:8px 0 6px">…</p>
+  <label class="rights"><input type="checkbox" id="ibrights"> Je confirme que les fichiers de ce dossier sont libres de droits, ou que j'ai le droit de les utiliser. Une chanson récente n'est pas libre : sa publication peut entraîner une réclamation, la coupure du son ou la suppression de la vidéo.</label>
+  <details style="margin-top:8px"><summary>Réception automatique par un autre programme</summary>
+    <p class="note">Dossier de réception : <code id="ibpath">…</code> · en attente : <b id="ibwait">0</b> · reçus : <b id="ibdone">0</b><br>Envoi direct : <code>curl -X POST --data-binary @fichier.mid -H "X-Filename: Artiste - Titre.mid" http://127.0.0.1:8765/api/inbox</code></p></details>
 </section>
 
 <section class="card" id="sched">
@@ -270,7 +272,13 @@ function sched(){api('/api/schedule').then(d=>{
   const nm={PENDING:'⏳ programmée',RUNNING:'⏫ envoi en cours',DONE:'✅ publiée',FAILED:'❌ échec',MISSED:'⚠ manquée'};
   const un=d.unscheduled.length?`<p class="note" style="margin:10px 0 4px"><b>${d.unscheduled.length}</b> vidéo(s) prête(s) pas encore programmée(s).</p>`:'';
   $('#slist').innerHTML=un+(d.items.length?d.items.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${x.format==='horizontal'?'YouTube long':'TikTok + YouTube Shorts'} · ${esc(dfmt(x.run_at))} · ${nm[x.status]||esc(x.status)}${x.detail?' · '+esc(x.detail):''}</small></div>${x.status==='PENDING'?`<button data-cancel="${x.id}">Annuler</button>`:''}</div>`).join(''):'<p class="empty">Rien de programmé.</p>')})}
-function inb(){api('/api/inbox').then(d=>{$('#ibpath').textContent=d.path;$('#ibwatch').innerHTML=(d.watch||[]).length?'· surveillé aussi : '+d.watch.map(x=>'<code>'+esc(x)+'</code>').join(', '):'';$('#ibwait').textContent=d.waiting;$('#ibdone').textContent=d.done;$('#ibmake').textContent=d.to_make;$('#ibrights').checked=d.rights;if(d.done>inb.last)songs();inb.last=d.done})}
+function inb(){api('/api/inbox').then(d=>{$('#ibpath').textContent=d.path;$('#ibwait').textContent=d.waiting;$('#ibdone').textContent=d.done;$('#ibrights').checked=d.rights;
+  const f=(d.folders||[])[0];if(f&&document.activeElement!==$('#fpath'))$('#fpath').value=f.path;
+  $('#fstat').innerHTML=(f?(f.exists?`<b>${f.files}</b> fichier(s) MIDI dans ce dossier · `:`<b style="color:var(--bad)">dossier introuvable</b> · `):'Aucun dossier choisi · ')+`<b>${d.waiting}</b> en attente d'import · <b>${d.to_make}</b> morceau(x) à transformer en vidéo (l'agent prend les tiens en premier, dans l'ordre d'arrivée)`+(d.last_check?` · vérifié il y a ${Math.max(0,Math.round(Date.now()/1000-d.last_check))} s (automatique, toutes les 30 s)`:'')+(!d.rights?' · <b style="color:var(--bad)">coche la case ci-dessous pour autoriser l\'import</b>':'');
+  if(d.done>inb.last)songs();inb.last=d.done})}
+$('#fsave').onclick=()=>api('/api/folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:$('#fpath').value})}).then(r=>{if(r.error){$('#fstat').textContent=r.error;return}inb()});
+$('#fscan').onclick=()=>{$('#fstat').textContent='Import en cours…';api('/api/inbox/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>{if(r.error){$('#fstat').textContent=r.error;return}songs();inb();
+  setTimeout(()=>{$('#fstat').insertAdjacentHTML('afterbegin',`<b style="color:var(--ok)">${r.imported} importé(s)</b>${r.duplicates?`, ${r.duplicates} déjà présent(s)`:''}${r.errors.length?`, <span style="color:var(--bad)">${r.errors.length} refusé(s) : ${esc(r.errors.slice(0,3).join(' ; '))}</span>`:''} — `)},400)})};
 inb.last=0;$('#ibrights').onchange=e=>api('/api/inbox/rights',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmed:e.target.checked})}).then(inb);
 function west(){const n=+$('#wcount').value||1,m=+$('#wmin').value||30,per=+$('#wper').value||1;const fit=Math.max(1,Math.floor(m/3.5));
   $('#west').textContent=`Compte environ 3 à 4 minutes de fabrication par morceau (les deux formats) : ${m} min = environ ${fit} morceau(x). ${n} vidéos à ${per}/jour = ${Math.ceil(n/per)} jour(s).`+(n>fit?' Augmente le temps ou baisse le nombre, sinon l\'agent s\'arrêtera à '+fit+' et programmera ce qu\'il a fait.':'')}
@@ -323,7 +331,7 @@ $('#go').onclick=()=>{
   api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked,synthesia:$('#synth').checked,song_id:songId,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#now').textContent=r.error;return}if(!timer)timer=setInterval(poll,1500);poll()})};
 api('/api/options').then(o=>{opts=o;$('#lang').innerHTML=o.languages.map(l=>`<option value="${l.key}"${l.key===o.default_language?' selected':''}>${l.label}</option>`).join('');$('#tc').innerHTML=o.countries.map(c=>`<option value="${c.key}">${c.label}</option>`).join('');level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
-info();vids();songs();sched();inb();setInterval(info,20000);setInterval(sched,30000);setInterval(inb,15000);
+info();vids();songs();sched();inb();setInterval(info,20000);setInterval(sched,30000);setInterval(inb,10000);
 api('/api/status').then(s=>{if(s.status==='running'){$('#job').hidden=false;since=0;timer=setInterval(poll,1500);poll()}});
 </script></div></body></html>
 """

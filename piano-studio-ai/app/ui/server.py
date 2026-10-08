@@ -263,13 +263,14 @@ def schedule_view(s) -> dict:
     return {"items": squeue.listing(conn), "unscheduled": squeue.unscheduled(conn)}
 
 
-def due_runner(settings_loader, every=60, stop=None):
+def due_runner(settings_loader, every=30, stop=None):
     """Tant que l'interface est ouverte : publie à l'heure dite les vidéos programmées (jamais pendant une création)."""
     def loop():
         while not (stop and stop.is_set()):
             try:
                 s = settings_loader()
-                if inbox.waiting(s) and inbox.rights_confirmed(s):
+                inbox.LAST_CHECK["at"] = time.time()
+                if inbox.waiting(s) and inbox.rights_confirmed(s):          # nouveaux sons dans ton dossier : importés tout seuls
                     inbox.scan(s, import_upload)
                 conn = db.connect(config.resolve(s, "database"))
                 due = conn.execute("SELECT 1 FROM schedule WHERE status='PENDING' AND run_at<=? LIMIT 1", (datetime.now(timezone.utc).isoformat(),)).fetchone()
@@ -451,7 +452,7 @@ def make_handler(settings_loader):
         def do_POST(self):
             path = urlparse(self.path).path
             if path not in ("/api/run", "/api/upload", "/api/songs/delete", "/api/stop", "/api/stop-recording", "/api/import-found",
-                        "/api/schedule/plan", "/api/schedule/cancel", "/api/publish-now", "/api/week", "/api/inbox", "/api/inbox/rights"):
+                        "/api/schedule/plan", "/api/schedule/cancel", "/api/publish-now", "/api/week", "/api/inbox", "/api/inbox/rights", "/api/inbox/scan", "/api/folder"):
                 return self._send(404, b'{"error":"not found"}')
             origin = self.headers.get("Origin", "")
             if origin and not (origin.startswith("http://127.0.0.1") or origin.startswith("http://localhost")):
@@ -479,6 +480,21 @@ def make_handler(settings_loader):
             except json.JSONDecodeError:
                 return self._json({"error": "JSON invalide"}, 400)
             s = settings_loader()
+            if path == "/api/folder":
+                d = Path(str(body.get("path", "")).strip()).expanduser()
+                if not str(body.get("path", "")).strip() or not d.is_dir():
+                    return self._json({"error": f"Dossier introuvable : {d}. Vérifie le chemin (ex. ~/Desktop/MIDI)."}, 400)
+                config.save_local("inbox", {"watch": [str(d)]})
+                return self._json({**inbox.status(settings_loader()), "to_make": my_songs_waiting(settings_loader())})
+            if path == "/api/inbox/scan":
+                s = settings_loader()
+                if not inbox.rights_confirmed(s):
+                    return self._json({"error": "Coche d'abord la case de confirmation des droits."}, 403)
+                res = inbox.scan(s, import_upload)
+                ok = sum(1 for r in res if r["status"] == "LEGAL_CONFIRMED")
+                return self._json({"imported": ok, "duplicates": sum(1 for r in res if r["status"] == "DUPLICATE"),
+                                   "errors": [f"{r['file']}: {r.get('detail') or r['status']}" for r in res if r["status"] not in ("LEGAL_CONFIRMED", "DUPLICATE")],
+                                   **inbox.status(s), "to_make": my_songs_waiting(s)})
             if path == "/api/inbox/rights":
                 inbox.set_rights(s, bool(body.get("confirmed")))
                 return self._json(inbox.status(s))
