@@ -5,16 +5,17 @@ from .base import Outbox, Unavailable
 from .youtube import YouTube
 from .tiktok import TikTok
 from .tiktok_web import TikTokWeb
+from .youtube_web import YouTubeWeb
 
 
 def adapters(settings, platforms_cfg=None, fmt=None):
     cfg = platforms_cfg or yaml.safe_load(open(config.ROOT / "config" / "platforms.yaml"))
     out = [Outbox(config.resolve(settings, "data_dir") / "published")]
     yt = settings.get("youtube", {})
-    from . import tiktok_web
-    tiktok_web.PROFILE = str(settings.get("tiktok", {}).get("chrome_profile", "") or "")
-    reg = {"youtube": YouTube(privacy=yt.get("privacy", "public"), category=str(yt.get("category", "10"))),
-           "tiktok": (TikTokWeb(publish=bool(settings.get("tiktok", {}).get("web_publish", False))) if settings.get("tiktok", {}).get("mode") == "web"
+    yt_ad = (YouTubeWeb(publish=bool(yt.get("web_publish", False)), profile=str(yt.get("chrome_profile", "") or ""))
+             if yt.get("mode") == "web" else YouTube(privacy=yt.get("privacy", "public"), category=str(yt.get("category", "10"))))
+    reg = {"youtube": yt_ad,
+           "tiktok": (TikTokWeb(publish=bool(settings.get("tiktok", {}).get("web_publish", False)), profile=str(settings.get("tiktok", {}).get("chrome_profile", "") or "")) if settings.get("tiktok", {}).get("mode") == "web"
               else TikTok(mode=settings.get("tiktok", {}).get("mode", "draft"))),
            "instagram": Unavailable("instagram", "un compte Business + Meta app approuvée"),
            "facebook": Unavailable("facebook", "une Page + Meta app approuvée")}

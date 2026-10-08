@@ -108,13 +108,15 @@ def publish_video(s, conn, video_id: int) -> list[dict]:
         raise RuntimeError(f"fichier vidéo absent : {video.name}")
     fmt = (row["style"] or "").partition("|")[2] or None
     content = json.loads(row["meta"] or "{}")
+    content["shorts"] = fmt != "horizontal"                # la vidéo horizontale est une vidéo YouTube normale, pas un Short
     if content.get("thumbnail") and (video.parent / content["thumbnail"]).exists():
         content["thumbnail"] = str(video.parent / content["thumbnail"])
     else:
         content.pop("thumbnail", None)
-    s2 = {**s, "tiktok": {**s.get("tiktok", {})}}
-    if s2["tiktok"].get("mode") == "web":
-        s2["tiktok"]["web_publish"] = True                 # « publier » veut dire publier : on clique aussi sur le bouton
+    s2 = {**s, "tiktok": {**s.get("tiktok", {})}, "youtube": {**s.get("youtube", {})}}
+    for plat in ("tiktok", "youtube"):
+        if s2[plat].get("mode") == "web":
+            s2[plat]["web_publish"] = True                 # « publier » veut dire publier : on clique aussi sur le bouton
     out = []
     for ad in adapters(s2, fmt=fmt):
         if ad.platform == "outbox":

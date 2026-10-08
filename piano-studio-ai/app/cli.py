@@ -256,6 +256,30 @@ def cmd_inbox(s, a):
     return 0
 
 
+def cmd_youtube_web(s, a):
+    """Poste une vidéo sur YouTube en pilotant YouTube Studio dans Chrome (sans API)."""
+    import json
+    from .publisher import tiktok_web, youtube_web
+    from .publisher.youtube import YouTube
+    tiktok_web.BROWSER = "Google Chrome"
+    tiktok_web.PROFILE = a.profile or str(s.get("youtube", {}).get("chrome_profile", "") or "")
+    conn = db.connect(config.resolve(s, "database"))
+    fmt = "horizontal" if a.long else "vertical"
+    row = conn.execute("SELECT output_path, meta FROM videos WHERE status IN ('READY','PUBLISHED') AND style LIKE ? ORDER BY id DESC LIMIT 1", (f"%|{fmt}",)).fetchone()
+    if not row:
+        print(f"❌ Aucune vidéo {fmt} prête : crée-en une d'abord.")
+        return 1
+    m = json.loads(row[1] or "{}")
+    m["shorts"] = fmt != "horizontal"
+    sn = YouTube.build_snippet({**m, "title": m.get("youtube_title") or m.get("title") or "Piano"}, "public", "10")["snippet"]
+    try:
+        print("✅", youtube_web.post(row[0], sn["title"], sn["description"], publish=a.post, say=print))
+    except Exception as e:
+        print(f"❌ {e}")
+        return 1
+    return 0
+
+
 def cmd_chrome_profiles(s, a):
     """Liste les profils Chrome pour choisir celui du compte TikTok."""
     from .publisher import tiktok_web
@@ -314,6 +338,7 @@ def main(argv=None):
     cmds["tiktok-web"] = cmd_tiktok_web
     cmds["chrome-profiles"] = cmd_chrome_profiles
     cmds["inbox"] = cmd_inbox
+    cmds["youtube-web"] = cmd_youtube_web
     cmds["schedule"], cmds["publish-due"], cmds["publish-now"] = cmd_schedule, cmd_publish_due, cmd_publish_now
     cmds["mac-setup"] = cmd_mac_setup
     cmds["auto"] = cmds["run"] = cmds["dry-run"] = cmd_run
@@ -328,6 +353,8 @@ def main(argv=None):
             sp.add_argument("--port", type=int, default=8085)
         if n == "tiktok-web":
             sp.add_argument("--video"); sp.add_argument("--caption", default=""); sp.add_argument("--browser", choices=["chrome", "safari"], default="chrome"); sp.add_argument("--profile", default=""); sp.add_argument("--post", action="store_true", help="clique aussi sur Publier")
+        if n == "youtube-web":
+            sp.add_argument("--long", action="store_true", help="vidéo horizontale (sinon : la dernière verticale = Short)"); sp.add_argument("--profile", default=""); sp.add_argument("--post", action="store_true")
         if n == "inbox":
             sp.add_argument("--confirm-rights", action="store_true", help="je confirme avoir les droits sur les fichiers reçus")
         if n == "publish-now":

@@ -141,35 +141,45 @@ def post(video: Path, caption: str, publish: bool = False, say=log.info) -> str:
         raise RuntimeError(f"{e}" + (f" (capture d'écran : {shot})" if shot else "")) from e
 
 
-def _post(video, caption, publish, say):
-    video = Path(video).resolve()
-    if not video.exists():
-        raise RuntimeError(f"vidéo introuvable : {video}")
-    say("🔐 Test du réglage JavaScript de Safari…")
+def open_url(url: str, say, label: str) -> None:
+    """Ouvre `url` dans le navigateur choisi (et le bon profil Chrome) après avoir vérifié le réglage JavaScript."""
+    say(f"🔐 Test du réglage JavaScript de {BROWSER}…")
     _osa(f'tell application "{BROWSER}" to activate')
     _js("1+1")
-    say(f"🌐 Ouverture de TikTok Studio dans {BROWSER}…")
+    say(f"🌐 Ouverture de {label} dans {BROWSER}…")
     if BROWSER == "Safari":
         _osa(f'tell application "Safari"\nactivate\nif (count of windows) = 0 then make new document\n'
-             f'set URL of current tab of front window to "{UPLOAD_URL}"\nend tell')
+             f'set URL of current tab of front window to "{url}"\nend tell')
     elif PROFILE:                                            # ouvre la page DANS le bon profil : sa fenêtre passe au premier plan
         d = resolve_profile(PROFILE)
         say(f"👤 Profil Chrome utilisé : {d}")
-        subprocess.run(["open", "-a", BROWSER, "--args", f"--profile-directory={d}", UPLOAD_URL], check=True)
+        subprocess.run(["open", "-a", BROWSER, "--args", f"--profile-directory={d}", url], check=True)
         time.sleep(3)
         _osa(f'tell application "{BROWSER}" to activate')
     else:
         _osa(f'tell application "{BROWSER}"\nactivate\nif (count of windows) = 0 then make new window\n'
-             f'set URL of active tab of front window to "{UPLOAD_URL}"\nend tell')
+             f'set URL of active tab of front window to "{url}"\nend tell')
+
+
+def choose_file(path, say) -> None:
+    """Vrai clic sur la zone d'envoi, puis dans la fenêtre « Ouvrir » de macOS : Aller au dossier (⇧⌘G) -> chemin collé -> Entrée."""
+    say("📁 Sélection du fichier…")
+    _real_click_upload(say)
+    time.sleep(2.5)
+    _clip(str(path))
+    _keys('keystroke "g" using {command down, shift down}', "delay 1", 'keystroke "v" using command down', "delay 1",
+          "key code 36", "delay 1.5", "key code 36")
+
+
+def _post(video, caption, publish, say):
+    video = Path(video).resolve()
+    if not video.exists():
+        raise RuntimeError(f"vidéo introuvable : {video}")
+    open_url(UPLOAD_URL, say, "TikTok Studio")
     _wait('String(!!document.querySelector("input[type=file]"))', "page d'envoi non chargée")
     if _js('String(/connecter|log in|se connecter/i.test(document.body.innerText.slice(0,400)) && !document.querySelector("input[type=file]"))') == "true":
         raise RuntimeError("TikTok demande de se connecter : connecte ton compte dans Safari puis relance")
-    say("📁 Sélection de la vidéo…")
-    _real_click_upload(say)
-    time.sleep(2.5)
-    _clip(str(video))
-    _keys('keystroke "g" using {command down, shift down}', "delay 1", 'keystroke "v" using command down', "delay 1",
-          "key code 36", "delay 1.5", "key code 36")                    # Aller au dossier → coller le chemin → Entrée → Ouvrir
+    choose_file(video, say)
     say("⏫ Envoi de la vidéo vers TikTok…")
     _wait('String(!!document.querySelector("[contenteditable=true]"))', "la vidéo n'a pas fini de charger", 180)
     time.sleep(3)
@@ -199,8 +209,8 @@ def _post(video, caption, publish, say):
 class TikTokWeb:
     platform = "tiktok"
 
-    def __init__(self, publish: bool = False):
-        self.go = publish
+    def __init__(self, publish: bool = False, profile: str = ""):
+        self.go, self.profile = publish, profile
 
     def check(self):
         import shutil
@@ -208,6 +218,8 @@ class TikTokWeb:
 
     def publish(self, video, meta, key):
         cap = (meta.get("tiktok_caption") or meta.get("description") or meta.get("title") or "").strip()
+        global PROFILE
+        PROFILE = self.profile
         try:
             st = post(video, cap, self.go)
         except Exception as e:

@@ -44,6 +44,8 @@ def test_dry_run_publishes_nothing(s):
 def test_full_run_records_video_and_survives_unconfigured_platforms(s, monkeypatch):
     for k in ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"):
         monkeypatch.delenv(k, raising=False)
+    s["youtube"] = {**s.get("youtube", {}), "mode": "api"}       # le mode « web » (par défaut) n'utilise pas de clés
+    s["tiktok"] = {**s.get("tiktok", {}), "mode": "draft"}
     r = pipeline.run_one(s, seed=5)
     assert r["status"] == "READY" and r["qc"]["score"] >= 90
     plats = {p["platform"]: p["status"] for p in r["publications"]}

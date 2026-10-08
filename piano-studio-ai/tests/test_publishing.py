@@ -195,3 +195,45 @@ def test_chrome_profile_resolution(tmp_path, monkeypatch):
     import pytest
     with pytest.raises(RuntimeError, match="introuvable"):
         tw.resolve_profile("nope")
+
+
+def test_youtube_web_flow_without_api(tmp_path, monkeypatch):
+    from app.publisher import tiktok_web as tw, youtube_web as yw
+    v = tmp_path / "v.mp4"; v.write_bytes(b"x")
+    calls = []
+    monkeypatch.setattr(tw, "_osa", lambda s, timeout=30: calls.append(s) or "")
+    monkeypatch.setattr(tw, "_js", lambda c: calls.append(c) or ("false" if "accounts.google" in c else "https://youtu.be/abc" if "youtu.be" in c else "true"))
+    monkeypatch.setattr(tw, "_keys", lambda *l: calls.append("keys"))
+    monkeypatch.setattr(tw, "_clip", lambda t: calls.append("clip:" + t[:12]))
+    monkeypatch.setattr(tw, "choose_file", lambda p, say: calls.append("file"))
+    monkeypatch.setattr(yw.time, "sleep", lambda s: None)
+    assert "non publié" in yw.post(v, "Titre", "Desc", publish=False)
+    assert not any("done-button" in str(c) and "click" in str(c) for c in calls)
+    assert yw.post(v, "Titre", "Desc", publish=True) == "https://youtu.be/abc"
+
+
+def test_queue_marks_horizontal_as_normal_youtube_video_and_forces_web_publish(tmp_path, monkeypatch):
+    from app.database import db
+    from app.scheduler import queue
+    import app.publisher as pubs
+    c = db.connect(tmp_path / "t.sqlite3")
+    db.add_song(c, "A", "x", "s", "LEGAL_CONFIRMED", hash="a")
+    f = tmp_path / "v.mp4"; f.write_bytes(b"x")
+    c.execute("INSERT INTO videos(song_id,style,duration,output_path,quality_score,status,title,meta,created_at) VALUES(1,'facile|horizontal',90,?,95,'READY','T','{}',?)", (str(f), db.now()))
+    c.commit()
+    seen = {}
+
+    class Fake:
+        platform = "youtube"
+        def publish(self, video, meta, key):
+            seen["shorts"] = meta["shorts"]
+            from app.publisher.base import Result
+            return Result("youtube", "PUBLISHED", key, "ok")
+
+    def fake_adapters(s, fmt=None):
+        seen["web_publish"] = (s["youtube"]["web_publish"], s["tiktok"]["web_publish"])
+        return [Fake()]
+    import app.scheduler.queue as q
+    monkeypatch.setattr(pubs, "adapters", fake_adapters)
+    res = q.publish_video({"youtube": {"mode": "web"}, "tiktok": {"mode": "web"}}, c, 1)
+    assert res[0]["status"] == "PUBLISHED" and seen["shorts"] is False and seen["web_publish"] == (True, True)
