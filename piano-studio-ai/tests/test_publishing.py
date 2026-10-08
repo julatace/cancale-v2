@@ -253,3 +253,30 @@ def test_choose_file_never_types_when_the_open_dialog_is_missing(monkeypatch):
     with pytest.raises(RuntimeError, match="ne s'est pas ouverte"):
         tw.choose_file("/tmp/v.mp4", lambda m: None)
     assert typed == []                                   # rien n'est tapé dans la page (c'est ce qui ouvrait la barre de recherche de Chrome)
+
+
+def test_inject_file_sends_the_whole_file_in_small_chunks_without_dialog(tmp_path, monkeypatch):
+    import base64
+    from app.publisher import tiktok_web as tw
+    v = tmp_path / "v.mp4"; v.write_bytes(bytes(range(256)) * 3000)             # 768 Ko
+    calls = []
+    monkeypatch.setattr(tw, "_js", lambda c: calls.append(c) or "true")
+    monkeypatch.setattr(tw, "_real_click_upload", lambda say: calls.append("DIALOG"))
+    tw.choose_file(v, lambda m: None)
+    pushes = [c for c in calls if c.startswith("window.__pf.push")]
+    assert "DIALOG" not in calls and len(pushes) >= 3 and all(len(c) < 250_000 for c in calls)
+    joined = "".join(c.split('"')[1] for c in pushes)
+    assert base64.b64decode(joined) == v.read_bytes()
+
+
+def test_choose_file_falls_back_to_the_open_dialog_if_injection_fails(tmp_path, monkeypatch):
+    from app.publisher import tiktok_web as tw
+    v = tmp_path / "v.mp4"; v.write_bytes(b"x")
+    seen = []
+    monkeypatch.setattr(tw, "_js", lambda c: "false")
+    monkeypatch.setattr(tw, "_real_click_upload", lambda say: seen.append("click"))
+    monkeypatch.setattr(tw, "_keys", lambda *l: seen.append("keys"))
+    monkeypatch.setattr(tw, "_clip", lambda t: seen.append("clip"))
+    monkeypatch.setattr(tw.time, "sleep", lambda s: None)
+    tw.choose_file(v, lambda m: None)
+    assert seen[0] == "click" and "keys" in seen

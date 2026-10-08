@@ -184,8 +184,39 @@ def open_url(url: str, say, label: str) -> None:
              f'set URL of active tab of front window to "{url}"\nend tell')
 
 
+INJECT_CHUNK = 240_000          # caractères base64 par appel (une ligne de commande macOS est limitée à ~1 Mo)
+
+
+def inject_file(path, say) -> None:
+    """Donne le fichier directement à la page (<input type=file>), comme un glisser-déposer : aucune fenêtre « Ouvrir », aucun clic, aucun clavier.
+    Le fichier est transmis en morceaux base64 puis reconstitué dans la page."""
+    import base64
+    path = Path(path)
+    raw = path.read_bytes()
+    b64 = base64.b64encode(raw).decode()
+    say(f"📦 Envoi du fichier à la page ({len(raw) / 1e6:.1f} Mo)…")
+    if _js('String(!!document.querySelector("input[type=file]"))') != "true":
+        raise RuntimeError("zone d'envoi de fichier introuvable sur la page")
+    _js('window.__pf=[]; "ok"')
+    for i in range(0, len(b64), INJECT_CHUNK):
+        _js(f'window.__pf.push("{b64[i:i + INJECT_CHUNK]}"); "ok"')
+    name = path.name.replace('"', "")
+    ok = _js('(function(){try{var s=atob(window.__pf.join(""));var u=new Uint8Array(s.length);for(var i=0;i<s.length;i++)u[i]=s.charCodeAt(i);'
+             f'var f=new File([u],"{name}",{{type:"video/mp4"}});var dt=new DataTransfer();dt.items.add(f);'
+             'var inp=document.querySelector("input[type=file]");inp.files=dt.files;'
+             'inp.dispatchEvent(new Event("input",{bubbles:true}));inp.dispatchEvent(new Event("change",{bubbles:true}));window.__pf=null;'
+             'return inp.files.length==1?"true":"false"}catch(e){return "err:"+e.message}})()')
+    if ok != "true":
+        raise RuntimeError(f"la page a refusé le fichier ({ok})")
+
+
 def choose_file(path, say) -> None:
-    """Vrai clic sur la zone d'envoi, puis dans la fenêtre « Ouvrir » de macOS : Aller au dossier (⇧⌘G) -> chemin collé -> Entrée."""
+    """Envoie la vidéo à la page. Méthode principale : injection directe. Repli : vrai clic + fenêtre « Ouvrir » de macOS (⇧⌘G -> chemin -> Entrée)."""
+    try:
+        inject_file(path, say)
+        return
+    except RuntimeError as e:
+        say(f"↪ Envoi direct impossible ({str(e)[:90]}) : j'essaie avec la fenêtre « Ouvrir »…")
     say("📁 Sélection du fichier…")
     _real_click_upload(say)
     time.sleep(0.8)
