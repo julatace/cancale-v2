@@ -175,4 +175,5 @@ def test_tiktok_web_splits_caption_and_hashtags():
 def test_hashtags_are_targeted_on_song_and_composer():
     from app.content_generator.generate import generate
     c = generate({"title": "Invention 8", "artist": "J. S. Bach"}, "Facile", 3, set(), 80)
-    assert "#bach" in c["hashtags"] and "#invention8" in c["hashtags"] and len(c["hashtags"]) <= 7
+    assert c["hashtags"][:4] == ["#pianocover", "#pianotutorial", "#easypiano", "#piano"]
+    assert "#bach" in c["hashtags"] and "#invention8" in c["hashtags"] and len(c["hashtags"]) <= 6

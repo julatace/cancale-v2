@@ -48,24 +48,22 @@ def _slug(text: str) -> str:
 
 
 def _tags_for(song: dict, L: dict, rnd: random.Random) -> list[str]:
-    """Hashtags ciblés : ceux du morceau et du compositeur d'abord, puis des tags piano variés, 7 au total."""
+    """Hashtags de ce qui marche en piano-tutoriel : les 4 classiques, puis le morceau et le compositeur, 6 au total."""
+    base = ["#pianocover", "#pianotutorial", "#easypiano", "#piano"]
     own = []
+    title = _slug(song.get("title", ""))
+    if 4 <= len(title) <= 28:
+        own.append("#" + title)                                  # ex. #floatinginreverie
     artist = song.get("artist") or ""
     if artist and artist.lower() != "unknown":
         last = _slug(artist.split()[-1]) if len(artist.split()) > 1 else _slug(artist)   # « J. S. Bach » -> #bach
         if 3 <= len(last) <= 24:
             own.append("#" + last)
-    title = _slug(song.get("title", ""))
-    if 4 <= len(title) <= 24:
-        own.append("#" + title)
-    base = ["#piano", "#fyp"]
-    rest = [x for x in L["tags"] if x not in base]
-    pick = rnd.sample(rest, min(7 - len(own) - len(base), len(rest)))
     out, seen = [], set()
-    for h in own + base + pick:
+    for h in base + own:
         if h.lower() not in seen:
             seen.add(h.lower()); out.append(h)
-    return out[:7]
+    return out[:6]
 
 
 def generate(song: dict, difficulty: str, seed: int, used_titles: set[str], bpm: float | None = None, lang: str = "fr") -> dict:
