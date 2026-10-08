@@ -238,7 +238,7 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
     backend, encoder = pick_backend(cfg, run, out.with_name("preflight.mov"))      # lève une erreur claire si rien ne marche
     log.info("🎥 Enregistreur d'écran : %s%s", backend, f" ({encoder})" if encoder else "")
     screen = screen_devices(run)[0][0] if backend == "ffmpeg" else None
-    total = duration + cfg["lead_in_seconds"] + cfg["tail_seconds"]
+    total = min(duration + cfg["lead_in_seconds"] + cfg["tail_seconds"], cfg.get("max_record_seconds", 90))   # jamais plus de 1 min 30 d'enregistrement
     log.info("1/5 relance de Synthesia et ouverture du MIDI")
     osa('tell application "Synthesia" to quit', run)   # état propre à chaque vidéo
     sleep(2)

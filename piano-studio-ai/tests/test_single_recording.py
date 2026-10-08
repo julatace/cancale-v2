@@ -63,3 +63,31 @@ def test_vertical_only_still_records_once(tmp_path, fake_capture, monkeypatch):
     monkeypatch.setattr(mac, "debug_frames", lambda *a, **k: [])
     r = pipeline.run_one(st, seed=5, publish=False, formats=["vertical"])
     assert len(n) == 1 and r["status"] == "READY" and r["engine"] == "synthesia"
+
+
+def test_recording_is_capped_at_one_minute_thirty():
+    from app import config
+    from app.director import pipeline
+    s = config.load_settings()
+    s["engine"] = "synthesia"
+    assert s["synthesia"]["max_record_seconds"] == 90 and pipeline.record_cap(s) == 80          # 90 s au total - 8 s d'attente - 2 s de fin
+    long_piece = {"duration": 400}
+    assert pipeline._target(s["formats"]["horizontal"], s, long_piece) == 80                     # vidéo longue : coupée à 80 s de musique
+    assert pipeline._target(s["formats"]["vertical"], s, long_piece) == s["duration_target"] <= 80
+    s["engine"] = "builtin"
+    assert pipeline._target(s["formats"]["horizontal"], s, long_piece) == s["formats"]["horizontal"]["max_duration"]   # rendu intégré : pas de limite d'écran
+
+
+def test_mac_record_never_captures_more_than_the_limit(monkeypatch, tmp_path):
+    from app.synthesia_controller import mac
+    seen = {}
+    monkeypatch.setattr(mac, "accessibility_ok", lambda run: (True, ""))
+    monkeypatch.setattr(mac, "pick_backend", lambda *a, **k: ("screencapture", None))
+    monkeypatch.setattr(mac, "_capture_cmd", lambda backend, screen, total, out, enc: seen.setdefault("total", total) and ["true"])
+    monkeypatch.setattr(mac.subprocess, "Popen", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop ici")))
+    cfg = {"lead_in_seconds": 8, "tail_seconds": 2, "load_seconds": 0, "app_path": "x", "max_record_seconds": 90}
+    try:
+        mac.record(tmp_path / "a.mid", 400, tmp_path / "o.mov", cfg, run=lambda *a, **k: type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})(), sleep=lambda s: None)
+    except Exception:
+        pass
+    assert seen["total"] == 90

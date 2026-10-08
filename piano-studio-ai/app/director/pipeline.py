@@ -156,10 +156,18 @@ def _render(s, notes, sec, out, meta, tempo, content=None, F=None) -> str:
     return "builtin"
 
 
+def record_cap(s) -> float:
+    """Durée de musique enregistrable : l'enregistrement d'écran total (attente avant la 1re note et fin comprises) est limité à
+    `synthesia.max_record_seconds` (1 min 30 par défaut), même si le morceau n'est pas fini."""
+    c = s.get("synthesia", {})
+    return max(c.get("max_record_seconds", 90) - c.get("lead_in_seconds", 8) - c.get("tail_seconds", 2), 20.0)
+
+
 def _target(F, s, ana) -> float:
+    cap = record_cap(s) if s.get("engine", "auto") != "builtin" and s.get("synthesia", {}).get("calibrated") else 1e9
     if F.get("duration") == "full":
-        return min(F.get("max_duration", 300), ana["duration"])
-    return min(s["duration_target"], ana["duration"])
+        return min(F.get("max_duration", 300), ana["duration"], cap)
+    return min(s["duration_target"], ana["duration"], cap)
 
 
 def _formats(s, fmt, formats) -> list[tuple[str, dict]]:
@@ -313,7 +321,10 @@ def _synthesia_batch(s, conn, sid, level, plans, notes, meta, lv, publish, kb_lo
     reports = []
     with tempfile.TemporaryDirectory() as td:
         td = Path(td)
-        log.info("🎥 Un seul enregistrement de %.0f s pour %d format(s)", R["duration"], len(plans))
+        if R["duration"] > record_cap(s):                              # garde-fou : jamais plus que la limite, même si le morceau n'est pas fini
+            R["duration"] = record_cap(s)
+            R["end"] = R["start"] + R["duration"]
+        log.info("🎥 Un seul enregistrement de %.0f s pour %d format(s) (limite %.0f s au total)", R["duration"], len(plans), s["synthesia"].get("max_record_seconds", 90))
         (td / "s.mid").write_bytes(trim_midi(notes, R["start"], R["start"] + R["duration"], bpm=lv["bpm"]))
         cap, crop, recorded = mac.record(td / "s.mid", R["duration"], td / "cap.mov", cfg, layout=(1080, 1920, 300))
         avail = None                                                   # durée de vidéo utilisable si arrêt anticipé

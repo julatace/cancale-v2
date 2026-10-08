@@ -29,6 +29,7 @@ synthesia:
   app_path: /Applications/Synthesia.app
   calibrated: true      # Synthesia validé sur le Mac de l'utilisateur (clics, enregistrement, montage OK)
   load_seconds: 6       # attente du chargement du MIDI
+  max_record_seconds: 90    # enregistrement d'écran : 1 min 30 au maximum, même si le morceau n'est pas fini
   lead_in_seconds: 8    # délai (s) entre le début de la capture et la 1re note, à étalonner
   tail_seconds: 2
   start_mode: click      # click = bouton Continuer de l'écran « Regarder et écouter seulement » ; return = touche Entrée
