@@ -1,0 +1,28 @@
+name: TikTok auto-post
+on:
+  schedule:
+    - cron: '0 16 * * *'   # tous les jours à 16:00 UTC
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: node tiktok/pipeline.mjs --max 1
+        env:
+          SYNTHESIA_API_KEY: ${{ secrets.SYNTHESIA_API_KEY }}
+          SYNTHESIA_AVATAR: ${{ secrets.SYNTHESIA_AVATAR }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+          TIKTOK_PRIVACY: ${{ vars.TIKTOK_PRIVACY }}
+      - name: Sauvegarde de l'état de la file
+        if: always()
+        run: |
+          git config user.name "tiktok-bot"; git config user.email "bot@users.noreply.github.com"
+          git add tiktok/videos.json
+          git diff --cached --quiet || (git commit -m "tiktok: maj file" && git push)
