@@ -176,6 +176,7 @@ def options(s) -> dict:
         "default_formats": s.get("ui_default_formats", [s.get("default_format", "vertical")]),
         "languages": [{"key": "fr", "label": "Français"}, {"key": "en", "label": "English"}, {"key": "es", "label": "Español"}],
         "default_language": s.get("language", "fr"),
+        "max_record_seconds": int(s.get("synthesia", {}).get("max_record_seconds", 90)),
         "countries": [{"key": k, "label": v} for k, v in mtrends.COUNTRIES.items()],
     }
 
@@ -462,7 +463,7 @@ def make_handler(settings_loader):
         def do_POST(self):
             path = urlparse(self.path).path
             if path not in ("/api/run", "/api/upload", "/api/songs/delete", "/api/stop", "/api/stop-recording", "/api/import-found",
-                        "/api/schedule/plan", "/api/schedule/cancel", "/api/publish-now", "/api/week", "/api/inbox", "/api/inbox/rights", "/api/inbox/scan", "/api/folder"):
+                        "/api/schedule/plan", "/api/schedule/cancel", "/api/publish-now", "/api/week", "/api/inbox", "/api/inbox/rights", "/api/inbox/scan", "/api/folder", "/api/setting"):
                 return self._send(404, b'{"error":"not found"}')
             origin = self.headers.get("Origin", "")
             if origin and not (origin.startswith("http://127.0.0.1") or origin.startswith("http://localhost")):
@@ -490,6 +491,17 @@ def make_handler(settings_loader):
             except json.JSONDecodeError:
                 return self._json({"error": "JSON invalide"}, 400)
             s = settings_loader()
+            if path == "/api/setting":                         # réglages modifiables depuis la page (liste blanche)
+                if body.get("key") == "max_record_seconds":
+                    try:
+                        n = int(float(body.get("value")))
+                    except (TypeError, ValueError):
+                        return self._json({"error": "valeur invalide"}, 400)
+                    if not 30 <= n <= 300:
+                        return self._json({"error": "choisis entre 30 secondes et 5 minutes"}, 400)
+                    config.save_local("synthesia", {"max_record_seconds": n})
+                    return self._json({"max_record_seconds": n})
+                return self._json({"error": "réglage inconnu"}, 400)
             if path == "/api/folder":
                 d = Path(str(body.get("path", "")).strip()).expanduser()
                 if not str(body.get("path", "")).strip() or not d.is_dir():

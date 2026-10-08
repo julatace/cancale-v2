@@ -171,3 +171,26 @@ def test_upload_reads_artist_and_title_from_the_file_name(tmp_path):
     assert r["status"] == "LEGAL_CONFIRMED"
     lst = srv_mod.songs(st)
     assert lst[0]["title"] == "Mon Titre" and lst[0]["artist"] == "Mon Artiste"
+
+
+def test_recording_limit_can_be_changed_from_the_page(tmp_path, monkeypatch):
+    import threading, urllib.request, urllib.error
+    from http.server import ThreadingHTTPServer
+    from app.ui import server as sv
+    st = config.load_settings()
+    saved = {}
+    monkeypatch.setattr(sv.config, "save_local", lambda k, v: saved.update({k: v}))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), sv.make_handler(lambda: st))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+
+    def post(body):
+        req = urllib.request.Request(f"http://127.0.0.1:{httpd.server_address[1]}/api/setting", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            r = urllib.request.urlopen(req); return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+    assert post({"key": "max_record_seconds", "value": 120}) == (200, {"max_record_seconds": 120}) and saved == {"synthesia": {"max_record_seconds": 120}}
+    assert post({"key": "max_record_seconds", "value": 5})[0] == 400 and post({"key": "max_record_seconds", "value": "x"})[0] == 400
+    assert post({"key": "engine", "value": "x"})[0] == 400                       # seuls les réglages prévus sont modifiables
+    assert sv.options(st)["max_record_seconds"] == 90
+    httpd.shutdown()
