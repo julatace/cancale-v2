@@ -70,6 +70,20 @@ def _wait(cond_js: str, what: str, timeout: int = 90) -> None:
     raise RuntimeError(f"TikTok : {what} (délai dépassé). Page vue par l'agent : {info}" + (f" ; dernière erreur : {last}" if last else ""))
 
 
+def split_caption(caption: str) -> tuple[str, list[str]]:
+    """Sépare le texte des hashtags de fin ; hashtags nettoyés (ASCII, sans accents), 8 au maximum."""
+    import re
+    import unicodedata
+    tags = re.findall(r"#[\w]+", caption)
+    body = re.sub(r"\s*#[\w]+", "", caption).strip()
+    clean = []
+    for h in tags:
+        a = unicodedata.normalize("NFKD", h).encode("ascii", "ignore").decode()
+        if len(a) > 1 and a.lower() not in [c.lower() for c in clean]:
+            clean.append(a)
+    return body, clean[:8]
+
+
 def _real_click_upload(say):
     """Vrai clic souris sur la zone « Sélectionner une vidéo » (un clic JavaScript est refusé par Safari : pas de geste humain)."""
     import shutil
@@ -131,9 +145,14 @@ def _post(video, caption, publish, say):
     time.sleep(3)
     say("✍️ Légende et hashtags…")
     _js('var e=document.querySelector("[contenteditable=true]"); e.focus(); document.execCommand("selectAll"); "ok"')
-    _clip(caption)
+    body, tags = split_caption(caption)
+    _clip(body)
     _keys('keystroke "v" using command down')
-    time.sleep(2)
+    time.sleep(1)
+    for tag in tags:                                   # chaque hashtag est TAPÉ puis validé par un espace : TikTok le transforme en vrai hashtag
+        _keys('keystroke " "', f'keystroke "{tag}"', "delay 1.2", 'keystroke " "', "delay 0.4")
+    _keys("delay 0.5", "key code 53")                  # Échap : ferme la liste de suggestions encore ouverte
+    time.sleep(1.5)
     if not publish:
         say("✋ Tout est prêt dans le navigateur : vérifie puis clique sur « Publier » toi-même.")
         return "prêt (non publié)"

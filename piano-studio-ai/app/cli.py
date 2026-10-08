@@ -186,7 +186,7 @@ def cmd_tiktok_web(s, a):
     video, cap = a.video, a.caption
     if not video:
         conn = db.connect(config.resolve(s, "database"))
-        row = conn.execute("SELECT output_path, meta FROM videos WHERE status='READY' AND style LIKE '%|vertical' ORDER BY id DESC LIMIT 1").fetchone()
+        row = conn.execute("SELECT v.output_path, v.meta, s.title, s.artist FROM videos v LEFT JOIN songs s ON s.id=v.song_id WHERE v.status='READY' AND v.style LIKE '%|vertical' ORDER BY v.id DESC LIMIT 1").fetchone()
         if not row:
             print("❌ Aucune vidéo verticale prête : crée-en une d'abord.")
             return 1
@@ -194,6 +194,11 @@ def cmd_tiktok_web(s, a):
         import json
         m = json.loads(row[1] or "{}")
         cap = cap or m.get("tiktok_caption") or m.get("description") or m.get("title") or ""
+        if row[2] and not a.caption:                 # vidéos déjà créées : hashtags ciblés sur le morceau et le compositeur
+            import random
+            from .content_generator import generate as g
+            body = cap.split(" #")[0]
+            cap = body + " " + " ".join(g._tags_for({"title": row[2], "artist": row[3]}, g.LANGS.get(s.get("language", "fr"), g.LANGS["fr"]), random.Random(1)))
     try:
         print("✅", tiktok_web.post(video, cap, publish=a.post, say=lambda m: print(m)))
     except Exception as e:

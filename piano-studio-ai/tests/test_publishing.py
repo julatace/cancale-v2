@@ -163,3 +163,16 @@ def test_tiktok_web_flow_prepares_without_publishing(tmp_path, monkeypatch):
     out = tw.post(v, "légende #piano", publish=False)
     assert "non publié" in out and not any("publier|post" in str(c) for c in calls)
     assert tw.post(v, "x", publish=True) == "publié"
+
+
+def test_tiktok_web_splits_caption_and_hashtags():
+    from app.publisher.tiktok_web import split_caption
+    body, tags = split_caption("Ça sonne bien Invention 8 - J. S. Bach #piano #pourtoi #Musique #piano #été")
+    assert body == "Ça sonne bien Invention 8 - J. S. Bach"
+    assert tags == ["#piano", "#pourtoi", "#Musique", "#ete"]
+
+
+def test_hashtags_are_targeted_on_song_and_composer():
+    from app.content_generator.generate import generate
+    c = generate({"title": "Invention 8", "artist": "J. S. Bach"}, "Facile", 3, set(), 80)
+    assert "#bach" in c["hashtags"] and "#invention8" in c["hashtags"] and len(c["hashtags"]) <= 7
