@@ -1,11 +1,13 @@
 """Capture Synthesia -> vidéo verticale 1080x1920 : bandeau titre, app en gros plan, accroche (début) et appel à l'action (fin).
 Les textes sont dessinés avec Pillow puis superposés (le ffmpeg de Homebrew n'a pas toujours le filtre `drawtext`)."""
+import logging
 import subprocess
 import tempfile
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+log = logging.getLogger("piano.compose")
 W, H, TOP = 1080, 1920, 300          # défaut vertical : bandeau 300 px, app dessous (1080x1620)
 _FONTS = ["/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/System/Library/Fonts/Helvetica.ttc",
           "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
@@ -198,6 +200,19 @@ def encode_args(duration: float, fps: int = 30) -> list[str]:
             "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-shortest", "-movflags", "+faststart"]
 
 
+SAFE_ENCODE = ["-c:v", "libx264", "-preset", "medium", "-crf", "17", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart"]
+
+
+def _encode(cmd: list[str], duration: float, fps: int, out):
+    """Export complet (son normalisé, réglages TikTok) ; si cette version de ffmpeg refuse une option, nouvel essai avec l'export simple d'avant."""
+    r = subprocess.run(cmd + encode_args(duration, fps) + [str(out)], capture_output=True, text=True)
+    if r.returncode or not Path(out).exists():
+        log.warning("export TikTok refusé par ffmpeg (%s) : nouvel essai avec l'export simple", (r.stderr or "").strip()[-160:])
+        Path(out).unlink(missing_ok=True)
+        r = subprocess.run(cmd + ["-r", str(fps)] + SAFE_ENCODE + [str(out)], capture_output=True, text=True)
+    return r
+
+
 def compose_vertical(capture, audio_wav, out, trim: float, duration: float, title="", subtitle="", hook="", cta="",
                      fps=30, crop=None, size=(W, H), top=TOP, bg=DEFAULT_BG) -> Path:
     """crop = (x, y, w, h) en fractions de l'image capturée (zone de la fenêtre Synthesia)."""
@@ -207,8 +222,8 @@ def compose_vertical(capture, audio_wav, out, trim: float, duration: float, titl
                "-ss", str(trim), "-t", str(duration), "-i", str(capture), "-i", str(audio_wav)]
         for p in pngs:
             cmd += ["-i", p]
-        cmd += ["-filter_complex", chain, "-map", "[v]", "-map", "2:a"] + encode_args(duration, fps) + [str(out)]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        cmd += ["-filter_complex", chain, "-map", "[v]", "-map", "2:a"]
+        r = _encode(cmd, duration, fps, out)
     if r.returncode or not Path(out).exists():
         raise RuntimeError(f"compose: {r.stderr[-300:]}")
     return Path(out)
@@ -263,8 +278,8 @@ def compose_landscape(capture, audio_wav, out, trim: float, duration: float, tit
                "-ss", str(trim), "-t", str(duration), "-i", str(capture), "-i", str(audio_wav)]
         for p, *_ in layers:
             cmd += ["-i", str(p)]
-        cmd += ["-filter_complex", chain, "-map", "[v]", "-map", "2:a"] + encode_args(duration, fps) + [str(out)]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        cmd += ["-filter_complex", chain, "-map", "[v]", "-map", "2:a"]
+        r = _encode(cmd, duration, fps, out)
     if r.returncode or not Path(out).exists():
         raise RuntimeError(f"compose: {r.stderr[-300:]}")
     return Path(out)

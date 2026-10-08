@@ -120,10 +120,20 @@ class Job:
                 self._add(f"⏱ Temps alloué ({plan['minutes']:g} min) bientôt écoulé : {i} création(s) faite(s).")
                 break
             self._add(f"━━ Création {i + 1}/{count} ━━")
-            results.append(RUNNER(settings, level=level, formats=formats, publish=False, song_id=song_id, lang=lang, ))
+            res = RUNNER(settings, level=level, formats=formats, publish=False, song_id=song_id, lang=lang)
+            results.append(res)
             made += 1
-        ids = [v["video_id"] for r in results for v in (r.get("videos") or [r]) if v.get("video_id") and v.get("status") != "FAILED"]
+            if plan.get("immediate"):                         # « publier dès que c'est monté » : chaque vidéo réussie part tout de suite
+                conn0 = db.connect(config.resolve(settings, "database"))
+                for v in (res.get("videos") or [res]):
+                    if v.get("video_id") and v.get("status") != "FAILED":
+                        self._add(f"🚀 Publication immédiate de « {v.get('title', '')[:50]} »…")
+                        try:
+                            squeue.publish_video(settings, conn0, v["video_id"])
+                        except Exception as e:
+                            self._add(f"✖ Publication impossible : {e}")
         conn = db.connect(config.resolve(settings, "database"))
+        ids = [v["id"] for v in squeue.unscheduled(conn)]       # ce qui reste prêt (non publié sur le coup) est programmé
         when = squeue.slots(plan["first_day"], max(len(ids), 1) * 1, plan["per_day"], plan["times"])
         planned = squeue.plan(conn, ids, when)
         n_slots = len({p["run_at"] for p in planned})
@@ -198,8 +208,8 @@ def info(s) -> dict:
         _ENGINE["busy"] = True
         threading.Thread(target=_probe_engine, args=(s,), daemon=True).start()
     return {"stock": stock.count(s), "stock_target": s.get("stock", {}).get("target", 3), "engine": _ENGINE["value"], "version": VERSION,
-            "youtube": all(os.environ.get(k) for k in ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN")),
-            "tiktok": all(os.environ.get(k) for k in ("TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REFRESH_TOKEN"))}
+            "youtube": s.get("youtube", {}).get("mode") == "web" or all(os.environ.get(k) for k in ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN")),
+            "tiktok": s.get("tiktok", {}).get("mode") == "web" or all(os.environ.get(k) for k in ("TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REFRESH_TOKEN"))}
 
 
 def _origin(src: str) -> str:
@@ -520,6 +530,7 @@ def make_handler(settings_loader):
                     plan = {"minutes": min(max(float(body.get("minutes", 30) or 30), 5), 600),
                             "per_day": min(max(int(body.get("per_day", 2) or 2), 1), 6),
                             "times": squeue.parse_times(body.get("times") or ["12:30", "19:00"]) or ["12:30", "19:00"],
+                            "immediate": bool(body.get("immediate", False)),
                             "first_day": date.fromisoformat(body.get("first_day") or (date.today() + timedelta(days=1)).isoformat())}
                 except ValueError:
                     return self._json({"error": "date ou durée invalide"}, 400)

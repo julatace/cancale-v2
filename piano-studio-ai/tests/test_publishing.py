@@ -280,3 +280,35 @@ def test_choose_file_falls_back_to_the_open_dialog_if_injection_fails(tmp_path, 
     monkeypatch.setattr(tw.time, "sleep", lambda s: None)
     tw.choose_file(v, lambda m: None)
     assert seen[0] == "click" and "keys" in seen
+
+
+def test_encode_falls_back_to_simple_export_if_ffmpeg_refuses_an_option(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app.renderer import compose
+    out = tmp_path / "o.mp4"; calls = []
+
+    def fake_run(cmd, **k):
+        calls.append(cmd)
+        if len(calls) == 1:
+            return SimpleNamespace(returncode=1, stderr="Unrecognized option 'fps_mode'")
+        out.write_bytes(b"x" * 10)
+        return SimpleNamespace(returncode=0, stderr="")
+    monkeypatch.setattr(compose.subprocess, "run", fake_run)
+    r = compose._encode(["ffmpeg", "-i", "a"], 60, 30, out)
+    assert r.returncode == 0 and "-fps_mode" in calls[0] and "-fps_mode" not in calls[1] and "-af" not in calls[1]
+
+
+def test_refused_video_says_why(tmp_path):
+    import sqlite3
+    from app import config
+    from app.database import db
+    from app.director import pipeline
+    st = config.load_settings()
+    st["paths"] = {**st["paths"], "data_dir": str(tmp_path), "database": str(tmp_path / "d.sqlite3"), "logs_dir": str(tmp_path / "l")}
+    conn = db.connect(tmp_path / "d.sqlite3")
+    db.add_song(conn, "A", "x", "s", "LEGAL_CONFIRMED", hash="a")
+    rep = {}
+    F = st["formats"]["vertical"]
+    r = pipeline._finalize(st, conn, 1, "facile", "vertical", F, tmp_path / "v.mp4", {"duration": 60}, {"title": "T", "description": "d"}, rep, False,
+                           {"score": 60, "issues": ["image figée", "écran noir"]})
+    assert r["status"] == "FAILED" and "image figée" in r["error"] and "60/100" in r["error"]

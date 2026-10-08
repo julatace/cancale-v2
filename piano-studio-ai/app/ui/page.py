@@ -129,7 +129,7 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
   <div class="row">
     <label class="sw">Langue des textes <select id="lang" class="sel" style="flex:none;padding:6px 10px"></select></label>
     <label class="sw"><input type="checkbox" id="synth" checked> Utiliser mon application Synthesia (sinon rendu intégré)</label>
-    <label class="sw"><input type="checkbox" id="publish"> <span id="pubtxt">Publier ensuite</span></label>
+    <label class="sw"><input type="checkbox" id="publish" checked> <span id="pubtxt">Publier automatiquement après le montage</span></label>
     <button class="btn alt" id="chk" style="padding:6px 12px;font-size:13px">Tester mes connexions</button>
     <span id="chkres" class="note" style="margin:0"></span>
     <span class="est" id="est"></span>
@@ -172,6 +172,7 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
     <label class="sw">Heures <input type="text" id="wtimes" value="12:30, 19:00" class="sel" style="width:130px;flex:none" aria-label="Heures de publication"></label>
     <label class="sw">Premier jour <input type="date" id="wday" class="sel" style="flex:none"></label>
   </div>
+  <label class="sw" style="margin:6px 0"><input type="checkbox" id="wnow"> Publier dès que chaque vidéo est montée (sans attendre les heures)</label>
   <p class="note" id="west" style="margin:4px 0 8px"></p>
   <div class="row"><button class="btn" id="wgo">🗓 Fabriquer et programmer</button><button class="btn alt" id="wplan">Programmer les vidéos déjà prêtes</button><span id="wmsg" class="note" style="margin:0"></span></div>
   <div id="slist"></div>
@@ -249,7 +250,7 @@ $('#tgo').onclick=()=>{$('#tgo').disabled=true;$('#tres').innerHTML='<p class="e
     $('#tres').innerHTML=r.items.length?r.items.map(i=>`<div class="tr"><span class="rk">${i.rank}</span><span class="n"><b>${esc(i.title)}</b><small>${esc(i.artist)}</small></span><button class="btn alt" data-q="${esc(i.title)}">MIDI libre</button><a class="btn alt" target="_blank" rel="noopener" href="${webUrl(i.title+' '+i.artist)}">🔎 Web</a></div>`).join(''):`<p class="note bad">${esc(r.message||'Aucune tendance disponible.')}</p>`
   }).catch(()=>{$('#tres').innerHTML='<p class="note bad">Impossible de charger les tendances.</p>'}).finally(()=>{$('#tgo').disabled=false})};
 $('#tres').onclick=e=>{const b=e.target.closest('[data-q]');if(b){$('#q').scrollIntoView({behavior:'smooth',block:'center'});runSearch(b.dataset.q)}};
-function info(){api('/api/info').then(i=>{$('#pubtxt').innerHTML='Publier ensuite : '+[['YouTube',i.youtube],['TikTok',i.tiktok]].map(([n,ok])=>`${n} <b style="color:var(--${ok?'ok':'bad'})">${ok?'✓':'non connecté'}</b>`).join(' · ');$('#ver').innerHTML=`version <b>${esc(i.version||'?')}</b>`;$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'');
+function info(){api('/api/info').then(i=>{$('#pubtxt').innerHTML='Publier automatiquement après le montage : '+[['YouTube',i.youtube],['TikTok',i.tiktok]].map(([n,ok])=>`${n} <b style="color:var(--${ok?'ok':'bad'})">${ok?'✓':'non connecté'}</b>`).join(' · ');$('#ver').innerHTML=`version <b>${esc(i.version||'?')}</b>`;$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'');
   $('#engine').innerHTML=`Moteur : <b>${i.engine==='synthesia'?'Synthesia':i.engine?'rendu intégré':'vérification…'}</b>`;$('#engine').title=i.engine==='synthesia'?'Votre application Synthesia pilotée automatiquement':'Synthesia non prêt : rendu intégré utilisé'})}
 function vids(){api('/api/videos').then(v=>{if(!v.length)return;$('#vids').innerHTML=v.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${esc(x.level)} · ${esc(x.format)} · ${x.duration}s · qualité ${x.quality??'-'}/100 · ${esc(x.status)} · ${esc(x.at)}</small></div>${x.file?`<button data-f="${esc(x.file)}">Voir</button>`:''}</div>${x.file&&x.status!=='FAILED'?`<div class="pub"><button data-now="${x.id}">🚀 Publier maintenant</button><input type="datetime-local" data-when="${x.id}" class="sel" style="flex:none;padding:6px 8px"><button data-at="${x.id}">🗓 Programmer</button></div>`:''}${x.post&&x.file?pubBox(x.post):''}`).join('')})}
 $('#vids').onclick=e=>{const f=e.target.dataset.f;if(f){$('#player').innerHTML=`<video controls autoplay playsinline style="width:100%;max-height:70vh;border-radius:12px;background:#000;margin-top:12px" src="/files/${encodeURIComponent(f)}"></video>`;$('#player').scrollIntoView({behavior:'smooth',block:'center'})}};
@@ -286,7 +287,7 @@ function west(){const n=+$('#wcount').value||1,m=+$('#wmin').value||30,per=+$('#
 {const d=new Date();d.setDate(d.getDate()+1);$('#wday').value=d.toISOString().slice(0,10)}west();
 function watch(txt){$('#job').hidden=false;$('#log').textContent='';$('#res').innerHTML='';$('#err').hidden=true;since=0;cur=-1;fmtLabel='';stepper();$('#now').textContent=txt||'En cours…';
   $('#job').scrollIntoView({behavior:'smooth',block:'start'});if(!timer)timer=setInterval(poll,1500);poll()}
-const wbody=()=>({count:+$('#wcount').value,minutes:+$('#wmin').value,per_day:+$('#wper').value,times:$('#wtimes').value,first_day:$('#wday').value});
+const wbody=()=>({count:+$('#wcount').value,minutes:+$('#wmin').value,per_day:+$('#wper').value,times:$('#wtimes').value,first_day:$('#wday').value,immediate:$('#wnow').checked});
 $('#wgo').onclick=()=>{if(!confirm('Lancer la fabrication de '+$('#wcount').value+' morceaux, puis programmer leur publication ? Ne touche pas au Mac pendant la fabrication.'))return;
   api('/api/week',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...wbody(),formats:[...formats],synthesia:$('#synth').checked,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#wmsg').textContent=r.error;return}$('#wmsg').textContent='';watch('Démarrage de la production…')})};

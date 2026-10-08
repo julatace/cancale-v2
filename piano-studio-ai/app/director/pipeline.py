@@ -450,6 +450,8 @@ def _finalize(s, conn, sid, level, fmt_name, F, out, sec, content, report, publi
     report["post"] = post
     conn.commit()
     report.update(video_id=vid, video=str(out), qc=result, status="READY" if ok else "FAILED", publications=[])
+    if not ok and not last_err and result:                   # refusée par le contrôle qualité : on dit pourquoi (au lieu d'un échec muet)
+        last_err = f"contrôle qualité refusé ({result['score']}/100) : " + (", ".join(result.get("issues") or []) or "score trop bas")
     if last_err and not ok:
         report["error"] = last_err
         log.error("✖ ÉCHEC : %s", last_err)

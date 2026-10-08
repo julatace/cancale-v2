@@ -89,12 +89,12 @@ stock:
 ui_default_formats: [vertical, horizontal]   # les deux formats sont créés d'office
 language: fr            # langue des textes de la vidéo et de la publication : fr | en | es
 tiktok:
-  web_publish: false     # mode web : false = prépare tout et vous cliquez sur Publier ; true = clique aussi sur Publier (la programmation force true)
+  web_publish: true      # mode web : true = clique aussi sur Publier (automatique) ; false = prépare tout et vous cliquez vous-même
   chrome_profile: ""      # profil Chrome du compte TikTok (voir  ./p.sh chrome-profiles ) ; vide = fenêtre Chrome au premier plan
   mode: web              # web = pilote Safari déjà connecté (sans clé API, voir tiktok-web) ; draft = la vidéo arrive dans la boîte de réception TikTok (vous touchez « Publier ») ; direct = publication immédiate (privée tant que l'app n'est pas approuvée)
 youtube:
   mode: web              # web = pilote YouTube Studio dans Chrome (aucune clé API, public tout de suite) ; api = API officielle (./p.sh youtube-login, privé tant que Google n'a pas validé le projet)
-  web_publish: false     # mode web : false = prépare tout et vous cliquez sur Publier ; true = clique aussi (la programmation force true)
+  web_publish: true      # mode web : true = clique aussi sur Publier (automatique) ; false = prépare tout et vous cliquez vous-même
   chrome_profile: ""     # profil Chrome de la chaîne YouTube (./p.sh chrome-profiles) ; vide = fenêtre au premier plan
   privacy: public        # mode api seulement
   category: "10"
