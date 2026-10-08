@@ -91,3 +91,33 @@ def test_mac_record_never_captures_more_than_the_limit(monkeypatch, tmp_path):
     except Exception:
         pass
     assert seen["total"] == 90
+
+
+def test_recording_is_cut_when_the_limit_is_reached_even_if_the_tool_keeps_going(monkeypatch, tmp_path):
+    from app.synthesia_controller import mac
+    clock = {"t": 1000.0}
+
+    class FakeCap:
+        returncode = 0
+        stdin = None
+        stderr = None
+        def poll(self): return None                      # l'outil de capture ne s'arrête jamais tout seul
+    stopped = []
+    monkeypatch.setattr(mac, "accessibility_ok", lambda run: (True, ""))
+    monkeypatch.setattr(mac, "pick_backend", lambda *a, **k: ("ffmpeg", "libx264"))
+    monkeypatch.setattr(mac, "screen_devices", lambda run: [("1", "screen")])
+    monkeypatch.setattr(mac, "_capture_cmd", lambda *a, **k: ["true"])
+    monkeypatch.setattr(mac.subprocess, "Popen", lambda *a, **k: FakeCap())
+    monkeypatch.setattr(mac, "start_playback", lambda *a, **k: None)
+    monkeypatch.setattr(mac, "maximize_window", lambda *a, **k: None)
+    monkeypatch.setattr(mac, "crop_fractions", lambda *a, **k: None)
+    monkeypatch.setattr(mac, "dock_autohide", lambda *a, **k: None)
+    monkeypatch.setattr(mac, "osa", lambda *a, **k: "")
+    monkeypatch.setattr(mac, "_stop_capture", lambda cap, backend: stopped.append(clock["t"]))
+    monkeypatch.setattr(mac, "_usable_seconds", lambda *a, **k: 92.0)
+    monkeypatch.setattr(mac.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(mac.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+    out = tmp_path / "o.mov"; out.write_bytes(b"x" * 200_000)
+    cfg = {"lead_in_seconds": 8, "tail_seconds": 2, "load_seconds": 6, "app_path": "x", "max_record_seconds": 90, "portrait": False}
+    cap, crop, recorded = mac.record(tmp_path / "a.mid", 400, out, cfg, run=lambda *a, **k: type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})(), sleep=lambda s: clock.__setitem__("t", clock["t"] + s))
+    assert recorded == 92.0 and len(stopped) == 1 and 90 <= stopped[0] - 1008.0 <= 96       # coupé 93 s après le début de la capture (1 min 30 + 3 s de marge), pas 4 minutes

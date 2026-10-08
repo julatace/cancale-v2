@@ -245,6 +245,7 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
     run(["open", "-a", str(cfg["app_path"]), str(midi)])
     sleep(cfg["load_seconds"])
     log.info("2/5 démarrage de l'enregistrement d'écran (%.0f s)", total)
+    t_cap = time.monotonic()                              # début réel de la capture : sert au couperet de la durée maximale
     cap = subprocess.Popen(_capture_cmd(backend, screen, total, out, encoder or "libx264"), stderr=subprocess.PIPE,
                            stdin=subprocess.PIPE if backend == "ffmpeg" else None)
     dock_before = None
@@ -282,6 +283,13 @@ def record(midi: Path, duration: float, out: Path, cfg: dict, run=sh, sleep=time
                     raise RuntimeError("L'enregistrement arrêté n'a pas été conservé par l'outil de capture (%s). "
                                        "Laissez l'enregistrement aller jusqu'au bout, ou installez ffmpeg pour pouvoir l'arrêter sans rien perdre." % backend)
                 log.info("■ %.0f s d'enregistrement conservés.", stopped_after)
+                break
+            if time.monotonic() - t_cap >= cfg.get("max_record_seconds", 90) + 3:       # couperet : on coupe à 1 min 30, morceau fini ou non
+                log.info("■ Limite de %.0f s atteinte : l'enregistrement est coupé, la vidéo est montée avec ce qui est enregistré.", cfg.get("max_record_seconds", 90))
+                _stop_capture(cap, backend)
+                stopped_after = _usable_seconds(out, run)
+                if stopped_after is None or stopped_after < 3:
+                    raise RuntimeError("L'enregistrement coupé à la limite n'a pas été conservé par l'outil de capture (%s)." % backend)
                 break
             if time.monotonic() > deadline:
                 raise subprocess.TimeoutExpired("capture", total + 30)
