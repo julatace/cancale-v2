@@ -44,7 +44,7 @@ def _post(video, title, description, publish, say) -> str:
     tw._wait('String(!!document.querySelector("input[type=file]"))', "fenêtre d'envoi de YouTube non chargée", 60)
     if tw._js('String(location.hostname.indexOf("accounts.google")>=0)') == "true":
         raise RuntimeError("YouTube demande de se connecter : connecte ta chaîne dans ce profil Chrome puis relance")
-    tw.choose_file(video, say)
+    tw.choose_file(video, say, verify='String(!!document.querySelector("#title-textarea #textbox"))')
     say("⏫ Envoi de la vidéo vers YouTube…")
     tw._wait('String(!!document.querySelector("#title-textarea #textbox"))', "le formulaire de la vidéo n'apparaît pas", 180)
     time.sleep(2)

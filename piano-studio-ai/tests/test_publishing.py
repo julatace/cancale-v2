@@ -205,7 +205,7 @@ def test_youtube_web_flow_without_api(tmp_path, monkeypatch):
     monkeypatch.setattr(tw, "_js", lambda c: calls.append(c) or ("false" if "accounts.google" in c else "https://youtu.be/abc" if "youtu.be" in c else "true"))
     monkeypatch.setattr(tw, "_keys", lambda *l: calls.append("keys"))
     monkeypatch.setattr(tw, "_clip", lambda t: calls.append("clip:" + t[:12]))
-    monkeypatch.setattr(tw, "choose_file", lambda p, say: calls.append("file"))
+    monkeypatch.setattr(tw, "choose_file", lambda p, say, **k: calls.append("file"))
     monkeypatch.setattr(yw.time, "sleep", lambda s: None)
     assert "non publié" in yw.post(v, "Titre", "Desc", publish=False)
     assert not any("done-button" in str(c) and "click" in str(c) for c in calls)
@@ -274,7 +274,7 @@ def test_choose_file_falls_back_to_the_open_dialog_if_injection_fails(tmp_path, 
     v = tmp_path / "v.mp4"; v.write_bytes(b"x")
     seen = []
     monkeypatch.setattr(tw, "_js", lambda c: "false")
-    monkeypatch.setattr(tw, "_real_click_upload", lambda say: seen.append("click"))
+    monkeypatch.setattr(tw, "_real_click_upload", lambda say, strict=True: seen.append("click"))
     monkeypatch.setattr(tw, "_keys", lambda *l: seen.append("keys"))
     monkeypatch.setattr(tw, "_clip", lambda t: seen.append("clip"))
     monkeypatch.setattr(tw.time, "sleep", lambda s: None)
@@ -312,3 +312,34 @@ def test_refused_video_says_why(tmp_path):
     r = pipeline._finalize(st, conn, 1, "facile", "vertical", F, tmp_path / "v.mp4", {"duration": 60}, {"title": "T", "description": "d"}, rep, False,
                            {"score": 60, "issues": ["image figée", "écran noir"]})
     assert r["status"] == "FAILED" and "image figée" in r["error"] and "60/100" in r["error"]
+
+
+def test_choose_file_uses_the_open_dialog_when_the_page_ignores_the_direct_send(tmp_path, monkeypatch):
+    from app.publisher import tiktok_web as tw
+    v = tmp_path / "v.mp4"; v.write_bytes(b"x")
+    seen = []
+
+    def js(code):
+        if "contenteditable" in code:
+            return "false"                                   # la page ne réagit jamais à l'injection
+        return "true"
+    monkeypatch.setattr(tw, "_js", js)
+    monkeypatch.setattr(tw, "_real_click_upload", lambda say, strict=True: seen.append(("click", strict)))
+    monkeypatch.setattr(tw, "_keys", lambda *l: seen.append("keys"))
+    monkeypatch.setattr(tw, "_clip", lambda t: seen.append("clip"))
+    t = {"v": 0.0}
+    monkeypatch.setattr(tw.time, "monotonic", lambda: t["v"])
+    monkeypatch.setattr(tw.time, "sleep", lambda s: t.__setitem__("v", t["v"] + s))
+    tw.choose_file(v, lambda m: None, verify='String(!!document.querySelector("[contenteditable=true]"))', wait=10)
+    assert ("click", False) in seen and "keys" in seen                  # plan B lancé, sans exiger la détection de la fenêtre
+
+
+def test_choose_file_stops_after_injection_when_the_page_reacts(tmp_path, monkeypatch):
+    from app.publisher import tiktok_web as tw
+    v = tmp_path / "v.mp4"; v.write_bytes(b"x")
+    seen = []
+    monkeypatch.setattr(tw, "_js", lambda c: "true")
+    monkeypatch.setattr(tw, "_real_click_upload", lambda say, strict=True: seen.append("click"))
+    monkeypatch.setattr(tw.time, "sleep", lambda s: None)
+    tw.choose_file(v, lambda m: None, verify="x", wait=10)
+    assert seen == []

@@ -125,7 +125,7 @@ def _sheet_open() -> bool:
         return False
 
 
-def _real_click_upload(say) -> None:
+def _real_click_upload(say, strict: bool = True) -> None:
     """Vrai clic souris sur le bouton « Sélectionner … » (un clic JavaScript est refusé : pas de geste humain). Ne continue que si la fenêtre « Ouvrir » apparaît."""
     import shutil
     if not shutil.which("cliclick"):
@@ -142,6 +142,9 @@ def _real_click_upload(say) -> None:
             time.sleep(0.5)
             if _sheet_open():
                 return
+    if not strict:                                           # détection impossible : le bouton a bien été cliqué, on continue (la suite vérifie le résultat)
+        say("⚠ Je ne vois pas la fenêtre « Ouvrir » mais j'essaie quand même.")
+        return
     raise RuntimeError("la fenêtre « Ouvrir » de macOS ne s'est pas ouverte après le clic (rien n'a été tapé). "
                        "Vérifie que Terminal a l'accès Accessibilité et que la fenêtre Chrome n'est pas cachée derrière une autre")
 
@@ -210,19 +213,36 @@ def inject_file(path, say) -> None:
         raise RuntimeError(f"la page a refusé le fichier ({ok})")
 
 
-def choose_file(path, say) -> None:
-    """Envoie la vidéo à la page. Méthode principale : injection directe. Repli : vrai clic + fenêtre « Ouvrir » de macOS (⇧⌘G -> chemin -> Entrée)."""
-    try:
-        inject_file(path, say)
-        return
-    except RuntimeError as e:
-        say(f"↪ Envoi direct impossible ({str(e)[:90]}) : j'essaie avec la fenêtre « Ouvrir »…")
-    say("📁 Sélection du fichier…")
-    _real_click_upload(say)
+def _dialog_pick(path, say) -> None:
+    """Plan B : vrai clic sur le bouton, puis fenêtre « Ouvrir » de macOS (⇧⌘G -> chemin collé -> Entrée)."""
+    say("📁 Sélection du fichier avec la fenêtre « Ouvrir »…")
+    _real_click_upload(say, strict=False)
     time.sleep(0.8)
     _clip(str(path))
     _keys('keystroke "g" using {command down, shift down}', "delay 1", 'keystroke "v" using command down', "delay 1",
           "key code 36", "delay 1.5", "key code 36")
+
+
+def choose_file(path, say, verify: str | None = None, wait: int = 30) -> None:
+    """Envoie la vidéo à la page. 1) injection directe ; 2) si la page ne réagit pas (`verify` = expression JavaScript qui devient « true »
+    quand l'envoi a démarré) ou refuse le fichier : vrai clic + fenêtre « Ouvrir »."""
+    try:
+        inject_file(path, say)
+    except RuntimeError as e:
+        say(f"↪ Envoi direct impossible ({str(e)[:90]}) : j'essaie avec la fenêtre « Ouvrir »…")
+        return _dialog_pick(path, say)
+    if verify is None:
+        return
+    end = time.monotonic() + wait
+    while time.monotonic() < end:
+        try:
+            if _js(verify) == "true":
+                return
+        except RuntimeError:
+            pass
+        time.sleep(2)
+    say("↪ La page n'a pas réagi à l'envoi direct : j'essaie avec la fenêtre « Ouvrir »…")
+    _dialog_pick(path, say)
 
 
 def _post(video, caption, publish, say):
@@ -233,7 +253,7 @@ def _post(video, caption, publish, say):
     _wait('String(!!document.querySelector("input[type=file]"))', "page d'envoi non chargée")
     if _js('String(/connecter|log in|se connecter/i.test(document.body.innerText.slice(0,400)) && !document.querySelector("input[type=file]"))') == "true":
         raise RuntimeError("TikTok demande de se connecter : connecte ton compte dans Safari puis relance")
-    choose_file(video, say)
+    choose_file(video, say, verify='String(!!document.querySelector("[contenteditable=true]"))')
     say("⏫ Envoi de la vidéo vers TikTok…")
     _wait('String(!!document.querySelector("[contenteditable=true]"))', "la vidéo n'a pas fini de charger", 180)
     time.sleep(3)
