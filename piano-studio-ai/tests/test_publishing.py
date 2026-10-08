@@ -251,7 +251,7 @@ def test_choose_file_never_types_when_the_open_dialog_is_missing(monkeypatch):
     monkeypatch.setattr(tw.shutil if hasattr(tw, "shutil") else __import__("shutil"), "which", lambda n: "/usr/bin/" + n)
     monkeypatch.setattr(tw.time, "sleep", lambda s: None)
     with pytest.raises(RuntimeError, match="ne s'est pas ouverte"):
-        tw.choose_file("/tmp/v.mp4", lambda m: None)
+        tw._real_click_upload(lambda m: None)
     assert typed == []                                   # rien n'est tapé dans la page (c'est ce qui ouvrait la barre de recherche de Chrome)
 
 
