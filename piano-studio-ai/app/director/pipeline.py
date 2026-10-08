@@ -175,6 +175,7 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
     fmts = _formats(s, fmt, formats)
     log.info("▶ Nouvelle création : recherche d'un morceau libre de droits...")
     done = conn.execute("SELECT COUNT(*) FROM videos").fetchone()[0]
+    level_forced = bool(level)
     level, lv = difficulty.choose_level(s, done, level)
     needs_full = any(F.get("duration") == "full" for _, F in fmts)
     log.info("🎯 Niveau : %s (%s BPM) | Formats : %s", lv["label"], lv["bpm"], ", ".join(n for n, _ in fmts))
@@ -195,14 +196,27 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
         kb = s["keyboard"]
         kb_lo = choose_lowest(notes, kb["keys"]) if kb.get("adaptive", True) else kb["lowest_key"]
         notes = fold_notes(notes, kb_lo, kb["keys"])                                    # plage jouée, choisie selon le morceau
-        factor = difficulty.speed_factor(analyze(notes, tempo)["bpm"], lv["bpm"])
-        notes = difficulty.stretch_notes(notes, factor)                                  # tempo = niveau
+        base, piece_bpm = notes, analyze(notes, tempo)["bpm"]
+        factor = difficulty.speed_factor(piece_bpm, lv["bpm"])
+        notes = difficulty.stretch_notes(base, factor)                                  # tempo = niveau
         tempo = [(0.0, lv["bpm"])]
         ana = analyze(notes, tempo)
         log.info("🔎 Analyse : %s notes, durée %ss (tempo x%.2f -> %s BPM)", ana["note_count"], ana["duration"], factor, lv["bpm"])
         first_sec = select_section(notes, _target(fmts[0][1], s, ana))
         min_len = max(F.get("min_duration", 0) for _, F in fmts)         # chaque vidéo doit durer au moins 1 minute
         too_short = ana["duration"] < min_len
+        if not song_id and not level_forced and not too_short and first_sec["density"] > lv["max_density"]:
+            dcfg = difficulty.config(s)                   # niveau non imposé : on essaie un niveau plus rapide plutôt que de jeter ton morceau
+            for name2, lv2 in sorted(dcfg["levels"].items(), key=lambda kv: kv[1]["bpm"]):
+                if lv2["bpm"] <= lv["bpm"] or name2 not in dcfg["rotation"]:
+                    continue
+                n2 = difficulty.stretch_notes(base, difficulty.speed_factor(piece_bpm, lv2["bpm"]))
+                a2 = analyze(n2, [(0.0, lv2["bpm"])])
+                f2 = select_section(n2, _target(fmts[0][1], s, a2))
+                if f2["density"] <= lv2["max_density"] and a2["duration"] >= min_len:
+                    log.info("↗ Niveau %s -> %s : le morceau est trop dense pour %s", lv["label"], lv2["label"], lv["label"])
+                    level, lv, notes, tempo, ana, first_sec = name2, lv2, n2, [(0.0, lv2["bpm"])], a2, f2
+                    break
         if song_id:
             if too_short or first_sec["density"] > lv["max_density"]:
                 log.warning("⚠ Morceau choisi par vous : utilisé tel quel, même s'il est %s pour ce niveau/format",

@@ -76,3 +76,15 @@ def test_watched_folder_is_read_without_moving_originals(tmp_path):
     assert inbox.waiting(st) == 0 and inbox.scan(st, srv_mod.import_upload) == []                    # jamais relu deux fois
     (mine / "Gars - C.mid").write_bytes(song(sparse_beats=24))
     assert inbox.waiting(st) == 1
+
+
+def test_dense_song_of_mine_raises_the_level_instead_of_being_thrown_away(tmp_path):
+    from app.database import db
+    from app.director import pipeline
+    st = _st(tmp_path)
+    st["engine"] = "builtin"
+    inbox.set_rights(st, True)
+    (inbox.folder(st) / "Gars - Alpha.mid").write_bytes(song(sparse_beats=100, busy_beats=140))
+    inbox.scan(st, srv_mod.import_upload)
+    r = pipeline.run_one(st, seed=1, publish=False, formats=["vertical"])        # niveau non imposé : rotation -> « Facile », trop lent pour ce morceau
+    assert r["song"] == "Alpha" and r["status"] == "READY" and r["difficulty"] != "Facile"
