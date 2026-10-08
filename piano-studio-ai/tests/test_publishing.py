@@ -343,3 +343,20 @@ def test_choose_file_stops_after_injection_when_the_page_reacts(tmp_path, monkey
     monkeypatch.setattr(tw.time, "sleep", lambda s: None)
     tw.choose_file(v, lambda m: None, verify="x", wait=10)
     assert seen == []
+
+
+def test_tiktok_uses_the_configured_chrome_profile_and_explains_when_no_window(monkeypatch):
+    import pytest
+    from app import config
+    from app.publisher import adapters, tiktok_web as tw
+    s = config.load_settings()
+    assert s["tiktok"]["chrome_profile"] == "angeled92"
+    tk = [a for a in adapters(s) if a.platform == "tiktok"][0]
+    assert tk.profile == "angeled92"                               # le profil du compte est transmis à l'adaptateur
+    monkeypatch.setattr(tw, "PROFILE", "")
+    monkeypatch.setattr(tw, "BROWSER", "Google Chrome")
+    monkeypatch.setattr(tw, "_osa", lambda s_, timeout=30: (_ for _ in ()).throw(RuntimeError("Can't get window 1")) if "set URL" in s_ else "")
+    monkeypatch.setattr(tw, "_js", lambda c: "2")
+    monkeypatch.setattr(tw, "chrome_profiles", lambda: [{"dir": "Default", "name": "angeled92", "email": ""}])
+    with pytest.raises(RuntimeError, match="chrome_profile.*angeled92"):
+        tw.open_url("https://x", lambda m: None, "TikTok")

@@ -183,8 +183,13 @@ def open_url(url: str, say, label: str) -> None:
         time.sleep(3)
         _osa(f'tell application "{BROWSER}" to activate')
     else:
-        _osa(f'tell application "{BROWSER}"\nactivate\nif (count of windows) = 0 then make new window\n'
-             f'set URL of active tab of front window to "{url}"\nend tell')
+        try:
+            _osa(f'tell application "{BROWSER}"\nactivate\nif (count of windows) = 0 then make new window\n'
+                 f'set URL of active tab of front window to "{url}"\nend tell')
+        except RuntimeError as e:
+            profs = ", ".join(f"« {p['name']} »" for p in chrome_profiles())
+            raise RuntimeError("Chrome n'a pas de fenêtre de navigation (il affiche peut-être « Qui utilise Chrome ? »). Indique le profil du compte dans "
+                               "config/settings.yaml (ligne chrome_profile)" + (f" : {profs}" if profs else "") + f". Détail : {str(e)[:120]}") from e
 
 
 INJECT_CHUNK = 240_000          # caractères base64 par appel (une ligne de commande macOS est limitée à ~1 Mo)
