@@ -98,3 +98,5 @@ youtube:
   chrome_profile: ""     # profil Chrome de la chaîne YouTube (./p.sh chrome-profiles) ; vide = fenêtre au premier plan
   privacy: public        # mode api seulement
   category: "10"
+songs:
+  prefer_mine: true     # les morceaux que tu fournis (boîte de réception, ajout dans la page) sont utilisés en premier, dans l'ordre d'arrivée

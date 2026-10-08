@@ -44,3 +44,20 @@ def test_duplicate_is_filed_as_done(tmp_path):
         (inbox.folder(st) / n).write_bytes(song())
         r = inbox.scan(st, srv_mod.import_upload)
     assert r[0]["status"] == "DUPLICATE" and (inbox.folder(st) / "done" / "b.mid").exists()
+
+
+def test_my_songs_are_used_first_in_arrival_order(tmp_path):
+    from app.database import db
+    from app.director import pipeline
+    st = _st(tmp_path)
+    conn = db.connect(tmp_path / "d.sqlite3")
+    other = tmp_path / "x.mid"; other.write_bytes(song())
+    db.add_song(conn, "Réserve", "Mutopia", "Mutopia: libre", "LEGAL_CONFIRMED", midi_path=other, hash="r")
+    for i, n in enumerate(("Premier", "Deuxième")):
+        f = tmp_path / f"m{i}.mid"; f.write_bytes(song(sparse_beats=16 + i))
+        db.add_song(conn, n, "Moi", "user_owned: Fourni par l'utilisateur (droits confirmés)", "LEGAL_CONFIRMED", midi_path=f, hash=f"m{i}")
+    picks = [pipeline.pick_song(conn, st, seed)[2]["title"] for seed in (1, 2, 3)]
+    assert picks == ["Premier", "Premier", "Premier"]                       # tant qu'il n'a pas servi, le premier arrivé passe devant
+    sid = pipeline.pick_song(conn, st, 1)[0]
+    assert pipeline.pick_song(conn, st, 1, exclude={sid})[2]["title"] == "Deuxième"
+    assert st["songs"]["prefer_mine"] is True

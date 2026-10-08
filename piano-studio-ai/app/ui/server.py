@@ -251,6 +251,13 @@ def videos(s, limit=12) -> list[dict]:
     return out
 
 
+def my_songs_waiting(s) -> int:
+    """Morceaux fournis par l'utilisateur qui n'ont pas encore eu leur vidéo (hors délai de réutilisation)."""
+    conn = db.connect(config.resolve(s, "database"))
+    rows = conn.execute("SELECT id, midi_path FROM songs WHERE license='LEGAL_CONFIRMED' AND source LIKE 'user_owned: Fourni%'").fetchall()
+    return sum(1 for r in rows if r["midi_path"] and Path(r["midi_path"]).exists() and db.song_usable(conn, r["id"], s["same_song_cooldown_days"])[0])
+
+
 def schedule_view(s) -> dict:
     conn = db.connect(config.resolve(s, "database"))
     return {"items": squeue.listing(conn), "unscheduled": squeue.unscheduled(conn)}
@@ -427,7 +434,7 @@ def make_handler(settings_loader):
                 except mtrends.TrendsUnavailable as e:
                     return self._json({"items": [], "message": str(e)})
             if u.path == "/api/inbox":
-                return self._json(inbox.status(s))
+                return self._json({**inbox.status(s), "to_make": my_songs_waiting(s)})
             if u.path == "/api/schedule":
                 return self._json(schedule_view(s))
             if u.path == "/api/songs":

@@ -70,6 +70,10 @@ def pick_song(conn, s, seed, exclude=()) -> tuple[int, Path, dict]:
     rows = conn.execute("SELECT id, midi_path, title, artist, source FROM songs WHERE license='LEGAL_CONFIRMED' ORDER BY id").fetchall()
     ok = [r for r in rows if r["id"] not in exclude and r["midi_path"] and Path(r["midi_path"]).exists()
           and db.song_usable(conn, r["id"], s["same_song_cooldown_days"])[0]]
+    mine = [r for r in ok if (r["source"] or "").startswith("user_owned: Fourni")]
+    if mine and s.get("songs", {}).get("prefer_mine", True):          # tes morceaux (boîte de réception, ajout manuel) passent d'abord, dans l'ordre d'arrivée
+        r = mine[0]
+        return r["id"], Path(r["midi_path"]), {"title": r["title"], "artist": r["artist"], "credit": _credit(r["source"])}
     if ok:
         r = random.Random(seed).choice(ok)
         return r["id"], Path(r["midi_path"]), {"title": r["title"], "artist": r["artist"], "credit": _credit(r["source"])}
