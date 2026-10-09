@@ -62,6 +62,8 @@ def test_agenda_slots_one_per_video_and_past_days_ignored():
             {"date": "2030-01-09", "count": 3}]
     sl = queue.slots_for_days(days, ["12:30", "19:00"], now=now)
     assert [(d.day, d.hour) for d in sl] == [(6, 12), (7, 12), (7, 19), (9, 9), (9, 12), (9, 19)]      # hier ignoré, 0 vidéo ignoré, 3 le même jour = 3 heures
+    late = queue.slots_for_days([{"date": "2030-01-06", "count": 2}], ["07:00", "07:30"], now=now)          # aujourd'hui, heures déjà passées
+    assert len(late) == 2 and late[0] - now < timedelta(minutes=5) and late[1] - late[0] == timedelta(minutes=15)   # elles partent dès que le montage est fini
     assert queue.slots_for_days([{"date": "2030-01-07", "count": 9}], None, now=now).__len__() == 6     # plafonné à 6 par jour
 
 
@@ -74,7 +76,7 @@ def test_agenda_endpoints_produce_and_plan(tmp_path, monkeypatch):
     st = config.load_settings()
     st["paths"] = {**st["paths"], "data_dir": str(tmp_path), "database": str(tmp_path / "d.sqlite3"), "logs_dir": str(tmp_path / "l")}
     runs = []
-    monkeypatch.setattr(sv, "RUNNER", lambda settings, **k: runs.append(1) or {"videos": []})
+    monkeypatch.setattr(sv, "RUNNER", lambda settings, **k: runs.append(1) or {"videos": [{"video_id": len(runs), "status": "READY"}]})
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), sv.make_handler(lambda: st))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
 
@@ -94,3 +96,37 @@ def test_agenda_endpoints_produce_and_plan(tmp_path, monkeypatch):
         time.sleep(0.1)
     assert len(runs) == 3                                                                              # une création par vidéo demandée dans l'agenda
     httpd.shutdown()
+
+
+def test_failed_creations_are_redone_and_only_new_videos_are_scheduled(tmp_path, monkeypatch):
+    from datetime import date, timedelta
+    from app import config
+    from app.database import db
+    from app.ui import server as sv
+    st = config.load_settings()
+    st["paths"] = {**st["paths"], "data_dir": str(tmp_path), "database": str(tmp_path / "d.sqlite3"), "logs_dir": str(tmp_path / "l")}
+    conn = db.connect(tmp_path / "d.sqlite3")
+    db.add_song(conn, "A", "x", "s", "LEGAL_CONFIRMED", hash="a")
+    old = conn.execute("INSERT INTO videos(song_id,style,duration,output_path,quality_score,status,title,meta,created_at) VALUES(1,'facile|vertical',60,'x',95,'READY','ANCIENNE','{}',?)", (db.now(),)).lastrowid
+    conn.commit()
+    calls = []
+
+    def runner(settings, **k):
+        calls.append(1)
+        if len(calls) == 2:
+            return {"videos": [{"video_id": None, "status": "FAILED", "error": "contrôle qualité refusé"}], "status": "FAILED"}
+        c = db.connect(tmp_path / "d.sqlite3")
+        s_id = db.add_song(c, f"S{len(calls)}", "x", "s", "LEGAL_CONFIRMED", hash=f"h{len(calls)}")
+        vid = c.execute("INSERT INTO videos(song_id,style,duration,output_path,quality_score,status,title,meta,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                        (s_id, "facile|vertical", 60, "x", 95, "READY", f"NEW{len(calls)}", "{}", db.now())).lastrowid
+        c.commit()
+        return {"videos": [{"video_id": vid, "status": "READY", "title": f"NEW{len(calls)}"}], "status": "READY"}
+    monkeypatch.setattr(sv, "RUNNER", runner)
+    day = (date.today() + timedelta(days=2)).isoformat()
+    job = sv.Job()
+    slots = queue.slots_for_days([{"date": day, "count": 2}], None)
+    job._run(st, None, ["vertical"], False, 2, None, None, {"slots": slots, "immediate": False, "times": ["12:30", "19:00"]})
+    assert job.state["status"] == "done" and len(calls) == 3                          # la création ratée a été refaite
+    titles = [x["title"] for x in queue.listing(conn)]
+    assert sorted(titles) == ["NEW1", "NEW3"] and "ANCIENNE" not in titles          # l'ancienne vidéo prête n'est pas reprogrammée
+    assert len(job.state["planned"]) == 2

@@ -55,21 +55,27 @@ DEFAULT_TIMES = ["12:30", "19:00", "09:00", "16:00", "21:00", "11:00"]
 
 def slots_for_days(days, times=None, now: datetime | None = None) -> list[datetime]:
     """Agenda : `days` = [{"date": "2026-10-12", "count": 2}, ...] -> un créneau par vidéo, heures locales. Pour n vidéos le même jour on prend
-    les n premières heures de la liste (complétée par des heures par défaut), triées. Les créneaux déjà passés (ou à moins de 10 min) sont ignorés."""
+    les n premières heures de la liste (complétée par des heures par défaut), triées. Les créneaux d'AUJOURD'HUI déjà passés ne sont pas perdus :
+    la vidéo part dès que le montage est fini (quelques minutes plus tard, une toutes les 15 minutes). Les jours passés sont ignorés."""
     chosen = parse_times(times) if times else []
     chosen = chosen or DEFAULT_TIMES[:2]
     pool = chosen + [x for x in DEFAULT_TIMES if x not in chosen]
-    now = (now or datetime.now().astimezone()) + timedelta(minutes=10)
-    out = []
+    now = now or datetime.now().astimezone()
+    limit = now + timedelta(minutes=10)
+    out, late = [], 0
     for d in sorted(days, key=lambda x: x["date"]):
         day = date.fromisoformat(d["date"])
+        if day < now.date():
+            continue
         n = max(0, min(int(d.get("count", 0)), 6))
         for hhmm in sorted(pool[:n]):
             h, m = (int(x) for x in hhmm.split(":"))
             dt = datetime(day.year, day.month, day.day, h, m).astimezone()
-            if dt > now:
+            if dt > limit:
                 out.append(dt)
-    return out
+            elif day == now.date():                          # créneau d'aujourd'hui déjà passé : publication dès que prêt
+                out.append(now + timedelta(minutes=2 + 15 * late)); late += 1
+    return sorted(out)
 
 
 def _utc(dt: datetime) -> str:

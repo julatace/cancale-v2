@@ -22,6 +22,17 @@ RUNNER = pipeline.run_one          # remplaçable dans les tests
 LEVELS_SHOWN = ["facile", "moyen", "difficile"]
 
 
+class QuietServer(ThreadingHTTPServer):
+    """Le navigateur coupe souvent une lecture vidéo en cours : ces « connexion réinitialisée » sont normales, on ne les affiche pas."""
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        import sys
+        if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError, ConnectionAbortedError)):
+            return
+        super().handle_error(request, client_address)
+
+
 class Job:
     """Une seule création à la fois ; les messages du pipeline sont recueillis pour l'affichage en direct."""
 
@@ -42,6 +53,7 @@ class Job:
                 return False
             control.CANCEL.clear()
             control.STOP_RECORD.clear()
+            self._planned = []
             self.state = {"status": "running", "params": {"level": level, "formats": formats, "publish": publish, "count": count, "plan": bool(plan)},
                           "result": None, "error": None, "started": time.time()}
             self.logs.clear()
@@ -94,7 +106,8 @@ class Job:
         try:
             results = self._produce(settings, level, formats, publish, count, song_id, lang, plan)
             with self.lock:
-                self.state.update(status="done", result=results[-1] if count == 1 else results)
+                self.state.update(status="done", result=results[-1] if count == 1 else results,
+                                  planned=[{"title": p["title"], "run_at": p["run_at"], "format": p["format"]} for p in getattr(self, "_planned", [])])
         except control.Cancelled:
             self._add("■ Création arrêtée. Synthesia est fermé et l'enregistrement coupé.")
             with self.lock:
@@ -112,33 +125,51 @@ class Job:
         if not plan:
             return [RUNNER(settings, level=level, formats=formats, publish=publish, song_id=song_id, lang=lang) for _ in range(count)]
         budget = float(plan.get("minutes") or 0) * 60                  # 0 = pas de limite (mode agenda)
-        t0, results, made = time.time(), [], 0
-        for i in range(count):
+        t0, results, good_ids, attempts = time.time(), [], [], 0
+        max_attempts = count + min(count, 4)                            # une création ratée est refaite (avec un autre morceau), dans la limite de 4 reprises
+        self._planned = []
+        while len(good_ids) < count and attempts < max_attempts:
             spent = time.time() - t0
-            avg = spent / i if i else 0
-            if budget and i and spent + avg * 0.8 > budget:
-                self._add(f"⏱ Temps alloué ({plan['minutes']:g} min) bientôt écoulé : {i} création(s) faite(s).")
+            done = len(good_ids)
+            if budget and done and spent + (spent / done) * 0.8 > budget:
+                self._add(f"⏱ Temps alloué ({plan['minutes']:g} min) bientôt écoulé : {done} création(s) faite(s).")
                 break
-            self._add(f"━━ Création {i + 1}/{count} ━━")
-            res = RUNNER(settings, level=level, formats=formats, publish=False, song_id=song_id, lang=lang)
+            attempts += 1
+            self._add(f"━━ Vidéo {done + 1}/{count} ━━" + (f" (reprise {attempts - done - 1})" if attempts - done - 1 > 0 else ""))
+            try:
+                res = RUNNER(settings, level=level, formats=formats, publish=False, song_id=song_id, lang=lang)
+            except control.Cancelled:
+                raise
+            except Exception as e:
+                self._add(f"✖ Cette création a échoué : {type(e).__name__}: {e}")
+                if "Plus aucun morceau" in str(e):                      # plus rien à fabriquer : inutile d'insister
+                    break
+                continue
             results.append(res)
-            made += 1
+            ok_videos = [v for v in (res.get("videos") or [res]) if v.get("video_id") and v.get("status") != "FAILED"]
+            if not ok_videos:
+                bad = next((v.get("error") for v in (res.get("videos") or [res]) if v.get("error")), "contrôle qualité refusé")
+                self._add(f"↻ Cette vidéo a échoué ({str(bad)[:120]}) : j'en refais une autre avec un autre morceau.")
+                continue
+            good_ids += [v["video_id"] for v in ok_videos]
             if plan.get("immediate"):                         # « publier dès que c'est monté » : chaque vidéo réussie part tout de suite
                 conn0 = db.connect(config.resolve(settings, "database"))
-                for v in (res.get("videos") or [res]):
-                    if v.get("video_id") and v.get("status") != "FAILED":
-                        self._add(f"🚀 Publication immédiate de « {v.get('title', '')[:50]} »…")
-                        try:
-                            squeue.publish_video(settings, conn0, v["video_id"])
-                        except Exception as e:
-                            self._add(f"✖ Publication impossible : {e}")
+                for v in ok_videos:
+                    self._add(f"🚀 Publication immédiate de « {v.get('title', '')[:50]} »…")
+                    try:
+                        squeue.publish_video(settings, conn0, v["video_id"])
+                    except Exception as e:
+                        self._add(f"✖ Publication impossible : {e}")
         conn = db.connect(config.resolve(settings, "database"))
-        ids = [v["id"] for v in squeue.unscheduled(conn)]       # ce qui reste prêt (non publié sur le coup) est programmé
+        ids = [v["id"] for v in squeue.unscheduled(conn) if v["id"] in set(good_ids)]      # seulement ce qui vient d'être fabriqué (et pas déjà publié)
         when = plan.get("slots") or squeue.slots(plan["first_day"], max(len(ids), 1) * 1, plan["per_day"], plan["times"])
         planned = squeue.plan(conn, ids, when)
+        self._planned = planned
         n_slots = len({p["run_at"] for p in planned})
         self._add(f"🗓 {n_slots} publication(s) programmée(s) : du {planned[0]['run_at'].replace('T', ' ')} au {planned[-1]['run_at'].replace('T', ' ')}." if planned
                   else "🗓 Rien à programmer (aucune vidéo réussie).")
+        if len(good_ids) < count:
+            self._add(f"⚠ {len(good_ids)} vidéo(s) réussie(s) sur {count} demandée(s) : relance « Fabriquer et programmer l'agenda » pour compléter.")
         return results
 
     def stop(self) -> bool:
@@ -584,7 +615,7 @@ def make_handler(settings_loader):
 
 def serve(port=8765, open_browser=True, settings_loader=config.load_settings):
     try:
-        srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(settings_loader))
+        srv = QuietServer(("127.0.0.1", port), make_handler(settings_loader))
     except OSError as e:
         print(f"❌ Le port {port} est déjà utilisé ({e.strerror}) : une ancienne page tourne encore.\n"
               f"   Fermez-la (Ctrl+C dans son Terminal) ou lancez : lsof -ti tcp:{port} | xargs kill")

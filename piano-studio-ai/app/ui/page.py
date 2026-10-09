@@ -432,6 +432,7 @@ function poll(){api('/api/status?since='+since).then(s=>{
   if(!run){clearInterval(timer);timer=null;vids();info();sched();cur=s.status==='done'?5:cur;stepper();
     if(s.status==='cancelled'){$('#now').textContent='Création arrêtée'}
     if(s.status==='failed'){$('#err').hidden=false;$('#err').textContent=s.error}
+    else if(s.planned&&s.planned.length){const f=s.planned[0];$('#now').innerHTML=`🗓 <b>${new Set(s.planned.map(p=>p.run_at)).size} publication(s) programmée(s)</b> — la première part ${esc(dfmt(f.run_at))}. Laisse cette page ouverte et le Mac allumé : l\'agent publie tout seul à l\'heure.`;results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result);tab('schedule',true)}
     else if(s.result&&s.result.task){$('#now').textContent='Terminé : '+s.result.summary}
     else if(s.result){$('#now').textContent='Terminé';results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result)}}
 })}
