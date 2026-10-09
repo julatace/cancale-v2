@@ -125,7 +125,7 @@ class Job:
         if not plan:
             return [RUNNER(settings, level=level, formats=formats, publish=publish, song_id=song_id, lang=lang) for _ in range(count)]
         budget = float(plan.get("minutes") or 0) * 60                  # 0 = pas de limite (mode agenda)
-        t0, results, good_ids, attempts = time.time(), [], [], 0
+        t0, results, good_ids, attempts, done_groups = time.time(), [], [], 0, []
         max_attempts = count + min(count, 4)                            # une création ratée est refaite (avec un autre morceau), dans la limite de 4 reprises
         self._planned = []
         while len(good_ids) < count and attempts < max_attempts:
@@ -152,22 +152,30 @@ class Job:
                 self._add(f"↻ Cette vidéo a échoué ({str(bad)[:120]}) : j'en refais une autre avec un autre morceau.")
                 continue
             good_ids += [v["video_id"] for v in ok_videos]
-            if plan.get("immediate"):                         # « publier dès que c'est monté » : chaque vidéo réussie part tout de suite
-                conn0 = db.connect(config.resolve(settings, "database"))
+            k = len(done_groups); done_groups.append([v["video_id"] for v in ok_videos])
+            conn0 = db.connect(config.resolve(settings, "database"))
+            if plan.get("immediate"):                         # chaque vidéo part TOUT DE SUITE après son montage (rien n'attend la fin du lot)
                 for v in ok_videos:
                     self._add(f"🚀 Publication immédiate de « {v.get('title', '')[:50]} »…")
                     try:
                         squeue.publish_video(settings, conn0, v["video_id"])
                     except Exception as e:
                         self._add(f"✖ Publication impossible : {e}")
-        conn = db.connect(config.resolve(settings, "database"))
-        ids = [v["id"] for v in squeue.unscheduled(conn) if v["id"] in set(good_ids)]      # seulement ce qui vient d'être fabriqué (et pas déjà publié)
-        when = plan.get("slots") or squeue.slots(plan["first_day"], max(len(ids), 1) * 1, plan["per_day"], plan["times"])
-        planned = squeue.plan(conn, ids, when)
-        self._planned = planned
+            else:                                             # sinon : programmée tout de suite à son créneau (si on arrête, ce qui est fait est déjà programmé)
+                slots = plan.get("slots") or []
+                if k < len(slots):
+                    new = squeue.plan(conn0, [v["video_id"] for v in ok_videos], [slots[k]])
+                    self._planned += new
+                    if new:
+                        self._add(f"🗓 Programmée : {new[-1]['run_at'].replace('T', ' ')}")
+        planned = self._planned
         n_slots = len({p["run_at"] for p in planned})
-        self._add(f"🗓 {n_slots} publication(s) programmée(s) : du {planned[0]['run_at'].replace('T', ' ')} au {planned[-1]['run_at'].replace('T', ' ')}." if planned
-                  else "🗓 Rien à programmer (aucune vidéo réussie).")
+        if planned:
+            self._add(f"🗓 {n_slots} publication(s) programmée(s) : du {planned[0]['run_at'].replace('T', ' ')} au {planned[-1]['run_at'].replace('T', ' ')}.")
+        elif plan.get("immediate"):
+            self._add(f"🚀 {len(done_groups)} vidéo(s) publiée(s) au fil de l'eau.")
+        else:
+            self._add("🗓 Rien à programmer (aucune vidéo réussie).")
         if len(good_ids) < count:
             self._add(f"⚠ {len(good_ids)} vidéo(s) réussie(s) sur {count} demandée(s) : relance « Fabriquer et programmer l'agenda » pour compléter.")
         return results
@@ -563,6 +571,8 @@ def make_handler(settings_loader):
                 return self._plan(s, body)
             if path == "/api/schedule/cancel":
                 conn = db.connect(config.resolve(s, "database"))
+                if body.get("all"):
+                    return self._json({"ok": True, "cancelled": squeue.cancel_all_pending(conn)})
                 return self._json({"ok": squeue.cancel(conn, int(body.get("id", 0)))})
             if path == "/api/publish-now":
                 return self._publish_now(s, body)
@@ -576,6 +586,8 @@ def make_handler(settings_loader):
             if not formats or not all(f in {x["key"] for x in opt["formats"]} for f in formats):
                 return self._json({"error": "format inconnu"}, 400)
             plan = None
+            if body.get("week") and body.get("replace"):                           # le nouvel agenda remplace les publications encore en attente
+                squeue.cancel_all_pending(db.connect(config.resolve(s, "database")))
             if body.get("week") and body.get("days") is not None:                  # agenda : nombre de vidéos voulu pour chaque jour
                 try:
                     slots = squeue.slots_for_days(body["days"], body.get("times"))

@@ -245,7 +245,7 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
   <div class="agenda" id="agenda" role="group" aria-label="Agenda des prochains jours"></div>
   <div class="row" style="margin-top:14px;border:0;padding:0">
     <label class="sw">Heures de publication <input type="text" id="wtimes" value="12:30, 19:00" class="sel" style="width:150px;flex:none" aria-label="Heures de publication"></label>
-    <label class="sw"><input type="checkbox" id="wnow"> Publier dès que chaque vidéo est montée</label>
+    <label class="sw"><input type="checkbox" id="wnow" checked> Publier chaque vidéo dès qu'elle est montée <small style="color:var(--mute)">(décoche pour attendre les heures)</small></label>
   </div>
   <p class="note" id="west" style="margin:8px 0"></p>
   <div class="row" style="border:0;padding:0;margin-top:6px"><button class="btn" id="wgo">🗓 Fabriquer et programmer l'agenda</button><button class="btn alt" id="wplan" title="Utilise les vidéos déjà prêtes au lieu d'en fabriquer">Programmer les vidéos déjà prêtes</button><span id="wmsg" class="note" style="margin:0"></span></div>
@@ -289,7 +289,7 @@ tab((location.hash||'').slice(1)||(()=>{try{return localStorage.getItem('tab')}c
 let songId=null,level=null,formats=new Set(),since=0,timer=null,opts=null,cur=-1,fmtLabel='';
 const api=(p,o)=>fetch(p,o).then(r=>r.json());
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let ONLY_MINE=false;
+let ONLY_MINE=false,PENDING_N=0;
 const STEPS=['Morceau','Passage','Fabrication','Qualité','Publication'];
 const dev=f=>f.width>f.height
   ?'<svg width="64" height="40" viewBox="0 0 64 40" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="58" height="34" rx="6"/><path d="M12 28h40" stroke-width="5" stroke-linecap="round" opacity=".35"/></svg>'
@@ -372,10 +372,10 @@ $('#chk').onclick=()=>{$('#chk').disabled=true;$('#chkres').textContent='Vérifi
 const dfmt=iso=>new Date(iso).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 function sched(){api('/api/schedule').then(d=>{
   const nm={PENDING:'⏳ programmée',RUNNING:'⏫ envoi en cours',DONE:'✅ publiée',FAILED:'❌ échec',MISSED:'⚠ manquée'};
-  const pend=d.items.filter(x=>x.status==='PENDING');$('#b-sch').textContent=pend.length||'';
+  const pend=d.items.filter(x=>x.status==='PENDING');PENDING_N=pend.length;$('#b-sch').textContent=pend.length||'';
   $('#nextpub').innerHTML=pend.length?`⏭ Prochaine publication : <b>${esc(pend[0].title)}</b> · ${esc(dfmt(pend[0].run_at))} <span style="margin-left:auto">${pend.length} en attente</span>`:'Aucune publication programmée. Utilise « Fabriquer et programmer l\'agenda » ci-dessous.';
   const un=d.unscheduled.length?`<p class="note" style="margin:10px 0 4px"><b>${d.unscheduled.length}</b> vidéo(s) prête(s) pas encore programmée(s).</p>`:'';
-  $('#slist').innerHTML=un+(d.items.length?d.items.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${x.format==='horizontal'?'YouTube long':'TikTok + YouTube Shorts'} · ${esc(dfmt(x.run_at))} · ${nm[x.status]||esc(x.status)}${x.detail?' · '+esc(x.detail):''}</small></div>${x.status==='PENDING'?`<button data-cancel="${x.id}">Annuler</button>`:''}</div>`).join(''):'<p class="empty">Rien de programmé.</p>')})}
+  $('#slist').innerHTML=un+(pend.length?`<p style="margin:8px 0"><button class="btn alt" data-cancelall="1">Tout annuler (${pend.length} en attente)</button></p>`:'')+(d.items.length?d.items.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${x.format==='horizontal'?'YouTube long':'TikTok + YouTube Shorts'} · ${esc(dfmt(x.run_at))} · ${nm[x.status]||esc(x.status)}${x.detail?' · '+esc(x.detail):''}</small></div>${x.status==='PENDING'?`<button data-cancel="${x.id}">Annuler</button>`:''}</div>`).join(''):'<p class="empty">Rien de programmé.</p>')})}
 function inb(){api('/api/inbox').then(d=>{$('#ibpath').textContent=d.path;$('#ibwait').textContent=d.waiting;$('#ibdone').textContent=d.done;$('#b-lib').textContent=d.to_make||'';$('#b-lib').dataset.n=d.to_make||0;$('#ibrights').checked=d.rights;
   const f=(d.folders||[])[0];if(f&&document.activeElement!==$('#fpath'))$('#fpath').value=f.path;
   $('#fstat').innerHTML=(f?(f.exists?`<b>${f.files}</b> fichier(s) MIDI dans ce dossier · `:`<b style="color:var(--bad)">dossier introuvable</b> · `):'Aucun dossier choisi · ')+`<b>${d.waiting}</b> en attente d'import · <b>${d.to_make}</b> morceau(x) à transformer en vidéo (l'agent prend les tiens en premier, dans l'ordre d'arrivée)`+(d.last_check?` · vérifié il y a ${Math.max(0,Math.round(Date.now()/1000-d.last_check))} s (automatique, toutes les 30 s)`:'')+(!d.rights?' · <b style="color:var(--bad)">coche la case ci-dessous pour autoriser l\'import</b>':'');
@@ -400,11 +400,13 @@ function watch(txt){$('#job').hidden=false;$('#log').textContent='';$('#res').in
   $('#job').scrollIntoView({behavior:'smooth',block:'start'});if(!timer)timer=setInterval(poll,1500);poll()}
 const wbody=()=>({days:Object.entries(AG).filter(([k,n])=>n>0).map(([date,count])=>({date,count})),times:$('#wtimes').value,immediate:$('#wnow').checked});
 $('#wgo').onclick=()=>{const n=Object.values(AG).reduce((a,b)=>a+b,0);if(!n)return;if(!confirm('Fabriquer '+n+' vidéo'+(n>1?'s':'')+' puis les programmer ? Ne touche pas au Mac pendant la fabrication.'))return;
-  api('/api/week',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...wbody(),formats:[...formats],synthesia:$('#synth').checked,lang:$('#lang').value})})
+  const pend=PENDING_N;const rep=pend>0&&confirm(pend+' publication(s) sont déjà programmées. Les remplacer par ce nouvel agenda ? (OK = remplacer, Annuler = les garder en plus)');
+  api('/api/week',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...wbody(),replace:rep,formats:[...formats],synthesia:$('#synth').checked,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#wmsg').textContent=r.error;return}$('#wmsg').textContent='';watch('Démarrage de la production…')})};
 $('#wplan').onclick=()=>api('/api/schedule/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(wbody())})
   .then(r=>{$('#wmsg').textContent=r.error||r.message;sched()});
 document.addEventListener('click',e=>{
+  const ca=e.target.closest('[data-cancelall]');if(ca){if(confirm('Annuler toutes les publications en attente ? (les vidéos ne sont pas supprimées)'))api('/api/schedule/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({all:true})}).then(sched);return}
   const c=e.target.closest('[data-cancel]');if(c){api('/api/schedule/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:+c.dataset.cancel})}).then(sched);return}
   const n=e.target.closest('[data-now]');if(n){if(!confirm('Publier cette vidéo maintenant ? Ne touche ni à la souris ni au clavier pendant l\'envoi.'))return;
     api('/api/publish-now',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_id:+n.dataset.now})}).then(r=>{if(r.error){alert(r.error);return}watch('Publication en cours…')});return}

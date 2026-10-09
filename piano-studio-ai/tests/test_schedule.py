@@ -130,3 +130,49 @@ def test_failed_creations_are_redone_and_only_new_videos_are_scheduled(tmp_path,
     titles = [x["title"] for x in queue.listing(conn)]
     assert sorted(titles) == ["NEW1", "NEW3"] and "ANCIENNE" not in titles          # l'ancienne vidéo prête n'est pas reprogrammée
     assert len(job.state["planned"]) == 2
+
+
+def test_cancel_all_pending_keeps_the_videos(tmp_path):
+    c = _conn(tmp_path)
+    when = queue.slots(date(2030, 1, 6), 3, 2, ["12:30", "19:00"], now=datetime(2030, 1, 1).astimezone())
+    queue.plan(c, [1, 2, 3], when)
+    assert len(queue.listing(c)) == 3 and queue.cancel_all_pending(c) == 3
+    assert queue.listing(c) == [] and len(queue.unscheduled(c)) == 3                  # les vidéos sont toujours là, prêtes à être reprogrammées
+
+
+def test_each_video_is_published_right_after_its_montage_and_stopping_keeps_what_was_done(tmp_path, monkeypatch):
+    from datetime import date, timedelta
+    from app import config
+    from app.database import db
+    from app.director import control
+    from app.scheduler import queue as q
+    from app.ui import server as sv
+    st = config.load_settings()
+    st["paths"] = {**st["paths"], "data_dir": str(tmp_path), "database": str(tmp_path / "d.sqlite3"), "logs_dir": str(tmp_path / "l")}
+    conn = db.connect(tmp_path / "d.sqlite3")
+    order, counter = [], [0]
+
+    def runner(settings, **k):
+        counter[0] += 1
+        n = counter[0]
+        if n == 3 and not k.get("_second"):
+            raise control.Cancelled()                            # l'utilisateur arrête pendant la 3e création
+        c = db.connect(tmp_path / "d.sqlite3")
+        s_id = db.add_song(c, f"S{n}", "x", "s", "LEGAL_CONFIRMED", hash=f"h{n}")
+        vid = c.execute("INSERT INTO videos(song_id,style,duration,output_path,quality_score,status,title,meta,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                        (s_id, "facile|vertical", 60, "x", 95, "READY", f"V{n}", "{}", db.now())).lastrowid
+        c.commit(); order.append(("made", vid))
+        return {"videos": [{"video_id": vid, "status": "READY", "title": f"V{n}"}], "status": "READY"}
+    monkeypatch.setattr(sv, "RUNNER", runner)
+    monkeypatch.setattr(q, "publish_video", lambda s, cn, vid: order.append(("published", vid)) or [{"platform": "tiktok", "status": "PUBLISHED", "detail": ""}])
+    slots = q.slots_for_days([{"date": (date.today() + timedelta(days=3)).isoformat(), "count": 4}], None)
+    job = sv.Job()
+    job._run(st, None, ["vertical"], False, 4, None, None, {"slots": slots, "immediate": True, "times": []})
+    assert job.state["status"] == "cancelled"
+    assert order == [("made", 1), ("published", 1), ("made", 2), ("published", 2)]       # chaque vidéo part avant que la suivante ne soit fabriquée
+    order.clear(); counter[0] = 10                                                          # 2e lot, sans publication immédiate : programmation au fil de l'eau
+    job2 = sv.Job()
+    job2._run(st, None, ["vertical"], False, 2, None, None, {"slots": slots[:2], "immediate": False, "times": []})
+    assert job2.state["status"] == "done"
+    c2 = db.connect(tmp_path / "d.sqlite3")
+    assert len([x for x in q.listing(c2) if x["status"] == "PENDING"]) == 2                  # chaque vidéo programmée dès sa fabrication

@@ -124,6 +124,13 @@ def cancel(conn, schedule_id: int) -> bool:
     return cur.rowcount > 0
 
 
+def cancel_all_pending(conn) -> int:
+    """Annule toutes les publications en attente (les vidéos restent, seules les heures sont retirées)."""
+    cur = conn.execute("UPDATE schedule SET status='CANCELLED' WHERE status='PENDING'")
+    conn.commit()
+    return cur.rowcount
+
+
 def publish_video(s, conn, video_id: int) -> list[dict]:
     """Publie une vidéo déjà créée sur les plateformes de son format. Une plateforme en échec ne bloque pas les autres."""
     from app.publisher import adapters
