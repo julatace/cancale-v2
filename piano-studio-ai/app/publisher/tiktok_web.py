@@ -96,7 +96,7 @@ def _wait(cond_js: str, what: str, timeout: int = 90) -> None:
         info = _js('document.location.href + " | " + document.title + " | fichiers:" + document.querySelectorAll("input[type=file]").length')
     except RuntimeError as e:
         info = f"lecture de la page impossible ({e})"
-    raise RuntimeError(f"TikTok : {what} (délai dépassé). Page vue par l'agent : {info}" + (f" ; dernière erreur : {last}" if last else ""))
+    raise RuntimeError(f"{what} (délai dépassé). Page vue par l'agent : {info}" + (f" ; dernière erreur : {last}" if last else ""))
 
 
 def split_caption(caption: str) -> tuple[str, list[str]]:
@@ -139,21 +139,27 @@ def _click_text_js(pattern: str, scope: str = "document") -> str:
             "if(!best)return 'false';best.click();return 'true'})()")
 
 
+TT_FIELDS_JS = ("(function(){var o=[],els=[];function vis(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0}"
+                "document.querySelectorAll('input,button,[role=button],div,span').forEach(function(e){if(!vis(e))return;"
+                "var v=((e.tagName==='INPUT'?e.value:e.innerText)||'').trim();if(!v||v.length>24||(e.children.length>2))return;"
+                "if(/^\\d{1,2}:\\d{2}(\\s*[AaPp][Mm])?$/.test(v)||/^(\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2}|\\d{1,2}[-/.]\\d{1,2}[-/.]\\d{2,4}|\\d{1,2}\\s+\\S+\\.?\\s+\\d{4}|\\S+\\s+\\d{1,2},?\\s+\\d{4})$/.test(v)){"
+                "var dup=els.some(function(x){return x.contains(e)||e.contains(x)});if(dup)return;els.push(e);o.push((els.length-1)+'|'+v)}});"
+                "window.__ttf=els;return o.join('\\n')})()")
+
+
 def _tt_fields() -> list[dict]:
-    """Champs date / heure de la zone « Quand publier » de TikTok Studio (repérés par la forme de leur valeur)."""
-    raw = _js("(function(){var o=[];document.querySelectorAll('input').forEach(function(e,i){var r=e.getBoundingClientRect();if(!(r.width>0&&r.height>0))return;"
-              "o.push(i+'|'+(e.value||'')+'|'+(e.placeholder||''))});return o.join('\\n')})()")
+    """Champs date / heure de la zone « Quand publier » de TikTok Studio : champs de saisie ou éléments cliquables, repérés par la forme de leur texte."""
+    raw = _js(TT_FIELDS_JS)
     out = []
     for line in (raw or "").splitlines():
-        i, v, ph = (line.split("|") + ["", ""])[:3]
-        kind = "time" if re.fullmatch(r"\s*\d{1,2}:\d{2}(\s*[AaPp][Mm])?\s*", v) else "date" if re.search(r"\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{1,2}\s+\w+\.?\s+\d{4}", v) else ""
-        if kind:
-            out.append({"i": int(i), "kind": kind, "value": v})
+        i, _, v = line.partition("|")
+        kind = "time" if re.fullmatch(r"\d{1,2}:\d{2}(\s*[AaPp][Mm])?", v.strip()) else "date"
+        out.append({"i": int(i), "kind": kind, "value": v})
     return out
 
 
 def _open_field(i: int) -> None:
-    _js(f"(function(){{var e=document.querySelectorAll('input')[{i}];e.focus();e.click();return 'ok'}})()")
+    _js(f"(function(){{var e=window.__ttf&&window.__ttf[{i}];if(e){{e.scrollIntoView({{block:'center'}});e.focus&&e.focus();e.click()}}return 'ok'}})()")
     time.sleep(0.8)
 
 
@@ -206,7 +212,8 @@ def schedule_tiktok(when, say) -> None:
     date_f = next((f for f in fields if f["kind"] == "date"), None)
     time_f = next((f for f in fields if f["kind"] == "time"), None)
     if not date_f or not time_f:
-        raise RuntimeError(f"champs date/heure de TikTok introuvables ({fields})")
+        dump = save_dump("tiktok_planifier")                                   # ce que TikTok affiche après « Planifier » : sert à ajuster l'agent
+        raise RuntimeError(f"champs date/heure de TikTok introuvables ({fields}) — liste des éléments vus : {dump}")
     _open_field(date_f["i"])                                              # calendrier : mois suivant si besoin, puis le jour
     for _ in range(2):
         cur = next((f for f in _tt_fields() if f["kind"] == "date"), date_f)["value"]

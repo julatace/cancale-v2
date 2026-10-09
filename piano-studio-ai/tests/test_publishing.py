@@ -390,25 +390,41 @@ def test_youtube_also_opens_the_angeled92_profile():
     assert yt.profile == "angeled92"
 
 
-def test_youtube_text_is_typed_into_the_page_and_checked(monkeypatch):
+def test_youtube_text_survives_youtube_overwriting_it_with_the_file_name(monkeypatch):
     import json
     import pytest
     from app.publisher import tiktok_web as tw, youtube_web as yw
     js = yw._insert_js("#title-textarea #textbox", 'Ça "marche"\nligne 2')
     assert json.dumps('Ça "marche"\nligne 2') in js and "insertLineBreak" in js and "selectAll" in js      # texte protégé, retours à la ligne gérés
     assert yw._same("Titre  de   la vidéo", "Titre de la vidéo") and not yw._same("25_1791399483_vertical.mp4", "Invention 8 - Bach")
-    calls = []
-    monkeypatch.setattr(tw, "_js", lambda c: "Invention 8 - Bach" if "insertText" in c else "true")
-    monkeypatch.setattr(tw, "_keys", lambda *a: calls.append("keys"))
-    monkeypatch.setattr(tw, "_clip", lambda t: calls.append("clip"))
     monkeypatch.setattr(yw.time, "sleep", lambda s: None)
+    # --- YouTube remet le nom du fichier après notre 1re écriture (cas réel du journal), puis garde la 2e
+    state = {"inserts": 0, "text": "35_1791546680_horizontal.mp4"}
+    def fake_js(c):
+        if "insertText" in c:
+            state["inserts"] += 1
+            state["text"] = "Invention 8 - Bach" if state["inserts"] >= 2 else "Invention 8 - Bach"
+            return state["text"]                                                            # lecture immédiate : ça a l'air bon
+        if "e.textContent" in c:
+            if state["inserts"] == 1:
+                state["text"] = "35_1791546680_horizontal.mp4"; return state["text"]       # ... mais YouTube l'écrase juste après
+            return state["text"]
+        return "true"
+    monkeypatch.setattr(tw, "_js", fake_js)
+    monkeypatch.setattr(tw, "_keys", lambda *a: None); monkeypatch.setattr(tw, "_clip", lambda t: None)
     yw._paste_into("#title-textarea #textbox", "Invention 8 - Bach")
-    assert calls == []                                                          # la saisie directe a suffi : pas de presse-papiers
-    monkeypatch.setattr(tw, "_js", lambda c: "true" if ("selectAll" in c and "insertText" not in c) else "25_1791_vertical.mp4")             # la page garde l'ancien nom : on essaie le presse-papiers, puis on échoue clairement
+    assert state["inserts"] == 2                                                            # relu après délai, réécrit, puis stable
+    # --- si YouTube écrase toujours : erreur claire (pas de vidéo publiée avec le nom du fichier)
+    monkeypatch.setattr(tw, "_js", lambda c: "25_1791_vertical.mp4" if "textContent" in c or "insertText" in c else "true")
     with pytest.raises(RuntimeError, match="n'a pas été écrit"):
         yw._paste_into("#title-textarea #textbox", "Invention 8 - Bach")
-    assert calls == ["clip", "keys"]
 
+
+def test_tiktok_schedule_fields_are_found_even_when_they_are_not_inputs(monkeypatch):
+    from app.publisher import tiktok_web as tw
+    monkeypatch.setattr(tw, "_js", lambda c: "0|2026-10-10\n1|12:30" if "__ttf" in c else "true")
+    f = tw._tt_fields()
+    assert [(x["kind"], x["value"]) for x in f] == [("date", "2026-10-10"), ("time", "12:30")]
 
 def test_youtube_short_can_be_switched_off_and_only_the_horizontal_video_goes():
     from app import config

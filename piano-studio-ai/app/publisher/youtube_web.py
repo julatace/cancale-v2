@@ -35,24 +35,50 @@ def _same(a: str, b: str) -> bool:
     return norm(a)[:60] == norm(b)[:60] and len(norm(a)) >= min(len(norm(b)), 20)
 
 
+def _read(selector: str) -> str:
+    return tw._js(f'var e=document.querySelector({selector!r}); e?(e.innerText||e.textContent||""):""')
+
+
 def _paste_into(selector: str, text: str) -> None:
-    """Écrit le texte dans la zone de YouTube : d'abord directement dans la page, puis (si le contenu ne correspond pas) avec le presse-papiers."""
-    got = tw._js(_insert_js(selector, text))
-    if got == "absent":
-        raise RuntimeError(f"zone de texte YouTube introuvable ({selector})")
-    time.sleep(0.5)
-    if _same(got, text):
-        return
-    log.warning("saisie directe non prise en compte (%s…) : essai avec le presse-papiers", (got or "")[:30])
+    """Écrit le texte dans la zone de YouTube. YouTube remet parfois le nom du fichier juste après : on réécrit puis on RELIT après un délai,
+    jusqu'à ce que le texte tienne (5 essais), et en dernier recours avec le presse-papiers."""
+    for attempt in range(5):
+        got = tw._js(_insert_js(selector, text))
+        if got == "absent":
+            time.sleep(1.5)
+            continue
+        time.sleep(1.6)                                              # laisse YouTube finir de « s'installer » avant de vérifier
+        if _same(_read(selector), text):
+            return
+        log.warning("texte écrasé par YouTube (%s…), nouvel essai %d/5", (_read(selector) or "")[:30], attempt + 1)
     ok = tw._js(f'var e=document.querySelector({selector!r}); if(e){{e.focus(); document.execCommand("selectAll"); "true"}}else{{"false"}}')
     if ok != "true":
         raise RuntimeError(f"zone de texte YouTube introuvable ({selector})")
     tw._clip(text)
     tw._keys('keystroke "v" using command down')
-    time.sleep(0.8)
-    got = tw._js(f'var e=document.querySelector({selector!r}); e?(e.innerText||e.textContent||""):""')
+    time.sleep(1.2)
+    got = _read(selector)
     if not _same(got, text):
         raise RuntimeError(f"le texte n'a pas été écrit dans YouTube ({selector}) : « {(got or '')[:40]} »")
+
+
+def _wait_progress(cond_js: str, what: str, timeout: int, say) -> None:
+    """Comme tw._wait, mais en racontant l'avancement de l'envoi toutes les 30 s."""
+    end = time.monotonic() + timeout
+    last = 0.0
+    while time.monotonic() < end:
+        try:
+            if tw._js(cond_js) == "true":
+                return
+        except RuntimeError:
+            pass
+        if time.monotonic() - last > 30:
+            last = time.monotonic()
+            prog = tw._js('var p=document.querySelector("ytcp-video-upload-progress");(p?p.innerText:"").replace(/\\s+/g," ").slice(0,90)')
+            if prog:
+                say(f"   YouTube : {prog}")
+        time.sleep(3)
+    raise RuntimeError(f"{what} (délai dépassé)")
 
 
 def _visibility(publish_at, say) -> None:
@@ -156,12 +182,20 @@ def _post(video, title, description, publish, say, publish_at=None) -> str:
         return "prêt (non publié)"
     say("🚀 Clic sur « Publier »…")
     time.sleep(1)
-    tw._wait('String(!!document.querySelector("#done-button:not([disabled])") && document.querySelector("#done-button").getAttribute("aria-disabled")!=="true")',
-             "le bouton « Publier » reste grisé (la vidéo est encore en cours d'envoi)", 300)
+    budget = int(min(2400, 240 + video.stat().st_size / 1e6 * 60))             # connexion lente : l'envoi peut durer plusieurs minutes (YouTube ne finalise qu'à la fin)
+    say(f"⏳ Attente de la fin de l'envoi vers YouTube (jusqu'à {budget // 60} min)…")
+    _wait_progress('String(!!document.querySelector("#done-button:not([disabled])") && document.querySelector("#done-button").getAttribute("aria-disabled")!=="true")',
+                   "le bouton « Publier » de YouTube reste grisé (l'envoi n'est pas terminé)", budget, say)
     _click("#done-button")
-    end = time.monotonic() + 45                                              # YouTube doit CONFIRMER (fenêtre « Vidéo publiée / programmée »)
+    end = time.monotonic() + budget                                          # YouTube doit CONFIRMER (fenêtre « Vidéo publiée / programmée »)
     done = False
+    last = 0.0
     while time.monotonic() < end:
+        if time.monotonic() - last > 30:
+            last = time.monotonic()
+            prog = tw._js('var p=document.querySelector("ytcp-video-upload-progress");(p?p.innerText:"").replace(/\\s+/g," ").slice(0,90)')
+            if prog:
+                say(f"   YouTube : {prog}")
         if tw._js('String(!!document.querySelector("ytcp-video-share-dialog, #share-url, .video-url-fadeable") || !document.querySelector("ytcp-uploads-dialog"))') == "true":
             done = True
             break
