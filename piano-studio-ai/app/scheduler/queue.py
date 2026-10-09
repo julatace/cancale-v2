@@ -4,6 +4,7 @@ Une ligne `schedule` = une vidéo + une heure. À l'heure dite, la vidéo part v
 (`config/platforms.yaml` : vertical -> TikTok + YouTube Shorts, horizontal -> YouTube). L'exécution se fait quand l'interface (`piano ui`)
 est ouverte ou via `piano publish-due` ; le Mac doit être allumé, écran actif."""
 import json
+import threading
 import logging
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -12,6 +13,17 @@ from app import config
 from app.database import db
 
 log = logging.getLogger("piano.queue")
+SEND_LOCK = threading.Lock()                                      # un seul envoi à la fois dans toute l'app (jamais deux envois en parallèle)
+AMBIGUOUS = ("n'a pas confirmé", "interrompu")                    # échec APRÈS le dernier clic : la vidéo est peut-être déjà en ligne
+
+
+def record_manual(conn, video_id: int, platform: str, status: str, detail: str = "") -> None:
+    """Trace un envoi fait à la main (./p.sh tiktok-web, youtube-web) : l'app ne le refera jamais."""
+    conn.execute("INSERT OR REPLACE INTO publications(video_id,platform,post_id,status,published_at) VALUES(?,?,?,?,?)", (video_id, platform, detail[:200], status, db.now()))
+    if status in GOOD:
+        conn.execute("UPDATE videos SET status='PUBLISHED' WHERE id=?", (video_id,))
+    conn.commit()
+
 GOOD = ("PUBLISHED", "DRAFT", "SCHEDULED")                       # SCHEDULED = programmée DANS le réseau (TikTok / YouTube la mettront en ligne à l'heure)
 MIN_LEAD_MIN, MAX_LEAD_DAYS = 20, 10                              # TikTok : programmation de 15 min à 10 jours à l'avance
 
@@ -259,23 +271,38 @@ def publish_video(s, conn, video_id: int, publish_at=None) -> list[dict]:
         if s2[plat].get("mode") == "web":
             s2[plat]["web_publish"] = True                 # « publier » veut dire publier : on clique aussi sur le bouton
     done = {r["platform"]: r["status"] for r in conn.execute("SELECT platform, status FROM publications WHERE video_id=?", (video_id,))}
-    out = []
-    for ad in adapters(s2, fmt=fmt):
-        if ad.platform == "outbox":
-            continue
-        if done.get(ad.platform) in GOOD:                  # déjà parti sur ce réseau : on ne le refait pas
-            out.append({"platform": ad.platform, "status": done[ad.platform], "detail": "déjà envoyé"})
-            continue
-        try:
-            r = ad.publish(video, content, str(video_id))
-        except Exception as e:
-            r = Result(getattr(ad, "platform", "?"), "FAILED", detail=str(e)[:300])
-        conn.execute("INSERT OR REPLACE INTO publications(video_id,platform,post_id,status,published_at) VALUES(?,?,?,?,?)",
-                     (video_id, r.platform, r.post_id, r.status, db.now()))
-        if r.status == "FAILED":
-            db.log_error(conn, f"publish:{r.platform}", r.detail)
-        log.info("📤 %s : %s %s", r.platform, r.status, (r.detail or "")[:100])
-        out.append({"platform": r.platform, "status": r.status, "detail": r.detail})
+    if not SEND_LOCK.acquire(blocking=False):
+        return [{"platform": "app", "status": "FAILED", "detail": "un autre envoi est déjà en cours : rien n'a été renvoyé"}]
+    try:
+        out = []
+        for ad in adapters(s2, fmt=fmt):
+            if ad.platform == "outbox":
+                continue
+            if done.get(ad.platform) in GOOD:              # déjà parti sur ce réseau : on ne le refait pas
+                out.append({"platform": ad.platform, "status": done[ad.platform], "detail": "déjà envoyé"})
+                continue
+            if done.get(ad.platform) in ("SENDING", "UNCERTAIN"):      # envoi interrompu / non confirmé : peut déjà être en ligne, donc JAMAIS renvoyé tout seul
+                out.append({"platform": ad.platform, "status": "UNCERTAIN",
+                            "detail": f"envoi non confirmé : regarde dans {ad.platform} si la vidéo y est avant de réessayer (renvoyer risquerait un doublon)"})
+                continue
+            conn.execute("INSERT OR REPLACE INTO publications(video_id,platform,post_id,status,published_at) VALUES(?,?,?,?,?)",
+                         (video_id, ad.platform, "", "SENDING", db.now()))                 # « envoi en cours » : survit à un arrêt brutal de l'app
+            conn.commit()
+            try:
+                r = ad.publish(video, content, str(video_id))
+            except Exception as e:
+                r = Result(getattr(ad, "platform", "?"), "FAILED", detail=str(e)[:300])
+            if r.status == "FAILED" and any(m in (r.detail or "") for m in AMBIGUOUS):
+                r = Result(r.platform, "UNCERTAIN", r.post_id, r.detail)
+            conn.execute("INSERT OR REPLACE INTO publications(video_id,platform,post_id,status,published_at) VALUES(?,?,?,?,?)",
+                         (video_id, r.platform, r.post_id, r.status, db.now()))
+            if r.status in ("FAILED", "UNCERTAIN"):
+                db.log_error(conn, f"publish:{r.platform}", r.detail)
+            conn.commit()
+            log.info("📤 %s : %s %s", r.platform, r.status, (r.detail or "")[:100])
+            out.append({"platform": r.platform, "status": r.status, "detail": r.detail})
+    finally:
+        SEND_LOCK.release()
     if any(x["status"] in GOOD for x in out):
         conn.execute("UPDATE videos SET status='PUBLISHED' WHERE id=?", (video_id,))
     if when:                                               # trace dans « Programmation » : ce qui est programmé DANS les réseaux

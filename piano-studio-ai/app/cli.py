@@ -184,14 +184,15 @@ def cmd_tiktok_web(s, a):
     tiktok_web.BROWSER = {"chrome": "Google Chrome", "safari": "Safari"}[a.browser]
     tiktok_web.PROFILE = a.profile or str(s.get("tiktok", {}).get("chrome_profile", "") or "")
     from .database import db
-    video, cap = a.video, a.caption
+    video, cap, vid_id, conn = a.video, a.caption, None, None
     if not video:
         conn = db.connect(config.resolve(s, "database"))
-        row = conn.execute("SELECT v.output_path, v.meta, s.title, s.artist FROM videos v LEFT JOIN songs s ON s.id=v.song_id WHERE v.status='READY' AND v.style LIKE '%|vertical' ORDER BY v.id DESC LIMIT 1").fetchone()
+        row = conn.execute("SELECT v.output_path, v.meta, s.title, s.artist, v.id FROM videos v LEFT JOIN songs s ON s.id=v.song_id WHERE v.status='READY' AND v.style LIKE '%|vertical' ORDER BY v.id DESC LIMIT 1").fetchone()
         if not row:
             print("❌ Aucune vidéo verticale prête : crée-en une d'abord.")
             return 1
         video = row[0]
+        vid_id = row[4]
         import json
         m = json.loads(row[1] or "{}")
         cap = cap or m.get("tiktok_caption") or m.get("description") or m.get("title") or ""
@@ -201,7 +202,11 @@ def cmd_tiktok_web(s, a):
             body = cap.split(" #")[0]
             cap = body + " " + " ".join(g._tags_for({"title": row[2], "artist": row[3]}, g.LANGS.get(s.get("language", "fr"), g.LANGS["fr"]), random.Random(1)))
     try:
-        print("✅", tiktok_web.post(video, cap, publish=a.post, say=lambda m: print(m)))
+        msg = tiktok_web.post(video, cap, publish=a.post, say=lambda m: print(m))
+        print("✅", msg)
+        if a.post and conn is not None and vid_id:                       # envoi fait à la main : l'app ne le refera jamais
+            from .scheduler import queue
+            queue.record_manual(conn, vid_id, "tiktok", "PUBLISHED", msg)
     except Exception as e:
         print(f"❌ {e}")
         return 1
@@ -265,15 +270,19 @@ def cmd_youtube_web(s, a):
     tiktok_web.PROFILE = a.profile or str(s.get("youtube", {}).get("chrome_profile", "") or "")
     conn = db.connect(config.resolve(s, "database"))
     fmt = "horizontal" if a.long else "vertical"
-    row = conn.execute("SELECT output_path, meta FROM videos WHERE status IN ('READY','PUBLISHED') AND style LIKE ? ORDER BY id DESC LIMIT 1", (f"%|{fmt}",)).fetchone()
+    row = conn.execute("SELECT output_path, meta, id FROM videos WHERE status='READY' AND style LIKE ? ORDER BY id DESC LIMIT 1", (f"%|{fmt}",)).fetchone()
     if not row:
-        print(f"❌ Aucune vidéo {fmt} prête : crée-en une d'abord.")
+        print(f"❌ Aucune vidéo {fmt} prête (celles déjà envoyées ne sont jamais renvoyées) : crée-en une d'abord.")
         return 1
     m = json.loads(row[1] or "{}")
     m["shorts"] = fmt != "horizontal"
     sn = YouTube.build_snippet({**m, "title": m.get("youtube_title") or m.get("title") or "Piano"}, "public", "10")["snippet"]
     try:
-        print("✅", youtube_web.post(row[0], sn["title"], sn["description"], publish=a.post, say=print))
+        msg = youtube_web.post(row[0], sn["title"], sn["description"], publish=a.post, say=print)
+        print("✅", msg)
+        if a.post:                                                       # envoi fait à la main : l'app ne le refera jamais
+            from .scheduler import queue
+            queue.record_manual(conn, row[2], "youtube", "PUBLISHED", msg)
     except Exception as e:
         print(f"❌ {e}")
         return 1

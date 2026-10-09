@@ -175,8 +175,8 @@ class Job:
                     self._add(f"✖ Envoi impossible : {e}")
                     continue
                 for x in res:
-                    self._add(f"   {'✓' if x['status'] in squeue.GOOD else '✖'} {x['platform']} : {x['status']}" + (f" — {x['detail'][:100]}" if x["status"] == "FAILED" else ""))
-                    if x["status"] == "FAILED":
+                    self._add(f"   {'✓' if x['status'] in squeue.GOOD else '✖'} {x['platform']} : {x['status']}" + (f" — {x['detail'][:100]}" if x["status"] in ("FAILED", "UNCERTAIN") else ""))
+                    if x["status"] in ("FAILED", "UNCERTAIN"):
                         self._fails.append(f"{x['platform']} — « {v.get('title', '')[:45]} » : {x['detail'][:260]}")
                 if slot and squeue.native_time(slot):
                     self._planned.append({"title": v.get("title", ""), "run_at": squeue.native_time(slot).isoformat(timespec="minutes"), "format": v.get("format", "")})

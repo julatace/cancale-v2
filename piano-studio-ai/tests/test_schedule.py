@@ -298,3 +298,76 @@ def test_the_app_never_publishes_by_itself_and_old_in_app_schedules_are_cancelle
     assert queue.cancel_all_pending(c) == 2 and [x for x in queue.listing(c) if x["status"] == "PENDING"] == []
     import inspect
     assert "run_due" not in inspect.getsource(sv.due_runner)                           # la surveillance ne publie rien
+
+
+def _fake_net(monkeypatch, order, plan):
+    import app.publisher as pubs
+
+    class Fake:
+        def __init__(self, name): self.platform = name
+        def publish(self, video, meta, key):
+            from app.publisher.base import Result
+            order.append(self.platform)
+            st, detail = plan.get(self.platform, ("PUBLISHED", ""))
+            return Result(self.platform, st, key, detail)
+    monkeypatch.setattr(pubs, "adapters", lambda s, fmt=None: [Fake("tiktok"), Fake("youtube")])
+
+
+def _one_video(tmp_path):
+    c = _conn(tmp_path)
+    (tmp_path / "1.mp4").write_bytes(b"x")
+    c.execute("UPDATE videos SET output_path=? WHERE id=1", (str(tmp_path / "1.mp4"),)); c.commit()
+    return c
+
+
+def test_each_video_goes_to_tiktok_then_youtube_once_and_never_twice(tmp_path, monkeypatch):
+    c = _one_video(tmp_path); order = []
+    _fake_net(monkeypatch, order, {})
+    (tmp_path / "1.mp4").write_bytes(b"x")                                     # (le fichier est supprimé après envoi : on en recrée un pour le 2e appel)
+    queue.publish_video({"storage": {"delete_after_publish": False}}, c, 1)
+    queue.publish_video({"storage": {"delete_after_publish": False}}, c, 1)    # 2e appel (double clic, relance...) : rien n'est renvoyé
+    assert order == ["tiktok", "youtube"]                                      # d'affilée, dans cet ordre, une seule fois chacun
+
+
+def test_adapters_are_ordered_tiktok_then_youtube():
+    from app import config
+    from app.publisher import adapters
+    names = [a.platform for a in adapters(config.load_settings(), fmt="vertical") if a.platform != "outbox"]
+    assert names[:2] == ["tiktok", "youtube"]
+
+
+def test_an_unconfirmed_send_is_never_resent_automatically(tmp_path, monkeypatch):
+    c = _one_video(tmp_path); order = []
+    _fake_net(monkeypatch, order, {"youtube": ("FAILED", "YouTube n'a pas confirmé la publication")})
+    r = queue.publish_video({"storage": {"delete_after_publish": False}}, c, 1)
+    assert [x["status"] for x in r] == ["PUBLISHED", "UNCERTAIN"]
+    order.clear()
+    r2 = queue.publish_video({"storage": {"delete_after_publish": False}}, c, 1)
+    assert order == [] and r2[1]["status"] == "UNCERTAIN" and "doublon" in r2[1]["detail"]       # aucun renvoi, la page dit de vérifier
+
+
+def test_a_crash_during_sending_blocks_any_automatic_resend(tmp_path, monkeypatch):
+    c = _one_video(tmp_path); order = []
+    _fake_net(monkeypatch, order, {})
+    c.execute("INSERT INTO publications(video_id,platform,post_id,status,published_at) VALUES(1,'tiktok','','SENDING',?)", (db.now(),)); c.commit()   # app arrêtée pendant l'envoi
+    r = queue.publish_video({"storage": {"delete_after_publish": False}}, c, 1)
+    assert order == ["youtube"] and r[0]["status"] == "UNCERTAIN"                                  # TikTok n'est pas renvoyé, YouTube part
+
+
+def test_two_sends_cannot_run_at_the_same_time(tmp_path, monkeypatch):
+    c = _one_video(tmp_path); order = []
+    _fake_net(monkeypatch, order, {})
+    assert queue.SEND_LOCK.acquire(blocking=False)
+    try:
+        r = queue.publish_video({}, c, 1)
+    finally:
+        queue.SEND_LOCK.release()
+    assert order == [] and r[0]["status"] == "FAILED" and "déjà en cours" in r[0]["detail"]
+
+
+def test_manual_send_is_recorded_so_the_app_never_repeats_it(tmp_path, monkeypatch):
+    c = _one_video(tmp_path); order = []
+    _fake_net(monkeypatch, order, {})
+    queue.record_manual(c, 1, "tiktok", "PUBLISHED", "publié")                  # ./p.sh tiktok-web --post
+    queue.publish_video({"storage": {"delete_after_publish": False}}, c, 1)
+    assert order == ["youtube"]                                                 # TikTok était déjà fait à la main

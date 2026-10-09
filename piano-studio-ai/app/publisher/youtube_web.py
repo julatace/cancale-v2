@@ -113,7 +113,12 @@ def post(video: Path, title: str, description: str, publish: bool = False, say=l
         raise RuntimeError(f"{e}" + (f" (capture d'écran : {shot})" if shot else "") + (f" (page : {dump})" if dump else "")) from e
 
 
+UPLOAD_STARTED = False          # vrai dès que la vidéo est envoyée à YouTube : à partir de là, un échec ne doit JAMAIS déclencher un nouvel envoi automatique
+
+
 def _post(video, title, description, publish, say, publish_at=None) -> str:
+    global UPLOAD_STARTED
+    UPLOAD_STARTED = False
     video = Path(video).resolve()
     if not video.exists():
         raise RuntimeError(f"vidéo introuvable : {video}")
@@ -122,6 +127,7 @@ def _post(video, title, description, publish, say, publish_at=None) -> str:
     if tw._js('String(location.hostname.indexOf("accounts.google")>=0)') == "true":
         raise RuntimeError("YouTube demande de se connecter : connecte ta chaîne dans ce profil Chrome puis relance")
     tw.choose_file(video, say, verify='String(!!document.querySelector("#title-textarea #textbox"))')
+    UPLOAD_STARTED = True
     say("⏫ Envoi de la vidéo vers YouTube…")
     tw._wait('String(!!document.querySelector("#title-textarea #textbox"))', "le formulaire de la vidéo n'apparaît pas", 180)
     time.sleep(2)
@@ -189,6 +195,8 @@ class YouTubeWeb:
         try:
             st = post(video, sn["title"], sn["description"], self.go or bool(pa), publish_at=pa)
         except Exception as e:
+            if UPLOAD_STARTED:                                    # la vidéo est peut-être déjà dans YouTube Studio (brouillon) : pas de renvoi automatique
+                return Result(self.platform, "UNCERTAIN", "", f"{e} — interrompu après l'envoi : regarde YouTube Studio > Contenu avant de réessayer")
             return Result(self.platform, "FAILED", "", f"{e}")
         if st.startswith("brouillon"):
             return Result(self.platform, "DRAFT", key, st)
