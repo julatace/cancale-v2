@@ -54,28 +54,38 @@ def slots(first_day: date, count: int, per_day: int, times, now: datetime | None
 DEFAULT_TIMES = ["12:30", "19:00", "09:00", "16:00", "21:00", "11:00"]
 
 
+class SlotError(RuntimeError):
+    """Créneau impossible à confier aux réseaux (trop lointain pour TikTok)."""
+
+
 def slots_for_days(days, times=None, now: datetime | None = None) -> list[datetime]:
-    """Agenda : `days` = [{"date": "2026-10-12", "count": 2}, ...] -> un créneau par vidéo, heures locales. Pour n vidéos le même jour on prend
-    les n premières heures de la liste (complétée par des heures par défaut), triées. Les créneaux d'AUJOURD'HUI déjà passés ne sont pas perdus :
-    la vidéo part dès que le montage est fini (quelques minutes plus tard, une toutes les 15 minutes). Les jours passés sont ignorés."""
+    """Agenda : `days` = [{"date": "2026-10-12", "count": 2}, ...] -> un créneau par vidéo, heures locales, toujours dans le FUTUR.
+    Pour n vidéos le même jour : d'abord tes heures, puis des heures par défaut (09:00, 11:00, 12:30, 16:00, 19:00, 21:00). Une heure déjà passée
+    (ou à moins de 30 min) est sautée ; ce qui ne tient plus aujourd'hui passe au jour suivant. Maximum 10 jours (limite de TikTok)."""
     chosen = parse_times(times) if times else []
     chosen = chosen or DEFAULT_TIMES[:2]
-    pool = chosen + [x for x in DEFAULT_TIMES if x not in chosen]
+    order = chosen + [x for x in DEFAULT_TIMES if x not in chosen]
     now = now or datetime.now().astimezone()
-    limit = now + timedelta(minutes=10)
-    out, late = [], 0
-    for d in sorted(days, key=lambda x: x["date"]):
-        day = date.fromisoformat(d["date"])
-        if day < now.date() or day > now.date() + timedelta(days=MAX_LEAD_DAYS):
+    limit = now + timedelta(minutes=MIN_LEAD_MIN + 10)
+    horizon = now + timedelta(days=MAX_LEAD_DAYS)
+    wanted = {d["date"]: max(0, min(int(d.get("count", 0)), 6)) for d in days}
+    out, carry = [], 0
+    for offset in range(MAX_LEAD_DAYS + 1):
+        day = now.date() + timedelta(days=offset)
+        n = wanted.get(day.isoformat(), 0) + carry
+        carry = 0
+        if n <= 0:
             continue
-        n = max(0, min(int(d.get("count", 0)), 6))
-        for hhmm in sorted(pool[:n]):
+        picks = []
+        for hhmm in order:
             h, m = (int(x) for x in hhmm.split(":"))
             dt = datetime(day.year, day.month, day.day, h, m).astimezone()
-            if dt > limit:
-                out.append(dt)
-            elif day == now.date():                          # créneau d'aujourd'hui déjà passé : publication dès que prêt
-                out.append(now + timedelta(minutes=2 + 15 * late)); late += 1
+            if limit < dt <= horizon:
+                picks.append(dt)
+            if len(picks) == n:
+                break
+        carry = n - len(picks)
+        out += sorted(picks)
     return sorted(out)
 
 
@@ -205,14 +215,17 @@ def cancel_all_pending(conn) -> int:
 
 
 def native_time(publish_at, now: datetime | None = None):
-    """Heure de programmation à confier aux réseaux, ou None = publier tout de suite (créneau déjà passé, trop proche ou trop lointain)."""
+    """Heure à confier à TikTok / YouTube (leur programmation), ou None = publier tout de suite (seulement si aucune date n'est demandée).
+    Une heure trop proche est avancée au plus tôt possible ; trop lointaine (plus de 10 jours) : SlotError, rien n'est publié."""
     if not publish_at:
         return None
     dt = publish_at if isinstance(publish_at, datetime) else datetime.fromisoformat(str(publish_at))
-    dt = dt.astimezone() if dt.tzinfo else dt.astimezone()
+    dt = dt.astimezone()
     now = now or datetime.now().astimezone()
-    if dt < now + timedelta(minutes=MIN_LEAD_MIN) or dt > now + timedelta(days=MAX_LEAD_DAYS):
-        return None
+    if dt < now + timedelta(minutes=MIN_LEAD_MIN):
+        dt = now + timedelta(minutes=MIN_LEAD_MIN + 5)
+    if dt > now + timedelta(days=MAX_LEAD_DAYS):
+        raise SlotError(f"{dt:%d/%m %H:%M} est trop loin : TikTok programme au maximum {MAX_LEAD_DAYS} jours à l'avance")
     return dt
 
 
@@ -231,7 +244,10 @@ def publish_video(s, conn, video_id: int, publish_at=None) -> list[dict]:
     fmt = (row["style"] or "").partition("|")[2] or None
     content = json.loads(row["meta"] or "{}")
     content["shorts"] = fmt != "horizontal"                # la vidéo horizontale est une vidéo YouTube normale, pas un Short
-    when = native_time(publish_at)
+    try:
+        when = native_time(publish_at)
+    except SlotError as e:
+        return [{"platform": "agenda", "status": "FAILED", "detail": str(e)}]      # rien n'est envoyé, la vidéo reste prête
     if when:
         content["publish_at"] = when.replace(tzinfo=None).isoformat(timespec="minutes")     # heure locale du Mac, telle qu'affichée dans les réseaux
     if content.get("thumbnail") and (video.parent / content["thumbnail"]).exists():
@@ -269,9 +285,6 @@ def publish_video(s, conn, video_id: int, publish_at=None) -> list[dict]:
                      (video_id, _utc(when), "DONE" if ok_names and not bad else "FAILED",
                       (f"programmée dans {ok_names}" if ok_names else "") + ("; " if ok_names and bad else "") +
                       ("; ".join(f"{x['platform']} : {x['detail'][:80]}" for x in bad)), db.now()))
-        if bad:                                            # filet de sécurité : l'app republiera à l'heure ce qui a échoué (réseaux déjà faits ignorés)
-            conn.execute("INSERT INTO schedule(video_id,run_at,status,detail,created_at) VALUES(?,?,'PENDING',?,?)",
-                         (video_id, _utc(when), "reprise automatique à l'heure (programmation du réseau impossible)", db.now()))
     conn.commit()
     from app.director import cleanup
     cleanup.delete_after_publish(s, conn, video_id, out)                  # tout est parti : on libère la place sur l'ordinateur

@@ -56,13 +56,13 @@ def _paste_into(selector: str, text: str) -> None:
 
 
 def _visibility(publish_at, say) -> None:
-    """Dernière étape de YouTube Studio : « Public » tout de suite, ou « Programmer » à une date et une heure (programmation de YouTube lui-même)."""
+    """Dernière étape de YouTube Studio : toujours « Public » ; avec une date, « Programmer » (YouTube met la vidéo en ligne lui-même à l'heure choisie)."""
+    if not _click('tp-yt-paper-radio-button[name="PUBLIC"]'):
+        raise RuntimeError("choix « Public » introuvable")
+    time.sleep(0.6)
+    if tw._js('var r=document.querySelector(\'tp-yt-paper-radio-button[name="PUBLIC"]\');r?String(r.getAttribute("aria-checked")==="true"||r.hasAttribute("checked")):"false"') != "true":
+        raise RuntimeError("la vidéo est restée privée : le choix « Public » n'a pas été pris en compte")
     if not publish_at:
-        if not _click('tp-yt-paper-radio-button[name="PUBLIC"]'):
-            raise RuntimeError("choix « Public » introuvable")
-        time.sleep(0.6)
-        if tw._js('var r=document.querySelector(\'tp-yt-paper-radio-button[name="PUBLIC"]\');r?String(r.getAttribute("aria-checked")==="true"||r.hasAttribute("checked")):"false"') != "true":
-            raise RuntimeError("la vidéo est restée privée : le choix « Public » n'a pas été pris en compte")
         return
     from datetime import datetime
     when = datetime.fromisoformat(publish_at)
@@ -91,6 +91,17 @@ def _visibility(publish_at, say) -> None:
     min_ok = f"{when.minute:02d}" in shown.split("|")[-1]
     if not (day_ok and min_ok):
         raise RuntimeError(f"la programmation n'a pas été prise en compte par YouTube (affiché : {shown.strip()[:60]})")
+
+
+def _save_draft(say) -> bool:
+    """Ferme la fenêtre d'envoi : YouTube garde la vidéo en BROUILLON (YouTube Studio > Contenu), titre et description compris."""
+    say("📝 Programmation impossible : la vidéo reste en brouillon dans YouTube Studio…")
+    if tw._js('var b=document.querySelector("ytcp-uploads-dialog #close-button button, ytcp-uploads-dialog #close-button, #close-button");if(b){b.click();"true"}else{"false"}') != "true":
+        return False
+    time.sleep(2)
+    tw._js(tw._click_text_js(r"^(fermer|close|enregistrer|save|oui|yes)$"))
+    time.sleep(1.5)
+    return True
 
 
 def post(video: Path, title: str, description: str, publish: bool = False, say=log.info, publish_at: str | None = None) -> str:
@@ -126,7 +137,13 @@ def _post(video, title, description, publish, say, publish_at=None) -> str:
             raise RuntimeError(f"bouton « Suivant » introuvable (étape {step})")
     time.sleep(1.5)
     tw.trace("youtube", "1_texte")
-    _visibility(publish_at, say)
+    try:
+        _visibility(publish_at, say)
+    except RuntimeError as e:
+        tw.trace("youtube", "2_visibilite_echec")
+        if publish_at and _save_draft(say):                                        # la programmation n'a pas pris : brouillon, rien n'est perdu ni publié par erreur
+            return f"brouillon YouTube (programmation impossible : {str(e)[:120]})"
+        raise
     tw.trace("youtube", "2_visibilite")
     if not publish:
         say("✋ Tout est prêt dans YouTube Studio : vérifie puis clique sur « Publier » toi-même.")
@@ -173,4 +190,6 @@ class YouTubeWeb:
             st = post(video, sn["title"], sn["description"], self.go or bool(pa), publish_at=pa)
         except Exception as e:
             return Result(self.platform, "FAILED", "", f"{e}")
+        if st.startswith("brouillon"):
+            return Result(self.platform, "DRAFT", key, st)
         return Result(self.platform, "SCHEDULED" if pa else ("PUBLISHED" if self.go else "EXPORTED"), key, st)

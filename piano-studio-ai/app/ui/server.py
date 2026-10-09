@@ -328,7 +328,7 @@ def schedule_view(s) -> dict:
 
 
 def due_runner(settings_loader, every=30, stop=None):
-    """Tant que l'interface est ouverte : publie à l'heure dite les vidéos programmées (jamais pendant une création)."""
+    """Tant que l'interface est ouverte : surveille ton dossier MIDI. L'app ne publie JAMAIS elle-même : c'est TikTok / YouTube qui publient à l'heure."""
     def loop():
         while not (stop and stop.is_set()):
             try:
@@ -336,10 +336,6 @@ def due_runner(settings_loader, every=30, stop=None):
                 inbox.LAST_CHECK["at"] = time.time()
                 if inbox.waiting(s) and inbox.rights_confirmed(s):          # nouveaux sons dans ton dossier : importés tout seuls
                     inbox.scan(s, import_upload)
-                conn = db.connect(config.resolve(s, "database"))
-                due = conn.execute("SELECT 1 FROM schedule WHERE status='PENDING' AND run_at<=? LIMIT 1", (datetime.now(timezone.utc).isoformat(),)).fetchone()
-                if due:
-                    JOB.start_task("due", lambda: "; ".join(f"{d['status']}" for d in squeue.run_due(s, db.connect(config.resolve(s, "database")))))
             except Exception as e:
                 logging.getLogger("piano").warning("programmation : %s", e)
             time.sleep(every)
@@ -673,7 +669,14 @@ def serve(port=8765, open_browser=True, settings_loader=config.load_settings):
         raise SystemExit(1)
     url = f"http://127.0.0.1:{srv.server_address[1]}"
     print(f"Interface Piano Studio AI : {url}   (Ctrl+C pour arrêter)")
-    due_runner(settings_loader)                          # publications programmées
+    try:                                                 # ancien système : plus aucune publication « programmée dans l'app » ne doit partir
+        s0 = settings_loader()
+        n = squeue.cancel_all_pending(db.connect(config.resolve(s0, "database")))
+        if n:
+            print(f"ℹ {n} ancienne(s) publication(s) programmée(s) dans l'app annulée(s) : la programmation se fait maintenant dans TikTok et YouTube.")
+    except Exception:
+        pass
+    due_runner(settings_loader)                          # surveillance du dossier MIDI
     stock.refill_in_background(settings_loader())         # réserve de morceaux prête avant même le premier clic
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

@@ -55,17 +55,16 @@ def test_run_due_failure_is_recorded(tmp_path):
     assert x["status"] == "FAILED" and "boom" in x["detail"]
 
 
-def test_agenda_slots_one_per_video_and_past_days_ignored():
-    from datetime import date, datetime
-    now = datetime(2030, 1, 6, 8, 0).astimezone()
-    days = [{"date": "2030-01-05", "count": 3}, {"date": "2030-01-07", "count": 2}, {"date": "2030-01-06", "count": 1}, {"date": "2030-01-08", "count": 0},
-            {"date": "2030-01-09", "count": 3}]
+def test_agenda_slots_are_always_in_the_future_and_spill_to_the_next_day():
+    now = datetime(2030, 1, 6, 14, 48).astimezone()                       # il est 14 h 48
+    days = [{"date": "2030-01-05", "count": 3}, {"date": "2030-01-06", "count": 2}, {"date": "2030-01-07", "count": 2}, {"date": "2030-01-08", "count": 0}]
     sl = queue.slots_for_days(days, ["12:30", "19:00"], now=now)
-    assert [(d.day, d.hour) for d in sl] == [(6, 12), (7, 12), (7, 19), (9, 9), (9, 12), (9, 19)]      # hier ignoré, 0 vidéo ignoré, 3 le même jour = 3 heures
-    late = queue.slots_for_days([{"date": "2030-01-06", "count": 2}], ["07:00", "07:30"], now=now)          # aujourd'hui, heures déjà passées
-    assert len(late) == 2 and late[0] - now < timedelta(minutes=5) and late[1] - late[0] == timedelta(minutes=15)   # elles partent dès que le montage est fini
-    assert queue.slots_for_days([{"date": "2030-01-07", "count": 9}], None, now=now).__len__() == 6     # plafonné à 6 par jour
-    assert queue.slots_for_days([{"date": "2030-01-20", "count": 2}], None, now=now) == []               # au-delà de 10 jours : TikTok ne programme pas si loin
+    assert [(d.day, d.hour) for d in sl] == [(6, 16), (6, 19), (7, 12), (7, 19)]      # hier ignoré ; aujourd'hui : 12 h 30 est passé -> 16 h puis 19 h
+    assert all(d > now + timedelta(minutes=30) for d in sl)                           # jamais dans le passé ni à moins de 30 min
+    late = queue.slots_for_days([{"date": "2030-01-06", "count": 3}], ["12:30", "19:00"], now=datetime(2030, 1, 6, 20, 0).astimezone())
+    assert [(d.day, d.hour) for d in late] == [(6, 21), (7, 12), (7, 19)]               # ce qui ne tient plus aujourd'hui passe à demain
+    assert queue.slots_for_days([{"date": "2030-01-07", "count": 9}], None, now=datetime(2030, 1, 6, 8, 0).astimezone()).__len__() == 6      # 6 par jour au maximum
+    assert queue.slots_for_days([{"date": "2030-01-20", "count": 2}], None, now=datetime(2030, 1, 6, 8, 0).astimezone()) == []              # au-delà de 10 jours : TikTok ne programme pas si loin
 
 
 def test_agenda_endpoints_produce_and_plan(tmp_path, monkeypatch):
@@ -191,12 +190,16 @@ def test_publish_all_ready_posts_every_ready_video_once_and_drops_their_schedule
     assert r2["failed"] == 2 and r2["published"] == 0                                    # un échec ne bloque pas les autres
 
 
-def test_native_time_hands_the_date_to_the_networks_only_when_they_can_schedule_it():
+def test_native_time_never_publishes_now_and_refuses_what_tiktok_cannot_schedule():
+    import pytest
     now = datetime(2030, 1, 6, 12, 0).astimezone()
-    assert queue.native_time(now + timedelta(minutes=5), now) is None                         # trop proche : publication immédiate
-    assert queue.native_time(now + timedelta(hours=3), now) is not None
-    assert queue.native_time(now + timedelta(days=11), now) is None                           # trop loin pour TikTok
-    assert queue.native_time(None, now) is None
+    soon = queue.native_time(now + timedelta(minutes=5), now)
+    assert soon >= now + timedelta(minutes=queue.MIN_LEAD_MIN)                         # trop proche : avancée au plus tôt possible, JAMAIS publiée tout de suite
+    assert queue.native_time(now + timedelta(hours=3), now) == (now + timedelta(hours=3)).astimezone()
+    assert queue.native_time(None, now) is None                                       # pas de date demandée = publication immédiate voulue par l'utilisateur
+    with pytest.raises(queue.SlotError):
+        queue.native_time(now + timedelta(days=11), now)                               # trop loin pour TikTok
+
 
 
 def test_publish_video_with_a_date_asks_each_network_to_schedule_and_never_repeats_a_done_network(tmp_path, monkeypatch):
@@ -217,7 +220,7 @@ def test_publish_video_with_a_date_asks_each_network_to_schedule_and_never_repea
     when = datetime.now().astimezone() + timedelta(days=2)
     r = queue.publish_video({}, c, 1, publish_at=when)
     assert [x["status"] for x in r] == ["SCHEDULED", "FAILED"] and all(p[1] for p in seen)       # chaque réseau reçoit la date de mise en ligne
-    assert any(x["status"] == "PENDING" for x in queue.listing(c))                               # filet de sécurité pour YouTube
+    assert not any(x["status"] == "PENDING" for x in queue.listing(c))                           # AUCUNE publication programmée dans l'app : l'échec est signalé, c'est tout
     seen.clear(); state["yt_ok"] = True
     queue.publish_video({}, c, 1, publish_at=when)
     assert [p[0] for p in seen] == ["youtube"]                                                   # TikTok déjà programmé : pas refait
@@ -275,3 +278,23 @@ def test_orphan_pending_rows_are_dropped(tmp_path):
     c.execute("INSERT INTO schedule(video_id,run_at,status,created_at) VALUES(2,?,'PENDING',?)", (datetime(2030, 1, 7).isoformat(), db.now())); c.commit()
     assert queue.drop_orphans(c) == 2
     assert [x["video_id"] for x in queue.listing(c)] == [1]                           # ne reste que ce qui a encore un sens
+
+
+def test_a_slot_too_far_sends_nothing(tmp_path, monkeypatch):
+    import app.publisher as pubs
+    c = _conn(tmp_path)
+    (tmp_path / "1.mp4").write_bytes(b"x")
+    c.execute("UPDATE videos SET output_path=? WHERE id=1", (str(tmp_path / "1.mp4"),)); c.commit()
+    sent = []
+    monkeypatch.setattr(pubs, "adapters", lambda s, fmt=None: sent.append(1) or [])
+    r = queue.publish_video({}, c, 1, publish_at=datetime.now().astimezone() + timedelta(days=30))
+    assert r[0]["status"] == "FAILED" and "trop loin" in r[0]["detail"] and sent == []     # rien n'est publié, ni en masse ni plus tard
+
+
+def test_the_app_never_publishes_by_itself_and_old_in_app_schedules_are_cancelled(tmp_path):
+    from app.ui import server as sv
+    c = _conn(tmp_path)
+    queue.plan(c, [1, 2], queue.slots(date(2030, 1, 6), 2, 2, ["12:30", "19:00"], now=datetime(2030, 1, 1).astimezone()))
+    assert queue.cancel_all_pending(c) == 2 and [x for x in queue.listing(c) if x["status"] == "PENDING"] == []
+    import inspect
+    assert "run_due" not in inspect.getsource(sv.due_runner)                           # la surveillance ne publie rien

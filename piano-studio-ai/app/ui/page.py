@@ -198,8 +198,8 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
   <div class="step" style="margin-top:28px"><span class="num">3</span><div><h2>Formats</h2><p>Un seul enregistrement donne les deux vidéos : le vertical (TikTok + YouTube Short) et l'horizontal (YouTube).</p></div></div>
   <div class="grid g2" id="formats" aria-label="Formats"></div>
 
-  <div class="step" style="margin-top:28px"><span class="num">4</span><div><h2>Après le montage</h2><p>Les vidéos peuvent partir toutes seules sur TikTok et YouTube.</p></div></div>
-  <label class="sw"><input type="checkbox" id="publish" checked> <span id="pubtxt">Publier automatiquement après le montage</span></label>
+  <div class="step" style="margin-top:28px"><span class="num">4</span><div><h2>Après le montage</h2><p>Pour mettre en ligne à une date précise, utilise l'onglet <b>Programmation</b> : la date est réglée dans TikTok et YouTube eux-mêmes.</p></div></div>
+  <label class="sw"><input type="checkbox" id="publish"> <span id="pubtxt">Publier tout de suite après le montage</span></label>
   <p class="est" id="est" style="margin:10px 0 0"></p>
 </section>
 <div class="cta"><button id="go">Créer</button></div>
@@ -245,10 +245,10 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
   <div class="agenda" id="agenda" role="group" aria-label="Agenda des prochains jours"></div>
   <div class="row" style="margin-top:14px;border:0;padding:0">
     <label class="sw">Heures de publication <input type="text" id="wtimes" value="12:30, 19:00" class="sel" style="width:150px;flex:none" aria-label="Heures de publication"></label>
-    <label class="sw"><input type="checkbox" id="wnow"> Tout publier tout de suite <small style="color:var(--mute)">(sinon chaque vidéo est <b>programmée dans TikTok et YouTube</b> à la date de l'agenda)</small></label>
+    <label class="sw"><input type="checkbox" id="wnow"> Publier tout de suite, sans programmer <small style="color:var(--mute)">(sinon chaque vidéo est <b>programmée dans TikTok et YouTube</b> à la date de l'agenda)</small></label>
   </div>
   <p class="note" id="west" style="margin:8px 0"></p>
-  <div class="row" style="border:0;padding:0;margin-top:6px"><button class="btn" id="wnowall" style="background:var(--gold);color:var(--gold-ink)" title="Publie tout de suite, l'une après l'autre, toutes les vidéos montées qui n'ont pas encore été publiées">🚀 Envoyer maintenant la dernière fabrication <span id="readyn"></span></button><button class="btn" id="wgo">🗓 Fabriquer, envoyer et programmer</button><button class="btn alt" id="wplan" title="Utilise les vidéos déjà prêtes au lieu d'en fabriquer">Envoyer et programmer les vidéos déjà prêtes</button><span id="wmsg" class="note" style="margin:0"></span></div>
+  <div class="row" style="border:0;padding:0;margin-top:6px"><button class="btn" id="wgo">🗓 Fabriquer, envoyer et programmer</button><button class="btn alt" id="wplan" title="Utilise les vidéos déjà prêtes au lieu d'en fabriquer">Envoyer et programmer les vidéos déjà prêtes</button><span id="wmsg" class="note" style="margin:0"></span></div>
   <div id="slist"></div>
 </section>
 
@@ -351,7 +351,7 @@ $('#tgo').onclick=()=>{$('#tgo').disabled=true;$('#tres').innerHTML='<p class="e
     $('#tres').innerHTML=r.items.length?r.items.map(i=>`<div class="tr"><span class="rk">${i.rank}</span><span class="n"><b>${esc(i.title)}</b><small>${esc(i.artist)}</small></span><button class="btn alt" data-q="${esc(i.title)}">MIDI libre</button><a class="btn alt" target="_blank" rel="noopener" href="${webUrl(i.title+' '+i.artist)}">🔎 Web</a></div>`).join(''):`<p class="note bad">${esc(r.message||'Aucune tendance disponible.')}</p>`
   }).catch(()=>{$('#tres').innerHTML='<p class="note bad">Impossible de charger les tendances.</p>'}).finally(()=>{$('#tgo').disabled=false})};
 $('#tres').onclick=e=>{const b=e.target.closest('[data-q]');if(b){$('#q').scrollIntoView({behavior:'smooth',block:'center'});runSearch(b.dataset.q)}};
-function info(){api('/api/info').then(i=>{if(ONLY_MINE!==!!i.only_mine){ONLY_MINE=!!i.only_mine;songs()}$('#pubtxt').innerHTML='Publier automatiquement après le montage : '+[['YouTube',i.youtube],['TikTok',i.tiktok]].map(([n,ok])=>`${n} <b style="color:var(--${ok?'ok':'bad'})">${ok?'✓':'non connecté'}</b>`).join(' · ');$('#ver').innerHTML=`v <b>${esc(i.version||'?')}</b>`;[['#pill-tt','TikTok',i.tiktok],['#pill-yt','YouTube',i.youtube]].forEach(([s,n,ok])=>{$(s).textContent=(ok?'✓ ':'✗ ')+n;$(s).className='pill '+(ok?'ok':'bad')});if(i.only_mine){$('#stock').textContent=`${i.to_make} à faire`;$('#sdot').className='dot'+(i.to_make>0?' on':'');$('#stock').parentElement.childNodes[1].textContent='Dossier MIDI : '}else{$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'')}
+function info(){api('/api/info').then(i=>{if(ONLY_MINE!==!!i.only_mine){ONLY_MINE=!!i.only_mine;songs()}$('#pubtxt').innerHTML='Publier tout de suite après le montage (sinon : onglet Programmation) : '+[['YouTube',i.youtube],['TikTok',i.tiktok]].map(([n,ok])=>`${n} <b style="color:var(--${ok?'ok':'bad'})">${ok?'✓':'non connecté'}</b>`).join(' · ');$('#ver').innerHTML=`v <b>${esc(i.version||'?')}</b>`;[['#pill-tt','TikTok',i.tiktok],['#pill-yt','YouTube',i.youtube]].forEach(([s,n,ok])=>{$(s).textContent=(ok?'✓ ':'✗ ')+n;$(s).className='pill '+(ok?'ok':'bad')});if(i.only_mine){$('#stock').textContent=`${i.to_make} à faire`;$('#sdot').className='dot'+(i.to_make>0?' on':'');$('#stock').parentElement.childNodes[1].textContent='Dossier MIDI : '}else{$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'')}
   $('#engine').innerHTML=`Moteur : <b>${i.engine==='synthesia'?'Synthesia':i.engine?'rendu intégré':'vérification…'}</b>`;$('#engine').title=i.engine==='synthesia'?'Votre application Synthesia pilotée automatiquement':'Synthesia non prêt : rendu intégré utilisé'})}
 function vids(){api('/api/videos').then(v=>{if(!v.length)return;$('#vids').innerHTML=v.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${esc(x.level)} · ${esc(x.format)} · ${x.duration}s · qualité ${x.quality??'-'}/100 · ${esc(x.status)} · ${esc(x.at)}</small></div>${x.file?`<button data-f="${esc(x.file)}">Voir</button>`:''}</div>${x.file&&x.status!=='FAILED'?`<div class="pub"><button data-now="${x.id}">🚀 Publier maintenant</button><input type="datetime-local" data-when="${x.id}" class="sel" style="flex:none;padding:6px 8px"><button data-at="${x.id}">🗓 Programmer</button></div>`:''}${x.post&&x.file?pubBox(x.post):''}`).join('')})}
 $('#vids').onclick=e=>{const f=e.target.dataset.f;if(f){$('#player').innerHTML=`<video controls autoplay playsinline style="width:100%;max-height:70vh;border-radius:12px;background:#000;margin-top:12px" src="/files/${encodeURIComponent(f)}"></video>`;$('#player').scrollIntoView({behavior:'smooth',block:'center'})}};
@@ -372,7 +372,7 @@ $('#chk').onclick=()=>{$('#chk').disabled=true;$('#chkres').textContent='Vérifi
 const dfmt=iso=>new Date(iso).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 function sched(){api('/api/schedule').then(d=>{
   const nm={PENDING:'⏳ programmée',RUNNING:'⏫ envoi en cours',DONE:'✅ publiée',FAILED:'❌ échec',MISSED:'⚠ manquée'};
-  const pend=d.items.filter(x=>x.status==='PENDING');PENDING_N=pend.length;READY_N=d.ready;READY_T=d.ready_titles||[];$('#readyn').textContent=d.ready?'('+d.ready+')':'';$('#wnowall').disabled=!d.ready;$('#b-sch').textContent=pend.length||'';
+  const pend=d.items.filter(x=>x.status==='PENDING');PENDING_N=pend.length;$('#b-sch').textContent=pend.length||'';
   $('#nextpub').innerHTML=pend.length?`⏭ Prochaine publication : <b>${esc(pend[0].title)}</b> · ${esc(dfmt(pend[0].run_at))} <span style="margin-left:auto">${pend.length} à publier par l\'app</span>`:'Aucune publication programmée. Utilise « Fabriquer et programmer l\'agenda » ci-dessous.';
   const un=d.unscheduled.length?`<p class="note" style="margin:10px 0 4px"><b>${d.unscheduled.length}</b> vidéo(s) prête(s) pas encore programmée(s).</p>`:'';
   $('#slist').innerHTML=un+(pend.length?`<p style="margin:8px 0"><button class="btn alt" data-cancelall="1">Tout annuler (${pend.length} publications programmées dans l\'app)</button></p>`:'')+(d.items.length?d.items.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${x.format==='horizontal'?'YouTube long':'TikTok + YouTube Shorts'} · ${esc(dfmt(x.run_at))} · ${nm[x.status]||esc(x.status)}${x.detail?' · '+esc(x.detail):''}</small></div>${x.status==='PENDING'?`<button data-cancel="${x.id}">Annuler</button>`:''}</div>`).join(''):'<p class="empty">Rien de programmé.</p>')})}
@@ -403,8 +403,6 @@ $('#wgo').onclick=()=>{const n=Object.values(AG).reduce((a,b)=>a+b,0);if(!n)retu
   const pend=PENDING_N;const rep=pend>0&&confirm(pend+' publication(s) sont déjà programmées. Les remplacer par ce nouvel agenda ? (OK = remplacer, Annuler = les garder en plus)');
   api('/api/week',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...wbody(),replace:rep,formats:[...formats],synthesia:$('#synth').checked,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#wmsg').textContent=r.error;return}$('#wmsg').textContent='';watch('Démarrage de la production…')})};
-$('#wnowall').onclick=()=>{if(!confirm('Envoyer maintenant à TikTok et YouTube ces '+READY_N+' vidéo(s) de la dernière fabrication ?\n\n'+READY_T.join('\n')+'\n\nNe touche ni à la souris ni au clavier pendant les envois (bouton Annuler pour arrêter).'))return;
-  api('/api/publish-ready',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>{if(r.error){$('#wmsg').textContent=r.error;return}watch('Publication des vidéos prêtes…')})};
 $('#wplan').onclick=()=>api('/api/schedule/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(wbody())})
   .then(r=>{if(r.error){$('#wmsg').textContent=r.error;return}$('#wmsg').textContent='';watch('Envoi des vidéos prêtes aux réseaux…')});
 document.addEventListener('click',e=>{

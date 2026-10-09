@@ -496,3 +496,37 @@ def test_tiktok_does_not_claim_success_without_confirmation(tmp_path, monkeypatc
     monkeypatch.setattr(tw, "_js", js)
     with pytest.raises(RuntimeError, match="n'a pas confirmé"):
         tw.post(v, "Ma légende de test #piano", publish=True)
+
+
+def test_failed_scheduling_keeps_the_video_as_a_draft_in_each_network(tmp_path, monkeypatch):
+    from app.publisher import tiktok_web as tw, youtube_web as yw
+    v = tmp_path / "v.mp4"; v.write_bytes(b"x")
+    monkeypatch.setattr(tw, "trace", lambda *a: None)
+    monkeypatch.setattr(tw.time, "sleep", lambda s: None); monkeypatch.setattr(yw.time, "sleep", lambda s: None)
+    # --- TikTok
+    monkeypatch.setattr(tw, "open_url", lambda *a, **k: None)
+    monkeypatch.setattr(tw, "choose_file", lambda *a, **k: None)
+    monkeypatch.setattr(tw, "_wait", lambda *a, **k: None)
+    monkeypatch.setattr(tw, "_clip", lambda t: None); monkeypatch.setattr(tw, "_keys", lambda *a: None)
+    monkeypatch.setattr(tw, "set_public_tiktok", lambda say: None)
+    monkeypatch.setattr(tw, "schedule_tiktok", lambda when, say: (_ for _ in ()).throw(RuntimeError("option « Planifier » introuvable")))
+    clicks = []
+    def js(c):
+        if "e.textContent" in c: return "légende de test"
+        if "connecter" in c or "accounts.google" in c: return "false"
+        if "brouillon" in c and "click" in c: clicks.append("draft"); return "true"
+        return "true"
+    monkeypatch.setattr(tw, "_js", js)
+    tk = tw.TikTokWeb(publish=True)
+    r = tk.publish(v, {"tiktok_caption": "légende de test #piano", "publish_at": "2030-01-06T19:00"}, "1")
+    assert r.status == "DRAFT" and "brouillon" in r.detail and clicks == ["draft"]               # brouillon, pas de publication, pas d'échec
+    # --- YouTube
+    monkeypatch.setattr(yw, "_paste_into", lambda *a: None)
+    monkeypatch.setattr(yw, "_click", lambda sel: True)
+    monkeypatch.setattr(yw, "_visibility", lambda pa, say: (_ for _ in ()).throw(RuntimeError("section « Programmer » introuvable")))
+    closed = []
+    monkeypatch.setattr(yw, "_save_draft", lambda say: closed.append(1) or True)
+    monkeypatch.setattr(tw, "choose_file", lambda *a, **k: None)
+    yt = yw.YouTubeWeb(publish=True)
+    r2 = yt.publish(v, {"title": "Titre", "description": "d", "hashtags": [], "publish_at": "2030-01-06T19:00"}, "1")
+    assert r2.status == "DRAFT" and closed == [1]

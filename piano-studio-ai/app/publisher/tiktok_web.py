@@ -165,6 +165,37 @@ def _pick_text(text: str) -> bool:
                "if(!best)return 'false';best.click();return 'true'})()") == "true"
 
 
+PRIVATE_RE = r"(moi uniquement|seulement moi|only me|only you|priv[ée]e?|private|amis|friends|followers|abonn[ée]s)"
+PUBLIC_RE = r"^(tout le monde|everyone|public)$"
+
+
+def set_public_tiktok(say) -> None:
+    """Règle « Qui peut voir cette vidéo » sur « Tout le monde » (public). S'arrête si TikTok reste en privé : jamais de vidéo privée par erreur."""
+    say("🌍 Visibilité TikTok : Tout le monde…")
+    _js("(function(){var l=[...document.querySelectorAll('div,span,label')].find(e=>/^(qui peut (voir|regarder)|who can (view|watch))/i.test((e.innerText||'').trim())&&e.getBoundingClientRect().height<80);if(l)l.scrollIntoView({block:'center'});return 'ok'})()")
+    time.sleep(0.5)
+    if _js(_click_text_js(PUBLIC_RE)) != "true":                              # liste fermée : on ouvre le menu qui affiche la valeur actuelle, puis on choisit
+        if _js(_click_text_js(PRIVATE_RE + r"$")) == "true":
+            time.sleep(0.8)
+            _js(_click_text_js(PUBLIC_RE))
+    time.sleep(0.6)
+    seen = _js("(function(){var l=[...document.querySelectorAll('div,span,label')].find(e=>/^(qui peut (voir|regarder)|who can (view|watch))/i.test((e.innerText||'').trim()));"
+               "if(!l)return '';var c=l;for(var i=0;i<4&&c.parentElement;i++){c=c.parentElement;if((c.innerText||'').length>25)break}return (c.innerText||'').replace(/\\s+/g,' ').slice(0,200)})()")
+    if seen and re.search(PRIVATE_RE, seen, re.I) and not re.search(r"(tout le monde|everyone|public)", seen, re.I):
+        raise RuntimeError(f"la vidéo serait en privé sur TikTok (visibilité lue : « {seen[:60]} »)")
+
+
+def save_draft_tiktok(say) -> bool:
+    """Enregistre la vidéo en BROUILLON dans TikTok Studio (bouton « Enregistrer le brouillon ») : rien n'est perdu même si la programmation échoue."""
+    say("📝 Programmation impossible : j'enregistre la vidéo en brouillon dans TikTok…")
+    if _js(_click_text_js(r"(enregistrer (le |en )?brouillon|save (as |to )?draft|^brouillon$|^draft$)")) != "true":
+        return False
+    time.sleep(3)
+    _js(_click_text_js(r"^(confirmer|confirm|ok|enregistrer|save)$"))
+    time.sleep(2)
+    return True
+
+
 def schedule_tiktok(when, say) -> None:
     """Règle « Planifier » dans TikTok Studio : date et heure de mise en ligne (de 15 minutes à 10 jours à l'avance). Vérifie ce qui est affiché ensuite."""
     say(f"🗓 Programmation sur TikTok : {when:%d/%m/%Y %H:%M}…")
@@ -418,11 +449,19 @@ def _post(video, caption, publish, say, publish_at=None):
     if len(typed) < min(len(body), 8):                                       # légende vide ou perdue : on s'arrête au lieu de publier sans texte
         raise RuntimeError(f"la légende n'a pas été écrite dans TikTok (lu : « {typed[:40]} »)")
     trace("tiktok", "1_legende")
+    set_public_tiktok(say)
     when = None
     if publish_at:
         from datetime import datetime
         when = datetime.fromisoformat(publish_at)
-        schedule_tiktok(when, say)
+        try:
+            schedule_tiktok(when, say)
+        except RuntimeError as e:                                                # programmation refusée : brouillon dans TikTok (pas de publication, pas de perte)
+            trace("tiktok", "2_programmation_echec")
+            if save_draft_tiktok(say):
+                trace("tiktok", "3_brouillon")
+                return f"brouillon TikTok (programmation impossible : {str(e)[:120]})"
+            raise
         trace("tiktok", "2_programmation")
     if not publish:
         say("✋ Tout est prêt dans le navigateur : vérifie puis clique sur « Publier » toi-même.")
@@ -468,4 +507,6 @@ class TikTokWeb:
             st = post(video, cap, self.go or bool(pa), publish_at=pa)
         except Exception as e:
             return Result(self.platform, "FAILED", "", f"{e}")
+        if st.startswith("brouillon"):
+            return Result(self.platform, "DRAFT", key, st)
         return Result(self.platform, "SCHEDULED" if pa else ("PUBLISHED" if self.go else "EXPORTED"), key, st)
