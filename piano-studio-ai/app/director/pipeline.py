@@ -186,7 +186,7 @@ def record_cap(s) -> float:
 
 
 def _target(F, s, ana) -> float:
-    cap = record_cap(s) if s.get("engine", "auto") != "builtin" and s.get("synthesia", {}).get("calibrated") else 1e9
+    cap = record_cap(s) if s.get("style", "sketch") == "synthesia" and s.get("engine", "auto") != "builtin" and s.get("synthesia", {}).get("calibrated") else 1e9
     if F.get("duration") == "full":
         return min(F.get("max_duration", 300), ana["duration"], cap)
     return min(s["duration_target"], ana["duration"], cap)
@@ -331,7 +331,7 @@ def _cover_hook(plans, total: float):
 def _make_videos(s, conn, sid, level, plans, notes, tempo, meta, lv, publish, kb_lo=None) -> list[dict]:
     """Synthesia : UN SEUL enregistrement dont on tire tous les formats. Sinon (ou en secours) rendu intégré, format par format."""
     cfg = s.get("synthesia", {})
-    mode = s.get("engine", "auto")
+    mode = s.get("engine", "auto") if s.get("style", "sketch") == "synthesia" else "builtin"   # style dessiné : jamais Synthesia
     ready = mode != "builtin" and mac.ready(cfg)
     if mode == "synthesia" and not ready:
         return _failed(s, conn, sid, level, plans, "RuntimeError: engine=synthesia mais le Mac n'est pas prêt")

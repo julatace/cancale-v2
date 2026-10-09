@@ -272,7 +272,7 @@ def _probe_engine(s):
     """Vérifie en arrière-plan si Synthesia est prêt (peut prendre quelques secondes sur Mac) : la page ne l'attend jamais."""
     try:
         from app.synthesia_controller import mac
-        ready = s.get("engine", "auto") != "builtin" and mac.ready(s.get("synthesia", {}))
+        ready = s.get("style", "sketch") == "synthesia" and s.get("engine", "auto") != "builtin" and mac.ready(s.get("synthesia", {}))
     except Exception:
         ready = False
     _ENGINE.update(at=time.time(), value="synthesia" if ready else "builtin", busy=False)
@@ -675,8 +675,10 @@ def make_handler(settings_loader):
             else:
                 count = max(1, min(int(body.get("count", 1) or 1), 5))
                 publish = bool(body.get("publish", False))
-            if body.get("synthesia", True):
-                s = {**s, "engine": "synthesia"}              # Synthesia obligatoire : une erreur s'affiche, pas de repli silencieux
+            if body.get("synthesia", False):
+                s = {**s, "style": "synthesia", "engine": "synthesia"}   # Synthesia demandé : une erreur s'affiche, pas de repli silencieux
+            elif s.get("style", "sketch") != "synthesia":
+                s = {**s, "style": "sketch"}                              # style dessiné (défaut) : aucune app requise
             else:
                 s = {**s, "engine": "builtin"}
             if not JOB.start(s, level, formats, publish, count, int(body["song_id"]) if body.get("song_id") and not plan else None,

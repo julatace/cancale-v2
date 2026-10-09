@@ -28,7 +28,7 @@ def fake_capture(tmp_path):
 def test_one_recording_gives_vertical_and_horizontal(tmp_path, fake_capture, monkeypatch):
     st = config.load_settings()
     st["paths"] = {**st["paths"], "data_dir": str(tmp_path / "data"), "database": str(tmp_path / "d.sqlite3"), "logs_dir": str(tmp_path / "l")}
-    st["duration_target"], st["duration_range"], st["engine"] = 8, [6, 10], "auto"
+    st["duration_target"], st["duration_range"], st["engine"], st["style"] = 8, [6, 10], "auto", "synthesia"
     st["formats"]["vertical"]["min_duration"] = 0
     st["formats"]["horizontal"].update(max_duration=14, min_duration=0)
     calls = []
@@ -55,7 +55,7 @@ def test_one_recording_gives_vertical_and_horizontal(tmp_path, fake_capture, mon
 def test_vertical_only_still_records_once(tmp_path, fake_capture, monkeypatch):
     st = config.load_settings()
     st["paths"] = {**st["paths"], "data_dir": str(tmp_path / "data"), "database": str(tmp_path / "d.sqlite3"), "logs_dir": str(tmp_path / "l")}
-    st["duration_target"], st["duration_range"], st["engine"] = 8, [6, 10], "auto"
+    st["duration_target"], st["duration_range"], st["engine"], st["style"] = 8, [6, 10], "auto", "synthesia"
     st["formats"]["vertical"]["min_duration"] = 0
     n = []
     monkeypatch.setattr(mac, "ready", lambda cfg, *a, **k: True)
@@ -69,7 +69,7 @@ def test_recording_is_capped_at_one_minute_thirty():
     from app import config
     from app.director import pipeline
     s = config.load_settings()
-    s["engine"] = "synthesia"
+    s["engine"], s["style"] = "synthesia", "synthesia"
     assert s["synthesia"]["max_record_seconds"] == 90 and pipeline.record_cap(s) == 80          # 90 s au total - 8 s d'attente - 2 s de fin
     long_piece = {"duration": 400}
     assert pipeline._target(s["formats"]["horizontal"], s, long_piece) == 80                     # vidéo longue : coupée à 80 s de musique
@@ -121,3 +121,14 @@ def test_recording_is_cut_when_the_limit_is_reached_even_if_the_tool_keeps_going
     cfg = {"lead_in_seconds": 8, "tail_seconds": 2, "load_seconds": 6, "app_path": "x", "max_record_seconds": 90, "portrait": False}
     cap, crop, recorded = mac.record(tmp_path / "a.mid", 400, out, cfg, run=lambda *a, **k: type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})(), sleep=lambda s: clock.__setitem__("t", clock["t"] + s))
     assert recorded == 92.0 and len(stopped) == 1 and 90 <= stopped[0] - 1008.0 <= 96       # coupé 93 s après le début de la capture (1 min 30 + 3 s de marge), pas 4 minutes
+
+
+def test_sketch_style_never_uses_synthesia(monkeypatch):
+    from app.director import pipeline
+    called = []
+    monkeypatch.setattr(pipeline.mac, "ready", lambda cfg: called.append(1) or True)
+    monkeypatch.setattr(pipeline, "_synthesia_batch", lambda *a, **k: called.append("batch") or [])
+    monkeypatch.setattr(pipeline, "_produce", lambda *a, **k: {"ok": True})
+    s = {"style": "sketch", "engine": "auto", "synthesia": {}, "keyboard": {"lowest_key": 36}}
+    out = pipeline._make_videos(s, None, 1, "Facile", [("vertical", {}, {}, {}, {})], [], [], {}, {}, False, None)
+    assert out == [{"ok": True}] and "batch" not in called

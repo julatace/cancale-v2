@@ -78,18 +78,18 @@ def test_rejects_unknown_choices_foreign_origin_and_parallel(srv):
         assert e.code == 404
 
 
-def test_synthesia_is_forced_unless_switched_off(srv, monkeypatch):
+def test_sketch_is_default_unless_synthesia_requested(srv, monkeypatch):
     base, calls = srv
     seen = []
     orig = server.RUNNER
-    monkeypatch.setattr(server, "RUNNER", lambda settings, **k: seen.append(settings["engine"]) or orig(settings, **k))
+    monkeypatch.setattr(server, "RUNNER", lambda settings, **k: seen.append(settings.get("engine") if settings["style"] == "synthesia" else settings["style"]) or orig(settings, **k))
     for synth in (True, False):
         req = urllib.request.Request(base + "/api/run", json.dumps({"synthesia": synth}).encode(), {"Content-Type": "application/json"})
         urllib.request.urlopen(req)
         for _ in range(40):
             if get(base + "/api/status")["status"] != "running": break
             time.sleep(0.1)
-    assert seen == ["synthesia", "builtin"]
+    assert seen == ["synthesia", "sketch"]
 
 
 def _upload(base, name, data, rights="1"):

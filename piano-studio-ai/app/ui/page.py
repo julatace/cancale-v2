@@ -275,7 +275,7 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
   <div class="step"><div><h2>Fabrication</h2></div></div>
   <div class="fieldrow"><label class="k" for="lang">Langue des textes<small>Titres, descriptions, hashtags</small></label><select id="lang" class="sel" style="max-width:220px"></select></div>
   <div class="fieldrow"><label class="k" for="maxrec">Enregistrement maximum<small>L'enregistrement d'écran s'arrête là, même si le morceau n'est pas fini</small></label><span><input type="number" id="maxrec" min="30" max="300" step="10" class="sel" style="width:100px;flex:none"> secondes</span></div>
-  <div class="fieldrow"><label class="k" for="synth">Application Synthesia<small>Décoché : rendu intégré, sans Synthesia</small></label><label class="sw"><input type="checkbox" id="synth" checked> Utiliser mon application Synthesia</label></div>
+  <div class="fieldrow"><label class="k" for="synth">Application Synthesia<small>Décoché : style dessiné, sans aucune application</small></label><label class="sw"><input type="checkbox" id="synth"> Utiliser Synthesia à la place</label></div>
 </section>
 </main>
 

@@ -89,7 +89,7 @@ def test_youtube_failure_is_reported_not_raised(tmp_path, monkeypatch):
 
 
 def test_forced_synthesia_failure_reports_error_once(s):
-    s["engine"] = "synthesia"          # hors Mac : le moteur n'est pas prêt
+    s["style"], s["engine"] = "synthesia", "synthesia"          # hors Mac : le moteur n'est pas prêt
     r = pipeline.run_one(s, seed=9, publish=False)
     assert r["status"] == "FAILED" and "Mac" in r["error"]
 
