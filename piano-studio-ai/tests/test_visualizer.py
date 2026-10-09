@@ -82,3 +82,11 @@ def test_sketch_video(tmp_path):
     assert out.exists() and out.stat().st_size > 1000
     d = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(out)], capture_output=True, text=True).stdout
     assert "audio" in d and "video" in d
+
+
+def test_sketch_hand_split_follows_piece():
+    from app.midi_analyzer.parser import Note
+    from app.visualizer import sketch
+    high = [Note(i, i + 0.5, 70 + i % 12, 80, 0) for i in range(30)] + [Note(0, 1, 48, 80, 0)]
+    assert 55 <= sketch.hand_split_for(high) <= 66
+    assert sketch.hand_split_for([Note(0, 1, 60, 80, 0)]) == 60

@@ -167,13 +167,25 @@ def _title(img, title, subtitle, L: Layout):
         d.text((L.W / 2, y + (50 if wide else 66)), subtitle, font=_font(30 if wide else 36), fill=(110, 108, 114), anchor="mm")
 
 
-def render_video(notes, start: float, duration: float, out_path, title="", subtitle="", fps=30, hand_split=60, layout: Layout = VERTICAL,
+def hand_split_for(notes, default=60) -> int:
+    """Point de partage main gauche / droite : suit le morceau (médiane des hauteurs) au lieu d'un Do central fixe."""
+    ps = sorted(n.pitch for n in notes)
+    if len(ps) < 8:
+        return default
+    lo, hi = ps[len(ps) // 10], ps[-len(ps) // 10 - 1]
+    if hi - lo < 14:                                   # étendue réduite : tout à une main, on garde la répartition par défaut
+        return default
+    return int(min(max(ps[len(ps) // 2], 55), 66))
+
+
+def render_video(notes, start: float, duration: float, out_path, title="", subtitle="", fps=30, hand_split=None, layout: Layout = VERTICAL,
                  result: dict | None = None, audio: np.ndarray | None = None):
     ns = [n for n in notes if n.end > start and n.start < start + duration]
     if not ns:
         raise ValueError("aucune note dans la section")
     rel = [type(n)(n.start - start, n.end - start, n.pitch, n.velocity, n.track, n.channel) for n in ns]
     cam = Camera(rel, layout.W, layout.H)
+    hand_split = hand_split if hand_split is not None else hand_split_for(rel)
     out_path = Path(out_path)
     with tempfile.TemporaryDirectory() as td:
         wav = Path(td) / "a.wav"
