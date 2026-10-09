@@ -117,6 +117,14 @@ def _render(s, notes, sec, out, meta, tempo, content=None, F=None) -> str:
     layout = (F["width"], F["height"], F["banner"])
     """Synthesia (app de l'utilisateur) si disponible, sinon rendu intégré : la production ne s'arrête jamais."""
     cfg = s.get("synthesia", {})
+    if s.get("style") == "sketch":                       # style « dessiné » : rendu intégré, caméra qui zoome sur la zone jouée
+        from app.visualizer import sketch
+        res = {}
+        sketch.render_video(notes, sec["start"], sec["duration"], out, meta["title"], _subtitle(meta, content), fps=30,
+                            layout=sketch.HORIZONTAL if F["width"] > F["height"] else sketch.VERTICAL, result=res)
+        if res.get("duration") and res["duration"] < sec["duration"] - 0.5:
+            sec["duration"], sec["stopped_early"] = round(res["duration"], 1), True
+        return "sketch"
     if s.get("engine", "auto") != "builtin" and mac.ready(cfg):
         try:
             with tempfile.TemporaryDirectory() as td:

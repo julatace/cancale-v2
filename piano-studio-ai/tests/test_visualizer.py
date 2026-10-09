@@ -71,3 +71,14 @@ def test_system_piano_midi_has_pedal_and_softened_velocities(tmp_path):
     assert data.count(bytes([0xB0, 64])) >= 3                                          # pédale de sustain posée et relâchée
     out = synth.render_audio(_notes(8), 0, 4.0)                                        # hors Mac : le piano numpy prend le relais
     assert out.shape == (4 * synth.SR, 2)
+
+
+def test_sketch_video(tmp_path):
+    import subprocess
+    from app.midi_analyzer.parser import Note
+    from app.visualizer import sketch
+    notes = [Note(i * 0.5, i * 0.5 + 0.4, 48 + (i * 7) % 30, 80, 0) for i in range(8)]
+    out = sketch.render_video(notes, 0, 2.0, tmp_path / "s.mp4", "Titre", "Artiste", fps=10, layout=sketch.Layout(270, 480, 80, 90))
+    assert out.exists() and out.stat().st_size > 1000
+    d = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(out)], capture_output=True, text=True).stdout
+    assert "audio" in d and "video" in d
