@@ -1,5 +1,7 @@
 """Rendu « dessiné à la main » : grosses barres colorées au trait, clavier crayonné, caméra qui zoome / dézoome sur la zone jouée."""
 import math
+import os
+import threading
 import random
 import subprocess
 import tempfile
@@ -239,7 +241,9 @@ def render_video(notes, start: float, duration: float, out_path, title="", subti
     rel = [type(n)(n.start - start, n.end - start, n.pitch, n.velocity, n.track, n.channel) for n in ns]
     cam = Camera(rel, layout.W, layout.H)
     hand_split = hand_split if hand_split is not None else hand_split_for(rel)
-    out_path = Path(out_path)
+    final = Path(out_path)
+    out_path = final.with_name(final.stem + ".part.mp4")            # écrit sous un nom provisoire : jamais de fichier à moitié fini à la place d'une vidéo
+    out_path.unlink(missing_ok=True)
     with tempfile.TemporaryDirectory() as td:
         wav = Path(td) / "a.wav"
         progress.report("Son du piano", 2)
@@ -250,6 +254,10 @@ def render_video(notes, start: float, duration: float, out_path, title="", subti
                "-crf", "18", "-tune", "animation", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-shortest",
                "-movflags", "+faststart", str(out_path)]
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        limit = max(900.0, duration * 20)                           # garde-fou : un ffmpeg bloqué est arrêté au lieu de figer l'agent
+        wd = threading.Timer(limit, lambda: p.poll() is None and p.kill())
+        wd.daemon = True
+        wd.start()
         try:
             written = 0
             for i in range(int(duration * fps)):
@@ -279,7 +287,12 @@ def render_video(notes, start: float, duration: float, out_path, title="", subti
             if p.wait() != 0:
                 raise RuntimeError(f"ffmpeg: {err}")
             verify_video(out_path, written / fps)
+            os.replace(out_path, final)
+        except Exception:
+            out_path.unlink(missing_ok=True)
+            raise
         finally:
+            wd.cancel()
             if p.poll() is None:
                 p.kill()
-    return out_path
+    return final

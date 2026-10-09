@@ -705,6 +705,11 @@ def serve(port=8765, open_browser=True, settings_loader=config.load_settings):
             print(f"ℹ {n} ancienne(s) publication(s) programmée(s) dans l'app annulée(s) : la programmation se fait maintenant dans TikTok et YouTube.")
     except Exception:
         pass
+    try:
+        from app.director import cleanup
+        cleanup.purge_partial(settings_loader())          # rendus interrompus par un arrêt brutal
+    except Exception:
+        pass
     due_runner(settings_loader)                          # surveillance du dossier MIDI
     stock.refill_in_background(settings_loader())         # réserve de morceaux prête avant même le premier clic
     if open_browser:

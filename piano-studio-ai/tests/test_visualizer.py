@@ -110,3 +110,21 @@ def test_verify_video_rejects_wrong_duration(tmp_path):
     sketch.verify_video(out, 1.5)
     with pytest.raises(RuntimeError):
         sketch.verify_video(out, 9.0)
+
+
+def test_sketch_leaves_no_partial_file(tmp_path):
+    from app.midi_analyzer.parser import Note
+    from app.visualizer import sketch
+    out = sketch.render_video([Note(0, 0.4, 60, 80, 0)], 0, 1.0, tmp_path / "v.mp4", "T", "", fps=10, layout=sketch.Layout(270, 480, 80, 90))
+    assert out == tmp_path / "v.mp4" and out.exists() and not list(tmp_path.glob("*.part.mp4"))
+
+
+def test_purge_partial(tmp_path):
+    from app import config
+    from app.director import cleanup
+    s = config.load_settings()
+    s["paths"]["data_dir"] = str(tmp_path)
+    (tmp_path / "rendered").mkdir()
+    (tmp_path / "rendered" / "a.part.mp4").write_bytes(b"x")
+    (tmp_path / "rendered" / "ok.mp4").write_bytes(b"x")
+    assert cleanup.purge_partial(s) == 1 and (tmp_path / "rendered" / "ok.mp4").exists()

@@ -54,3 +54,16 @@ def purge_published(s, conn) -> int:
     for r in conn.execute("SELECT id FROM videos WHERE status='PUBLISHED' AND output_path!=''").fetchall():
         n += len(delete_after_publish(s, conn, r["id"], [{"platform": "x", "status": "PUBLISHED"}]))
     return n
+
+
+def purge_partial(s) -> int:
+    """Supprime les rendus interrompus (*.part.mp4) laissés par un arrêt brutal ou une coupure de courant."""
+    d = config.resolve(s, "data_dir") / "rendered"
+    n = 0
+    for f in d.glob("*.part.mp4") if d.exists() else []:
+        try:
+            f.unlink()
+            n += 1
+        except OSError:
+            pass
+    return n
