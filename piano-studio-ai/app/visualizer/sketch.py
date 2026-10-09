@@ -133,12 +133,21 @@ def render_frame(notes, t, cam_range, L: Layout, split=60, pressed=None):
         if y1 - y0 < 6:
             continue
         col = LEFT if n.pitch < split else RIGHT
-        _bar(d, x0, y0, x1, y1, col, hash((n.pitch, round(n.start, 3))) & 0xffff, lw)
+        soon = 0 <= n.start - t < 0.7                                           # prochaine note à jouer : trait plus épais, on la repère d'un coup d'œil
+        _bar(d, x0, y0, x1, y1, col, hash((n.pitch, round(n.start, 3))) & 0xffff, lw + (3 if soon else 0))
         if sx > 34 and y1 - y0 > sx * 0.9:
             name = _NAMES[n.pitch % 12]
             f = _font(int(min(sx * 0.62, 60)))
             d.text(((x0 + x1) / 2 - 2, y1 - sx * 0.18), name, font=f, fill=INK, anchor="ms")
     ky = fall_bot
+    for n in notes:                                                           # lueur au point d'impact pendant que la note sonne
+        if n.start <= t < n.end:
+            px, pw, blk = xpos(n.pitch)
+            col = LEFT if n.pitch < split else RIGHT
+            x0, x1 = (px - a) * sx, (px + pw - a) * sx
+            for k, f in enumerate((0.25, 0.45, 0.7)):
+                g = tuple(int(c * (1 - f) + 255 * f) for c in col[0])
+                d.rectangle([x0 - 6 + k * 3, ky - 46 + k * 14, x1 + 6 - k * 3, ky], fill=g)
     on = {n.pitch: (LEFT if n.pitch < split else RIGHT) for n in notes if n.start <= t < n.end}
     first, last = int(math.floor(a)) - 1, int(math.ceil(b)) + 1
     for p in range(0, 128):
@@ -176,6 +185,41 @@ def _title(img, title, subtitle, L: Layout):
         d.text((L.W / 2, y + (50 if wide else 66)), subtitle, font=_font(30 if wide else 36), fill=(110, 108, 114), anchor="mm")
 
 
+def clean_notes(notes):
+    """Notes propres avant dessin : hauteurs valides, pas de doublon, pas de chevauchement sur une même touche, durée minimale.
+    Évite les barres qui se superposent ou disparaissent (source d'erreurs visibles sur Synthesia)."""
+    ns = sorted((n for n in notes if 21 <= n.pitch <= 108 and n.end > n.start), key=lambda n: (n.pitch, n.start))
+    out = []
+    for n in ns:
+        if out and out[-1].pitch == n.pitch:
+            prev = out[-1]
+            if n.start - prev.start < 0.03:                                    # doublon
+                if n.end > prev.end:
+                    out[-1] = n
+                continue
+            if prev.end > n.start - 0.05:                                      # même touche rejouée : on laisse un petit creux visible
+                out[-1] = type(prev)(prev.start, max(n.start - 0.05, prev.start + 0.08), prev.pitch, prev.velocity, prev.track, prev.channel)
+        out.append(n)
+    return sorted(out, key=lambda n: (n.start, n.pitch))
+
+
+def verify_video(path, expected: float):
+    """Contrôle du fichier produit : lisible, vidéo + audio, bonne durée. Lève une erreur sinon (le pipeline passe alors au rendu de secours)."""
+    import json
+    r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type:format=duration", "-of", "json", str(path)],
+                       capture_output=True, text=True)
+    try:
+        info = json.loads(r.stdout)
+        dur = float(info["format"]["duration"])
+        kinds = {s["codec_type"] for s in info["streams"]}
+    except Exception:
+        raise RuntimeError("vidéo produite illisible")
+    if kinds < {"video", "audio"}:
+        raise RuntimeError("vidéo produite sans image ou sans son")
+    if abs(dur - expected) > max(0.6, expected * 0.03):
+        raise RuntimeError(f"durée incohérente ({dur:.1f}s au lieu de {expected:.1f}s)")
+
+
 def hand_split_for(notes, default=60) -> int:
     """Point de partage main gauche / droite : suit le morceau (médiane des hauteurs) au lieu d'un Do central fixe."""
     ps = sorted(n.pitch for n in notes)
@@ -189,7 +233,7 @@ def hand_split_for(notes, default=60) -> int:
 
 def render_video(notes, start: float, duration: float, out_path, title="", subtitle="", fps=30, hand_split=None, layout: Layout = VERTICAL,
                  result: dict | None = None, audio: np.ndarray | None = None):
-    ns = [n for n in notes if n.end > start and n.start < start + duration]
+    ns = clean_notes([n for n in notes if n.end > start and n.start < start + duration])
     if not ns:
         raise ValueError("aucune note dans la section")
     rel = [type(n)(n.start - start, n.end - start, n.pitch, n.velocity, n.track, n.channel) for n in ns]
@@ -222,6 +266,9 @@ def render_video(notes, start: float, duration: float, out_path, title="", subti
                         log.info("🎞 Dessin des images : %d%%", pct)
                 img = render_frame(rel, t, cam.step(t, 1 / fps), layout, hand_split)
                 _title(img, title, subtitle, layout)
+                edge = min(t, duration - t)
+                if edge < 0.5:                                                  # fondu d'entrée / sortie
+                    img = Image.blend(Image.new("RGB", img.size, PAPER), img, max(edge / 0.5, 0.0))
                 p.stdin.write(img.tobytes())
                 written += 1
             if result is not None:
@@ -231,6 +278,7 @@ def render_video(notes, start: float, duration: float, out_path, title="", subti
             err = p.stderr.read().decode()[-400:]
             if p.wait() != 0:
                 raise RuntimeError(f"ffmpeg: {err}")
+            verify_video(out_path, written / fps)
         finally:
             if p.poll() is None:
                 p.kill()

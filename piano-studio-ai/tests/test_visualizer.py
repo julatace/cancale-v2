@@ -90,3 +90,23 @@ def test_sketch_hand_split_follows_piece():
     high = [Note(i, i + 0.5, 70 + i % 12, 80, 0) for i in range(30)] + [Note(0, 1, 48, 80, 0)]
     assert 55 <= sketch.hand_split_for(high) <= 66
     assert sketch.hand_split_for([Note(0, 1, 60, 80, 0)]) == 60
+
+
+def test_clean_notes_removes_overlap_and_duplicates():
+    from app.midi_analyzer.parser import Note
+    from app.visualizer import sketch
+    ns = [Note(0, 2, 60, 80, 0), Note(1, 3, 60, 80, 0), Note(1.01, 1.5, 60, 80, 0), Note(0, 1, 10, 80, 0), Note(0, 1, 64, 80, 0)]
+    out = sketch.clean_notes(ns)
+    same = sorted((n for n in out if n.pitch == 60), key=lambda n: n.start)
+    assert len(same) == 2 and same[0].end <= same[1].start - 0.04
+    assert all(21 <= n.pitch <= 108 for n in out)
+
+
+def test_verify_video_rejects_wrong_duration(tmp_path):
+    import pytest
+    from app.midi_analyzer.parser import Note
+    from app.visualizer import sketch
+    out = sketch.render_video([Note(0, 0.4, 60, 80, 0)], 0, 1.5, tmp_path / "a.mp4", "T", "", fps=10, layout=sketch.Layout(270, 480, 80, 90))
+    sketch.verify_video(out, 1.5)
+    with pytest.raises(RuntimeError):
+        sketch.verify_video(out, 9.0)

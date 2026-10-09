@@ -139,10 +139,10 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
 .fieldrow:first-of-type{border-top:0}
 .fieldrow label.k{font-weight:700}.fieldrow small{display:block;color:var(--mute);font-weight:400}
 @media(max-width:640px){.fieldrow{grid-template-columns:1fr}}
-.cta{padding:18px 0 10px}
+.cta{padding:18px 0 10px;position:static!important;background:none!important}
 .agenda-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;margin:2px 0 12px}
 .quick{display:flex;gap:6px;flex-wrap:wrap}.quick .btn{padding:7px 12px;font-size:13px}
-.agenda{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+.agenda{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px}
 @media(max-width:760px){.agenda{grid-template-columns:repeat(2,1fr)}}
 .day{background:var(--bg);border:2px solid var(--line);border-radius:14px;padding:10px;text-align:center;transition:.12s}
 .day.on{border-color:var(--brand);background:var(--brand-soft)}
@@ -156,24 +156,26 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
 .songs{overflow-x:hidden}.song{min-width:0}
 @media(max-width:640px){.card{padding:16px;border-radius:16px}.wrap{padding-left:12px;padding-right:12px}.nav button{padding:10px 12px;font-size:14px}.sbox{flex-wrap:wrap}.sbox input{flex-basis:100%}}
 #go{border-radius:16px;font-size:19px}
+.how{margin:12px 0 0;padding:0;list-style:none;display:grid;gap:6px;font-size:15px}.how b{opacity:.95}
+.fold{margin:0 0 14px;color:var(--ink)}.fold>summary{font-weight:700;font-size:16px;padding:12px 4px;color:var(--ink)}
+.fold>summary:hover{color:var(--brand)}
+#wgo{font-size:17px;padding:16px 26px}
 </style></head><body><div class="wrap">
 
 <div class="topbar">
   <div class="logo"><svg viewBox="0 0 34 34" aria-hidden="true"><rect width="34" height="34" rx="9" fill="#5146f0"/><g fill="#fff"><rect x="6" y="7" width="4.4" height="20" rx="1"/><rect x="12" y="7" width="4.4" height="20" rx="1"/><rect x="18" y="7" width="4.4" height="20" rx="1"/><rect x="24" y="7" width="4.4" height="20" rx="1"/></g><g fill="#ffb703"><rect x="9" y="7" width="3.6" height="12" rx="1"/><rect x="21" y="7" width="3.6" height="12" rx="1"/></g></svg><span>Piano Studio<span class="sub">Tutoriels piano : fabriqués et publiés automatiquement</span></span></div>
   <div class="statusline">
-    <span class="pill" id="engine" title="Moteur utilisé pour fabriquer la vidéo">Moteur : <b>…</b></span>
+    <span class="pill" id="engine" hidden></span>
     <span class="pill" id="pill-tt">TikTok …</span>
     <span class="pill" id="pill-yt">YouTube …</span>
     <span class="pill" id="ver" title="Version du programme en cours d'exécution">v <b>…</b></span>
-    <span class="pill" title="Morceaux déjà téléchargés et vérifiés"><span class="dot" id="sdot"></span>Réserve : <b id="stock">…</b></span>
+    <span class="pill" hidden><span class="dot" id="sdot"></span><b id="stock">…</b></span>
   </div>
 </div>
 
 <nav class="nav" role="tablist" aria-label="Sections">
-  <button role="tab" data-tab="create" aria-selected="true">🎬 Créer</button>
-  <button role="tab" data-tab="library" aria-selected="false">🎵 Bibliothèque <span class="b" id="b-lib"></span></button>
-  <button role="tab" data-tab="schedule" aria-selected="false">🗓 Programmation <span class="b" id="b-sch"></span></button>
-  <button role="tab" data-tab="videos" aria-selected="false">🎞 Vidéos</button>
+  <button role="tab" data-tab="home" aria-selected="true">🏠 Accueil <span class="b" id="b-sch"></span></button>
+  <button role="tab" data-tab="library" aria-selected="false">🎵 Mes morceaux <span class="b" id="b-lib"></span></button>
   <button role="tab" data-tab="settings" aria-selected="false">⚙ Réglages</button>
 </nav>
 
@@ -187,24 +189,6 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
   <div class="res" id="res"></div>
 </section>
 
-<main class="panel" id="tab-create" role="tabpanel">
-<section class="card">
-  <div class="step"><span class="num">1</span><div><h2>Morceau</h2><p>Par défaut, l'agent prend le prochain morceau de ton dossier MIDI (Bureau). Tu peux aussi en choisir un précis.</p></div></div>
-  <div class="songs" id="songs" role="radiogroup" aria-label="Morceau"></div>
-  <p class="note">Pour ajouter, chercher ou importer des morceaux : onglet <b>🎵 Bibliothèque</b>.</p>
-
-  <div class="step" style="margin-top:28px"><span class="num">2</span><div><h2>Niveau</h2><p>Plus le tempo est rapide, plus c'est difficile. L'agent ralentit tout seul les passages trop rapides à lire.</p></div></div>
-  <div class="grid g3" id="levels" role="radiogroup" aria-label="Niveau"></div>
-
-  <div class="step" style="margin-top:28px"><span class="num">3</span><div><h2>Formats</h2><p>Un seul enregistrement donne les deux vidéos : le vertical (TikTok + YouTube Short) et l'horizontal (YouTube).</p></div></div>
-  <div class="grid g2" id="formats" aria-label="Formats"></div>
-
-  <div class="step" style="margin-top:28px"><span class="num">4</span><div><h2>Après le montage</h2><p>Pour mettre en ligne à une date précise, utilise l'onglet <b>Programmation</b> : la date est réglée dans TikTok et YouTube eux-mêmes.</p></div></div>
-  <label class="sw"><input type="checkbox" id="publish"> <span id="pubtxt">Publier tout de suite après le montage</span></label>
-  <p class="est" id="est" style="margin:10px 0 0"></p>
-</section>
-<div class="cta"><button id="go">Créer</button></div>
-</main>
 <main class="panel" id="tab-library" role="tabpanel" hidden>
 <section class="card" id="inbox">
   <div class="step"><div><h2>Mon dossier MIDI</h2><p>L'agent lit les fichiers .mid / .midi / .kar de ce dossier de ton ordinateur et fabrique les vidéos avec. Tes fichiers ne sont ni déplacés ni modifiés.</p></div></div>
@@ -216,6 +200,7 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
 </section>
 
 
+<details class="fold"><summary>➕ Ajouter ou chercher des morceaux</summary>
 <section class="card">
   <div class="step"><div><h2>Ajouter, chercher</h2><p>Un fichier MIDI à toi, une recherche sur Mutopia (libre de droits), ou une recherche sur internet.</p></div></div>
   <div class="sbox"><input type="search" id="q" placeholder="Rechercher un morceau (ex. Clair de Lune, Für Elise, Gymnopédie…)" aria-label="Rechercher un morceau"><button class="btn" id="qgo">Chercher</button><a class="btn alt" id="qweb" target="_blank" rel="noopener" title="Ouvre une recherche internet dans un nouvel onglet : vous téléchargez le fichier vous-même, puis vous le glissez ci-dessous">🔎 Sur le web</a></div>
@@ -229,27 +214,36 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
   <p id="msg" hidden></p>
 
 </section>
+</details>
+<details class="fold"><summary>📈 Tendances du moment</summary>
 <section class="card">
   <div class="step"><div><h2>Tendances du moment</h2><p>Classements musicaux par pays. Ces titres sont en général protégés : l'agent cherche une version libre de droits (surtout en classique).</p></div></div>
   <div class="filters"><select id="tc" class="sel"></select><select id="tg" class="sel"><option value="all">Tous styles</option><option value="classical">Classique</option></select><button class="btn alt" id="tgo">Afficher</button></div>
   <div id="tres"><p class="empty">Cliquez sur « Afficher » pour consulter les tendances.</p></div>
 </section>
+</details>
 
 </main>
 <main class="panel" id="tab-schedule" role="tabpanel" hidden>
+<section class="card hero">
+  <h2>Ton agent piano</h2>
+  <p>Choisis combien de vidéos par jour, appuie sur le bouton : l'agent fabrique tout, l'envoie à TikTok et YouTube et le programme à la bonne date. Tu peux ensuite éteindre le Mac.</p>
+  <ol class="how"><li><b>1.</b> Mets tes morceaux .mid dans le dossier <b>Bureau/MIDI</b> <span id="tomake"></span></li><li><b>2.</b> Choisis le nombre de vidéos par jour</li><li><b>3.</b> Clique sur <b>Fabriquer et programmer</b></li></ol>
+</section>
 <div class="next" id="nextpub">Aucune publication programmée.</div>
 <div style="height:14px"></div>
 <section class="card" id="sched">
-  <div class="step"><div><h2>Programmation</h2><p>Chaque vidéo est envoyée à TikTok et YouTube dès qu'elle est montée, avec la programmation de chaque réseau (date et heure de mise en ligne). Tu n'as pas besoin de laisser le Mac allumé ensuite : TikTok et YouTube publient eux-mêmes.</p></div></div>
   <div class="agenda-head"><b>Combien de vidéos veux-tu publier chaque jour ?</b>
     <span class="quick"><button class="btn alt" data-quick="2">2 par jour (7 jours)</button><button class="btn alt" data-quick="1">1 par jour (7 jours)</button><button class="btn alt" data-quick="0">Tout effacer</button></span></div>
   <div class="agenda" id="agenda" role="group" aria-label="Agenda des prochains jours"></div>
+  <details><summary>Options (heures de publication…)</summary>
   <div class="row" style="margin-top:14px;border:0;padding:0">
     <label class="sw">Heures de publication <input type="text" id="wtimes" value="12:30, 19:00" class="sel" style="width:150px;flex:none" aria-label="Heures de publication"></label>
     <label class="sw"><input type="checkbox" id="wnow"> Publier tout de suite, sans programmer <small style="color:var(--mute)">(sinon chaque vidéo est <b>programmée dans TikTok et YouTube</b> à la date de l'agenda)</small></label>
   </div>
+  </details>
   <p class="note" id="west" style="margin:8px 0"></p>
-  <div class="row" style="border:0;padding:0;margin-top:6px"><button class="btn" id="wgo">🗓 Fabriquer, envoyer et programmer</button><button class="btn alt" id="wplan" title="Utilise les vidéos déjà prêtes au lieu d'en fabriquer">Envoyer et programmer les vidéos déjà prêtes</button><span id="wmsg" class="note" style="margin:0"></span></div>
+  <div class="row" style="border:0;padding:0;margin-top:6px"><button class="btn" id="wgo">🚀 Fabriquer et programmer</button><button class="btn alt" id="wplan" title="Utilise les vidéos déjà prêtes au lieu d'en fabriquer" hidden>Envoyer et programmer les vidéos déjà prêtes</button><span id="wmsg" class="note" style="margin:0"></span></div>
   <div id="slist"></div>
 </section>
 
@@ -272,20 +266,42 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
     <li>Ne touche pas à la souris ni au clavier pendant un envoi.</li></ol></div>
 </section>
 <section class="card">
-  <div class="step"><div><h2>Fabrication</h2></div></div>
+  <div class="step"><div><h2>Textes des vidéos</h2></div></div>
   <div class="fieldrow"><label class="k" for="lang">Langue des textes<small>Titres, descriptions, hashtags</small></label><select id="lang" class="sel" style="max-width:220px"></select></div>
+  <details><summary>Avancé</summary>
   <div class="fieldrow"><label class="k" for="maxrec">Enregistrement maximum<small>L'enregistrement d'écran s'arrête là, même si le morceau n'est pas fini</small></label><span><input type="number" id="maxrec" min="30" max="300" step="10" class="sel" style="width:100px;flex:none"> secondes</span></div>
   <div class="fieldrow"><label class="k" for="synth">Application Synthesia<small>Décoché : style dessiné, sans aucune application</small></label><label class="sw"><input type="checkbox" id="synth"> Utiliser Synthesia à la place</label></div>
+  </details>
 </section>
+</main>
+<main class="panel" id="tab-create" role="tabpanel">
+<details class="fold"><summary>🎬 Créer une seule vidéo à la main (facultatif)</summary>
+<section class="card">
+  <div class="step"><span class="num">1</span><div><h2>Morceau</h2><p>Par défaut, l'agent prend le prochain morceau de ton dossier MIDI (Bureau). Tu peux aussi en choisir un précis.</p></div></div>
+  <div class="songs" id="songs" role="radiogroup" aria-label="Morceau"></div>
+  <p class="note">Pour ajouter, chercher ou importer des morceaux : onglet <b>🎵 Bibliothèque</b>.</p>
+
+  <div class="step" style="margin-top:28px"><span class="num">2</span><div><h2>Niveau</h2><p>Plus le tempo est rapide, plus c'est difficile. L'agent ralentit tout seul les passages trop rapides à lire.</p></div></div>
+  <div class="grid g3" id="levels" role="radiogroup" aria-label="Niveau"></div>
+
+  <div class="step" style="margin-top:28px"><span class="num">3</span><div><h2>Formats</h2><p>Un seul enregistrement donne les deux vidéos : le vertical (TikTok + YouTube Short) et l'horizontal (YouTube).</p></div></div>
+  <div class="grid g2" id="formats" aria-label="Formats"></div>
+
+  <div class="step" style="margin-top:28px"><span class="num">4</span><div><h2>Après le montage</h2><p>Pour mettre en ligne à une date précise, utilise l'onglet <b>Programmation</b> : la date est réglée dans TikTok et YouTube eux-mêmes.</p></div></div>
+  <label class="sw"><input type="checkbox" id="publish"> <span id="pubtxt">Publier tout de suite après le montage</span></label>
+  <p class="est" id="est" style="margin:10px 0 0"></p>
+</section>
+<div class="cta"><button id="go">Créer</button></div>
+</details>
 </main>
 
 <script>
 const $=s=>document.querySelector(s);
-const TABS=['create','library','schedule','videos','settings'];
-function tab(n,noScroll){if(!TABS.includes(n))n='create';TABS.forEach(t=>{$('#tab-'+t).hidden=t!==n;document.querySelector('[data-tab="'+t+'"]').setAttribute('aria-selected',t===n)});
+const TABS=['create','library','schedule','videos','settings'],GROUPS={home:['schedule','videos'],library:['library'],settings:['settings','create']};
+function tab(n,noScroll){if(!GROUPS[n])n='home';TABS.forEach(t=>{$('#tab-'+t).hidden=!GROUPS[n].includes(t)});document.querySelectorAll('.nav [data-tab]').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===n));
   try{history.replaceState(null,'','#'+n);localStorage.setItem('tab',n)}catch(e){}if(!noScroll)window.scrollTo({top:0,behavior:'smooth'})}
 document.querySelector('.nav').onclick=e=>{const b=e.target.closest('[data-tab]');if(b)tab(b.dataset.tab)};
-tab((location.hash||'').slice(1)||(()=>{try{return localStorage.getItem('tab')}catch(e){return ''}})()||'create',true);
+tab((location.hash||'').slice(1)||(()=>{try{return localStorage.getItem('tab')}catch(e){return ''}})()||'home',true);
 
 let songId=null,level=null,formats=new Set(),since=0,timer=null,opts=null,cur=-1,fmtLabel='';
 const api=(p,o)=>fetch(p,o).then(r=>r.json());
@@ -352,7 +368,7 @@ $('#tgo').onclick=()=>{$('#tgo').disabled=true;$('#tres').innerHTML='<p class="e
     $('#tres').innerHTML=r.items.length?r.items.map(i=>`<div class="tr"><span class="rk">${i.rank}</span><span class="n"><b>${esc(i.title)}</b><small>${esc(i.artist)}</small></span><button class="btn alt" data-q="${esc(i.title)}">MIDI libre</button><a class="btn alt" target="_blank" rel="noopener" href="${webUrl(i.title+' '+i.artist)}">🔎 Web</a></div>`).join(''):`<p class="note bad">${esc(r.message||'Aucune tendance disponible.')}</p>`
   }).catch(()=>{$('#tres').innerHTML='<p class="note bad">Impossible de charger les tendances.</p>'}).finally(()=>{$('#tgo').disabled=false})};
 $('#tres').onclick=e=>{const b=e.target.closest('[data-q]');if(b){$('#q').scrollIntoView({behavior:'smooth',block:'center'});runSearch(b.dataset.q)}};
-function info(){api('/api/info').then(i=>{if(ONLY_MINE!==!!i.only_mine){ONLY_MINE=!!i.only_mine;songs()}$('#pubtxt').innerHTML='Publier tout de suite après le montage (sinon : onglet Programmation) : '+[['YouTube',i.youtube],['TikTok',i.tiktok]].map(([n,ok])=>`${n} <b style="color:var(--${ok?'ok':'bad'})">${ok?'✓':'non connecté'}</b>`).join(' · ');$('#ver').innerHTML=`v <b>${esc(i.version||'?')}</b>`;[['#pill-tt','TikTok',i.tiktok],['#pill-yt','YouTube',i.youtube]].forEach(([s,n,ok])=>{$(s).textContent=(ok?'✓ ':'✗ ')+n;$(s).className='pill '+(ok?'ok':'bad')});if(i.only_mine){$('#stock').textContent=`${i.to_make} à faire`;$('#sdot').className='dot'+(i.to_make>0?' on':'');$('#stock').parentElement.childNodes[1].textContent='Dossier MIDI : '}else{$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'')}
+function info(){api('/api/info').then(i=>{if(ONLY_MINE!==!!i.only_mine){ONLY_MINE=!!i.only_mine;songs()}$('#pubtxt').innerHTML='Publier tout de suite après le montage (sinon : onglet Programmation) : '+[['YouTube',i.youtube],['TikTok',i.tiktok]].map(([n,ok])=>`${n} <b style="color:var(--${ok?'ok':'bad'})">${ok?'✓':'non connecté'}</b>`).join(' · ');$('#ver').innerHTML=`v <b>${esc(i.version||'?')}</b>`;if($('#tomake'))$('#tomake').textContent=i.to_make!=null?`— ${i.to_make} morceau(x) prêt(s) à fabriquer`:'';[['#pill-tt','TikTok',i.tiktok],['#pill-yt','YouTube',i.youtube]].forEach(([s,n,ok])=>{$(s).textContent=(ok?'✓ ':'✗ ')+n;$(s).className='pill '+(ok?'ok':'bad')});if(i.only_mine){$('#stock').textContent=`${i.to_make} à faire`;$('#sdot').className='dot'+(i.to_make>0?' on':'');$('#stock').parentElement.childNodes[1].textContent='Dossier MIDI : '}else{$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'')}
   $('#engine').innerHTML=`Moteur : <b>${i.engine==='synthesia'?'Synthesia':i.engine?'rendu intégré':'vérification…'}</b>`;$('#engine').title=i.engine==='synthesia'?'Votre application Synthesia pilotée automatiquement':'Synthesia non prêt : rendu intégré utilisé'})}
 function vids(){api('/api/videos').then(v=>{if(!v.length)return;$('#vids').innerHTML=v.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${esc(x.level)} · ${esc(x.format)} · ${x.duration}s · qualité ${x.quality??'-'}/100 · ${esc(x.status)} · ${esc(x.at)}</small></div>${x.file?`<button data-f="${esc(x.file)}">Voir</button>`:''}</div>${x.file&&x.status!=='FAILED'?`<div class="pub"><button data-now="${x.id}">🚀 Publier maintenant</button><input type="datetime-local" data-when="${x.id}" class="sel" style="flex:none;padding:6px 8px"><button data-at="${x.id}">🗓 Programmer</button></div>`:''}${x.post&&x.file?pubBox(x.post):''}`).join('')})}
 $('#vids').onclick=e=>{const f=e.target.dataset.f;if(f){$('#player').innerHTML=`<video controls autoplay playsinline style="width:100%;max-height:70vh;border-radius:12px;background:#000;margin-top:12px" src="/files/${encodeURIComponent(f)}"></video>`;$('#player').scrollIntoView({behavior:'smooth',block:'center'})}};
@@ -374,7 +390,7 @@ const dfmt=iso=>new Date(iso).toLocaleString('fr-FR',{weekday:'short',day:'numer
 function sched(){api('/api/schedule').then(d=>{
   const nm={PENDING:'⏳ programmée',RUNNING:'⏫ envoi en cours',DONE:'✅ publiée',FAILED:'❌ échec',MISSED:'⚠ manquée'};
   const pend=d.items.filter(x=>x.status==='PENDING');PENDING_N=pend.length;$('#b-sch').textContent=pend.length||'';
-  $('#nextpub').innerHTML=pend.length?`⏭ Prochaine publication : <b>${esc(pend[0].title)}</b> · ${esc(dfmt(pend[0].run_at))} <span style="margin-left:auto">${pend.length} à publier par l\'app</span>`:'Aucune publication programmée. Utilise « Fabriquer et programmer l\'agenda » ci-dessous.';
+  $('#nextpub').innerHTML=pend.length?`⏭ Prochaine publication : <b>${esc(pend[0].title)}</b> · ${esc(dfmt(pend[0].run_at))} <span style="margin-left:auto">${pend.length} à publier par l\'app</span>`:'Aucune publication programmée. Choisis un nombre de vidéos par jour ci-dessous.';
   const un=d.unscheduled.length?`<p class="note" style="margin:10px 0 4px"><b>${d.unscheduled.length}</b> vidéo(s) prête(s) pas encore programmée(s).</p>`:'';
   $('#slist').innerHTML=un+(pend.length?`<p style="margin:8px 0"><button class="btn alt" data-cancelall="1">Tout annuler (${pend.length} publications programmées dans l\'app)</button></p>`:'')+(d.items.length?d.items.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${x.format==='horizontal'?'YouTube long':'TikTok + YouTube Shorts'} · ${esc(dfmt(x.run_at))} · ${nm[x.status]||esc(x.status)}${x.detail?' · '+esc(x.detail):''}</small></div>${x.status==='PENDING'?`<button data-cancel="${x.id}">Annuler</button>`:''}</div>`).join(''):'<p class="empty">Rien de programmé.</p>')})}
 function inb(){api('/api/inbox').then(d=>{$('#ibpath').textContent=d.path;$('#ibwait').textContent=d.waiting;$('#ibdone').textContent=d.done;$('#b-lib').textContent=d.to_make||'';$('#b-lib').dataset.n=d.to_make||0;$('#ibrights').checked=d.rights;
@@ -442,7 +458,7 @@ function poll(){api('/api/status?since='+since).then(s=>{
     if(s.status==='failed'){$('#err').hidden=false;$('#err').textContent=s.error}
     if(s.waiting&&s.waiting.length){$('#err').hidden=false;$('#err').innerHTML=($('#err').innerHTML||'')+'<b>⏳ En attente de la limite YouTube :</b><br>'+s.waiting.map(f=>esc(f)).join('<br>')}
     if(s.failures&&s.failures.length){$('#err').hidden=false;$('#err').innerHTML='<b>Ce qui n\'a pas marché :</b><br>'+s.failures.map(f=>'✖ '+esc(f)).join('<br>')+'<br><small>Captures de chaque étape : dossier data/debug/steps · liste des boutons vus : data/debug/*_page.txt</small>'}
-    if(s.planned&&s.planned.length){const f=s.planned[0];$('#now').innerHTML=`🗓 <b>${new Set(s.planned.map(p=>p.run_at)).size} vidéo(s) programmée(s) dans TikTok et YouTube</b> — la première sera en ligne ${esc(dfmt(f.run_at))}. Tu peux éteindre le Mac : les réseaux publient eux-mêmes.`;results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result);tab('schedule',true)}
+    if(s.planned&&s.planned.length){const f=s.planned[0];$('#now').innerHTML=`🗓 <b>${new Set(s.planned.map(p=>p.run_at)).size} vidéo(s) programmée(s) dans TikTok et YouTube</b> — la première sera en ligne ${esc(dfmt(f.run_at))}. Tu peux éteindre le Mac : les réseaux publient eux-mêmes.`;results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result);tab('home',true)}
     else if(s.result&&s.result.task){$('#now').textContent='Terminé : '+s.result.summary}
     else if(s.result){$('#now').textContent='Terminé';results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result)}}
 })}
