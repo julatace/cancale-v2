@@ -127,8 +127,20 @@ class Job:
             lg.removeHandler(h)
             stock.refill_in_background(settings)          # prépare déjà le(s) prochain(s) morceau(x)
 
+    def _preflight(self):
+        """Contrôle avant départ : mieux vaut refuser tout de suite que d'échouer à la fin d'un long lot."""
+        import shutil
+        if not shutil.which("ffmpeg"):
+            raise RuntimeError("FFmpeg est introuvable (brew install ffmpeg)")
+        free = shutil.disk_usage(Path(__file__).resolve().parents[2]).free / 1e9
+        if free < 2:
+            raise RuntimeError(f"Disque presque plein ({free:.1f} Go libres) : libérez de la place avant de créer des vidéos")
+        if free < 5:
+            self._add(f"⚠ Seulement {free:.1f} Go libres : les vidéos publiées seront supprimées au fur et à mesure.")
+
     def _produce(self, settings, level, formats, publish, count, song_id, lang, plan):
         """Crée `count` vidéos ; en mode « semaine » : s'arrête quand le temps alloué est écoulé, puis programme les publications."""
+        self._preflight()
         if not plan:
             return [RUNNER(settings, level=level, formats=formats, publish=publish, song_id=song_id, lang=lang) for _ in range(count)]
         budget = float(plan.get("minutes") or 0) * 60                  # 0 = pas de limite (mode agenda)
