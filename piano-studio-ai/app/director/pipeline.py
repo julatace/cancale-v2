@@ -72,7 +72,9 @@ def pick_song(conn, s, seed, exclude=()) -> tuple[int, Path, dict]:
           and db.song_usable(conn, r["id"], s["same_song_cooldown_days"])[0]]
     mine = [r for r in ok if (r["source"] or "").startswith("user_owned: Fourni")]
     if mine and s.get("songs", {}).get("prefer_mine", True):          # tes morceaux (boîte de réception, ajout manuel) passent d'abord, dans l'ordre d'arrivée
-        r = mine[0]
+        recent = [(x[0] or "").strip().lower() for x in conn.execute(                # ... mais jamais 2 fois de suite le même artiste si on a le choix
+            "SELECT s.artist FROM videos v JOIN songs s ON s.id=v.song_id ORDER BY v.id DESC LIMIT 4")]
+        r = next((x for x in mine if (x["artist"] or "").strip().lower() not in recent[:2] or not (x["artist"] or "").strip()), mine[0])
         return r["id"], Path(r["midi_path"]), {"title": r["title"], "artist": r["artist"], "credit": _credit(r["source"])}
     if ok:
         r = random.Random(seed).choice(ok)

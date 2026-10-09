@@ -37,9 +37,9 @@ header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:22p
 .dev{display:flex;align-items:center;gap:14px}.dev svg{flex:none;color:var(--ink)}
 .row{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
 .sw{display:flex;align-items:center;gap:10px;cursor:pointer;color:var(--mute);font-size:15px}
-.sw input{appearance:none;width:44px;height:26px;border-radius:99px;background:var(--line);position:relative;cursor:pointer;transition:.15s;flex:none}
-.sw input::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
-.sw input:checked{background:var(--brand)}.sw input:checked::after{left:21px}
+.sw input[type=checkbox]{appearance:none;width:44px;height:26px;border-radius:99px;background:var(--line);position:relative;cursor:pointer;transition:.15s;flex:none}
+.sw input[type=checkbox]::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.15s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.sw input[type=checkbox]:checked{background:var(--brand)}.sw input[type=checkbox]:checked::after{left:21px}
 .est{color:var(--mute);font-size:14px}
 .cta{position:sticky;bottom:0;z-index:5;padding:26px 0 14px;background:linear-gradient(to top,var(--bg) 62%,transparent)}
 #go{width:100%;border:0;border-radius:18px;padding:20px;background:var(--gold);color:var(--gold-ink);font-size:20px;font-weight:800;cursor:pointer;box-shadow:0 10px 30px rgba(255,183,3,.35);transition:transform .08s,filter .12s}
@@ -83,7 +83,7 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 #msg{margin:8px 0 0;font-size:14px}#msg.bad{color:var(--bad)}#msg.ok{color:var(--ok)}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.chip2{padding:7px 13px;border:2px solid var(--line);border-radius:99px;background:var(--surface);color:var(--ink);font:inherit;font-size:14px;cursor:pointer}.chip2:hover{border-color:var(--brand);color:var(--brand)}
 .sbox{display:flex;gap:8px;margin:2px 0 4px}
-.sbox input[type=search],.sel{flex:1;min-width:0;padding:12px 14px;border:2px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);font-size:16px}
+.sbox input[type=search],.sbox input[type=text],.sel{flex:1;min-width:0;padding:12px 14px;border:2px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);font-size:16px}
 .sbox input:focus,.sel:focus{border-color:var(--brand);outline:none}
 .btn{padding:12px 18px;border:0;border-radius:12px;background:var(--brand);color:#fff;font-weight:700;cursor:pointer;white-space:nowrap}
 .btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
@@ -98,46 +98,71 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 .pub button:hover,.pub a:hover{border-color:var(--brand);color:var(--brand)}.pub .done{border-color:var(--ok);color:var(--ok)}
 .pubnote{font-size:12.5px;color:var(--mute);margin:6px 0 0}
 [hidden]{display:none!important}
+
+/* ===== refonte : navigation par onglets, hiérarchie plus claire ===== */
+:root{--bg:#f4f5fb;--surface:#fff;--ink:#0f1226;--mute:#5d6384;--line:#e4e6f2;--brand:#5146f0;--brand-soft:#eceaff;--r:18px;
+  --shadow:0 1px 2px rgba(15,18,38,.05),0 10px 30px rgba(15,18,38,.06)}
+@media (prefers-color-scheme:dark){:root{--bg:#090b19;--surface:#131630;--ink:#eef0ff;--mute:#9aa1c8;--line:#252a4d;--brand:#9a94ff;--brand-soft:#232662}}
+body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(--brand) 14%,transparent),transparent),var(--bg)}
+.wrap{max-width:1040px}
+.topbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:4px 0 14px}
+.topbar .logo{margin-right:auto}
+.sub{font-size:13px;color:var(--mute);font-weight:500;display:block;margin-top:-2px}
+.nav{position:sticky;top:0;z-index:20;display:flex;gap:4px;padding:6px;margin:0 0 20px;background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:blur(14px);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow-x:auto}
+.nav button{flex:1;min-width:max-content;display:flex;align-items:center;justify-content:center;gap:8px;border:0;background:none;padding:11px 16px;border-radius:12px;font-weight:700;font-size:15px;color:var(--mute);cursor:pointer;transition:background .12s,color .12s}
+.nav button:hover{color:var(--ink);background:var(--brand-soft)}
+.nav button[aria-selected=true]{background:var(--brand);color:#fff}
+.nav .b{font-size:12px;font-weight:800;min-width:20px;padding:1px 7px;border-radius:99px;background:color-mix(in srgb,currentColor 18%,transparent)}
+.nav .b:empty,.nav .b[data-n="0"]{display:none}
+.panel{animation:fade .18s ease}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.card{border-radius:var(--r);padding:24px}
+.card h3{margin:0 0 4px;font-size:17px}
+.lead{margin:0 0 16px;color:var(--mute);font-size:15px}
+.hero{background:linear-gradient(135deg,var(--brand),color-mix(in srgb,var(--brand) 55%,#ff7ad9));color:#fff;border:0}
+.hero h2{margin:0 0 4px;font-size:24px;letter-spacing:-.01em}.hero p{margin:0;opacity:.9}
+.hero .btn{background:#fff;color:var(--brand)}
+.two{display:grid;grid-template-columns:1.15fr 1fr;gap:18px;align-items:start}
+@media(max-width:860px){.two{grid-template-columns:1fr}}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0 0}
+.kv div{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.kv small{display:block;color:var(--mute);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.kv b{font-size:20px}
+.statusline{display:flex;gap:8px;flex-wrap:wrap}
+.pill.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,var(--line))}.pill.bad{color:var(--bad)}
+.next{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:14px;font-size:14px;color:var(--mute)}
+.next b{color:var(--ink)}
+.help{font-size:14px;color:var(--mute);background:var(--bg);border:1px dashed var(--line);border-radius:14px;padding:12px 14px;margin-top:12px}
+.help ol{margin:6px 0 0 18px;padding:0}
+.fieldrow{display:grid;grid-template-columns:200px 1fr;gap:10px 18px;align-items:center;padding:14px 0;border-top:1px solid var(--line)}
+.fieldrow:first-of-type{border-top:0}
+.fieldrow label.k{font-weight:700}.fieldrow small{display:block;color:var(--mute);font-weight:400}
+@media(max-width:640px){.fieldrow{grid-template-columns:1fr}}
+.cta{padding:18px 0 10px}
+.row{justify-content:flex-start;gap:12px 20px}
+.songs{overflow-x:hidden}.song{min-width:0}
+@media(max-width:640px){.card{padding:16px;border-radius:16px}.wrap{padding-left:12px;padding-right:12px}.nav button{padding:10px 12px;font-size:14px}.sbox{flex-wrap:wrap}.sbox input{flex-basis:100%}}
+#go{border-radius:16px;font-size:19px}
 </style></head><body><div class="wrap">
 
-<header>
-  <div class="logo"><svg viewBox="0 0 34 34" aria-hidden="true"><rect width="34" height="34" rx="9" fill="#5b5bf0"/><g fill="#fff"><rect x="6" y="7" width="4.4" height="20" rx="1"/><rect x="12" y="7" width="4.4" height="20" rx="1"/><rect x="18" y="7" width="4.4" height="20" rx="1"/><rect x="24" y="7" width="4.4" height="20" rx="1"/></g><g fill="#ffb703"><rect x="9" y="7" width="3.6" height="12" rx="1"/><rect x="21" y="7" width="3.6" height="12" rx="1"/></g></svg>Piano Studio AI</div>
-  <span class="pill" title="Morceaux déjà téléchargés et vérifiés"><span class="dot" id="sdot"></span>Réserve : <b id="stock">…</b></span>
-  <span class="pill" id="ver" title="Version du programme en cours d'exécution">v <b>…</b></span>
-  <span class="pill" id="engine" title="Moteur utilisé pour fabriquer la vidéo">Moteur : <b>…</b></span>
-</header>
-
-<section class="card">
-  <div class="step"><span class="num">1</span><div><h2>Niveau de difficulté</h2><p>Plus le tempo est rapide, plus c'est difficile à jouer.</p></div></div>
-  <div class="grid g3" id="levels" role="radiogroup" aria-label="Niveau"></div>
-
-  <div class="step" style="margin-top:26px"><span class="num">2</span><div><h2>Formats</h2><p>Un seul enregistrement de Synthesia donne les deux vidéos. Décochez-en une si besoin.</p></div></div>
-  <div class="grid g2" id="formats" aria-label="Formats"></div>
-
-  <div class="step" style="margin-top:26px"><span class="num">3</span><div><h2>Musique</h2><p>Laissez l'agent choisir, ou utilisez l'un de vos morceaux (fichiers MIDI).</p></div></div>
-  <div class="sbox"><input type="search" id="q" placeholder="Rechercher un morceau (ex. Clair de Lune, Für Elise, Gymnopédie…)" aria-label="Rechercher un morceau"><button class="btn" id="qgo">Chercher</button><a class="btn alt" id="qweb" target="_blank" rel="noopener" title="Ouvre une recherche internet dans un nouvel onglet : vous téléchargez le fichier vous-même, puis vous le glissez ci-dessous">🔎 Sur le web</a></div>
-  <div class="chips" id="pop" aria-label="Classiques populaires"></div>
-  <div style="margin:8px 0 2px"><button class="btn alt" id="lat">✨ Voir les nouveautés (derniers morceaux libres de droits)</button></div>
-  <div id="qres"></div>
-  <div class="songs" id="songs" role="radiogroup" aria-label="Morceau" style="margin-top:12px"></div>
-  <div class="drop" id="drop" tabindex="0"><b>＋ Ajouter mes morceaux</b>Glissez des fichiers .mid / .kar ici, ou cliquez pour les choisir</div>
-  <input type="file" id="file" accept=".mid,.midi,.kar" multiple hidden>
-  <p class="note" style="margin:6px 0 0">Les chansons récentes sont protégées : un fichier MIDI trouvé sur le web n'est pas forcément libre de droits. Sa publication peut entraîner une réclamation, la coupure du son ou la suppression de la vidéo.</p>
-  <label class="rights"><input type="checkbox" id="rights"> Je confirme avoir les droits d'utiliser cette musique (composition à moi, domaine public ou licence qui l'autorise).</label>
-  <p id="msg" hidden></p>
-
-  <div class="row">
-    <label class="sw">Langue des textes <select id="lang" class="sel" style="flex:none;padding:6px 10px"></select></label>
-    <label class="sw" title="Durée maximale de l'enregistrement d'écran : il s'arrête là, même si le morceau n'est pas fini">Enregistrement max <input type="number" id="maxrec" min="30" max="300" step="10" class="sel" style="width:76px;flex:none"> secondes</label>
-    <label class="sw"><input type="checkbox" id="synth" checked> Utiliser mon application Synthesia (sinon rendu intégré)</label>
-    <label class="sw"><input type="checkbox" id="publish" checked> <span id="pubtxt">Publier automatiquement après le montage</span></label>
-    <button class="btn alt" id="chk" style="padding:6px 12px;font-size:13px">Tester mes connexions</button>
-    <span id="chkres" class="note" style="margin:0"></span>
-    <span class="est" id="est"></span>
+<div class="topbar">
+  <div class="logo"><svg viewBox="0 0 34 34" aria-hidden="true"><rect width="34" height="34" rx="9" fill="#5146f0"/><g fill="#fff"><rect x="6" y="7" width="4.4" height="20" rx="1"/><rect x="12" y="7" width="4.4" height="20" rx="1"/><rect x="18" y="7" width="4.4" height="20" rx="1"/><rect x="24" y="7" width="4.4" height="20" rx="1"/></g><g fill="#ffb703"><rect x="9" y="7" width="3.6" height="12" rx="1"/><rect x="21" y="7" width="3.6" height="12" rx="1"/></g></svg><span>Piano Studio<span class="sub">Tutoriels piano : fabriqués et publiés automatiquement</span></span></div>
+  <div class="statusline">
+    <span class="pill" id="engine" title="Moteur utilisé pour fabriquer la vidéo">Moteur : <b>…</b></span>
+    <span class="pill" id="pill-tt">TikTok …</span>
+    <span class="pill" id="pill-yt">YouTube …</span>
+    <span class="pill" id="ver" title="Version du programme en cours d'exécution">v <b>…</b></span>
+    <span class="pill" title="Morceaux déjà téléchargés et vérifiés"><span class="dot" id="sdot"></span>Réserve : <b id="stock">…</b></span>
   </div>
-</section>
+</div>
 
-<div class="cta"><button id="go">Créer</button></div>
+<nav class="nav" role="tablist" aria-label="Sections">
+  <button role="tab" data-tab="create" aria-selected="true">🎬 Créer</button>
+  <button role="tab" data-tab="library" aria-selected="false">🎵 Bibliothèque <span class="b" id="b-lib"></span></button>
+  <button role="tab" data-tab="schedule" aria-selected="false">🗓 Programmation <span class="b" id="b-sch"></span></button>
+  <button role="tab" data-tab="videos" aria-selected="false">🎞 Vidéos</button>
+  <button role="tab" data-tab="settings" aria-selected="false">⚙ Réglages</button>
+</nav>
 
 <section class="card" id="job" hidden style="margin-top:18px">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><b>Création</b><span style="display:flex;gap:10px;align-items:center"><span class="chip" id="chip">En cours</span><button id="stoprec" class="stop">■ Arrêter l'enregistrement</button><button id="stop" class="stop ghost">Annuler</button></span></div>
@@ -149,12 +174,25 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
   <div class="res" id="res"></div>
 </section>
 
+<main class="panel" id="tab-create" role="tabpanel">
 <section class="card">
-  <div class="step"><div><h2>Tendances du moment</h2><p>Classements musicaux par pays. Ces titres sont en général protégés : l'agent cherche une version libre de droits (surtout en classique).</p></div></div>
-  <div class="filters"><select id="tc" class="sel"></select><select id="tg" class="sel"><option value="all">Tous styles</option><option value="classical">Classique</option></select><button class="btn alt" id="tgo">Afficher</button></div>
-  <div id="tres"><p class="empty">Cliquez sur « Afficher » pour consulter les tendances.</p></div>
-</section>
+  <div class="step"><span class="num">1</span><div><h2>Morceau</h2><p>Laisse l'agent choisir (tes morceaux passent en premier), ou prends-en un précis.</p></div></div>
+  <div class="songs" id="songs" role="radiogroup" aria-label="Morceau"></div>
+  <p class="note">Pour ajouter, chercher ou importer des morceaux : onglet <b>🎵 Bibliothèque</b>.</p>
 
+  <div class="step" style="margin-top:28px"><span class="num">2</span><div><h2>Niveau</h2><p>Plus le tempo est rapide, plus c'est difficile. L'agent ralentit tout seul les passages trop rapides à lire.</p></div></div>
+  <div class="grid g3" id="levels" role="radiogroup" aria-label="Niveau"></div>
+
+  <div class="step" style="margin-top:28px"><span class="num">3</span><div><h2>Formats</h2><p>Un seul enregistrement donne les deux vidéos : le vertical (TikTok + YouTube Short) et l'horizontal (YouTube).</p></div></div>
+  <div class="grid g2" id="formats" aria-label="Formats"></div>
+
+  <div class="step" style="margin-top:28px"><span class="num">4</span><div><h2>Après le montage</h2><p>Les vidéos peuvent partir toutes seules sur TikTok et YouTube.</p></div></div>
+  <label class="sw"><input type="checkbox" id="publish" checked> <span id="pubtxt">Publier automatiquement après le montage</span></label>
+  <p class="est" id="est" style="margin:10px 0 0"></p>
+</section>
+<div class="cta"><button id="go">Créer</button></div>
+</main>
+<main class="panel" id="tab-library" role="tabpanel" hidden>
 <section class="card" id="inbox">
   <div class="step"><div><h2>Mon dossier MIDI</h2><p>L'agent lit les fichiers .mid / .midi / .kar de ce dossier de ton ordinateur et fabrique les vidéos avec. Tes fichiers ne sont ni déplacés ni modifiés.</p></div></div>
   <div class="sbox"><input type="text" id="fpath" placeholder="/Users/toi/Desktop/MIDI" aria-label="Dossier MIDI"><button class="btn alt" id="fsave">Utiliser ce dossier</button><button class="btn" id="fscan">📥 Importer maintenant</button></div>
@@ -164,6 +202,30 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
     <p class="note">Dossier de réception : <code id="ibpath">…</code> · en attente : <b id="ibwait">0</b> · reçus : <b id="ibdone">0</b><br>Envoi direct : <code>curl -X POST --data-binary @fichier.mid -H "X-Filename: Artiste - Titre.mid" http://127.0.0.1:8765/api/inbox</code></p></details>
 </section>
 
+
+<section class="card">
+  <div class="step"><div><h2>Ajouter, chercher</h2><p>Un fichier MIDI à toi, une recherche sur Mutopia (libre de droits), ou une recherche sur internet.</p></div></div>
+  <div class="sbox"><input type="search" id="q" placeholder="Rechercher un morceau (ex. Clair de Lune, Für Elise, Gymnopédie…)" aria-label="Rechercher un morceau"><button class="btn" id="qgo">Chercher</button><a class="btn alt" id="qweb" target="_blank" rel="noopener" title="Ouvre une recherche internet dans un nouvel onglet : vous téléchargez le fichier vous-même, puis vous le glissez ci-dessous">🔎 Sur le web</a></div>
+  <div class="chips" id="pop" aria-label="Classiques populaires"></div>
+  <div style="margin:8px 0 2px"><button class="btn alt" id="lat">✨ Voir les nouveautés (derniers morceaux libres de droits)</button></div>
+  <div id="qres"></div>
+  <div class="drop" id="drop" tabindex="0"><b>＋ Ajouter mes morceaux</b>Glissez des fichiers .mid / .kar ici, ou cliquez pour les choisir</div>
+  <input type="file" id="file" accept=".mid,.midi,.kar" multiple hidden>
+  <p class="note" style="margin:6px 0 0">Les chansons récentes sont protégées : un fichier MIDI trouvé sur le web n'est pas forcément libre de droits. Sa publication peut entraîner une réclamation, la coupure du son ou la suppression de la vidéo.</p>
+  <label class="rights"><input type="checkbox" id="rights"> Je confirme avoir les droits d'utiliser cette musique (composition à moi, domaine public ou licence qui l'autorise).</label>
+  <p id="msg" hidden></p>
+
+</section>
+<section class="card">
+  <div class="step"><div><h2>Tendances du moment</h2><p>Classements musicaux par pays. Ces titres sont en général protégés : l'agent cherche une version libre de droits (surtout en classique).</p></div></div>
+  <div class="filters"><select id="tc" class="sel"></select><select id="tg" class="sel"><option value="all">Tous styles</option><option value="classical">Classique</option></select><button class="btn alt" id="tgo">Afficher</button></div>
+  <div id="tres"><p class="empty">Cliquez sur « Afficher » pour consulter les tendances.</p></div>
+</section>
+
+</main>
+<main class="panel" id="tab-schedule" role="tabpanel" hidden>
+<div class="next" id="nextpub">Aucune publication programmée.</div>
+<div style="height:14px"></div>
 <section class="card" id="sched">
   <div class="step"><div><h2>Programmation</h2><p>L'agent fabrique les vidéos puis les publie tout seul à l'heure choisie. Laisse cette page ouverte et le Mac allumé (il ne se met pas en veille tant que la page tourne).</p></div></div>
   <div class="row">
@@ -179,14 +241,40 @@ details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
   <div id="slist"></div>
 </section>
 
+</main>
+<main class="panel" id="tab-videos" role="tabpanel" hidden>
 <section class="card hist">
   <div class="step"><div><h2>Vidéos récentes</h2></div></div>
   <div id="vids"><p class="empty">Aucune vidéo pour l'instant.</p></div>
   <div id="player"></div>
 </section>
 
+</main>
+<main class="panel" id="tab-settings" role="tabpanel" hidden>
+<section class="card">
+  <div class="step"><div><h2>Connexions</h2><p>Vérifie que l'agent peut publier sur tes comptes.</p></div></div>
+  <div class="row" style="margin-top:0;border:0;padding-top:0"><button class="btn" id="chk">Tester mes connexions</button><span id="chkres" class="note" style="margin:0"></span></div>
+  <div class="help"><b>Si une publication ne part pas :</b>
+    <ol><li>Dans Chrome, ouvre le profil du compte (angeled92) et connecte-toi à TikTok et YouTube.</li>
+    <li>Dans ce profil : menu <b>Présentation → Développeur → « Autoriser JavaScript dans Apple Events »</b>.</li>
+    <li>Ne touche pas à la souris ni au clavier pendant un envoi.</li></ol></div>
+</section>
+<section class="card">
+  <div class="step"><div><h2>Fabrication</h2></div></div>
+  <div class="fieldrow"><label class="k" for="lang">Langue des textes<small>Titres, descriptions, hashtags</small></label><select id="lang" class="sel" style="max-width:220px"></select></div>
+  <div class="fieldrow"><label class="k" for="maxrec">Enregistrement maximum<small>L'enregistrement d'écran s'arrête là, même si le morceau n'est pas fini</small></label><span><input type="number" id="maxrec" min="30" max="300" step="10" class="sel" style="width:100px;flex:none"> secondes</span></div>
+  <div class="fieldrow"><label class="k" for="synth">Application Synthesia<small>Décoché : rendu intégré, sans Synthesia</small></label><label class="sw"><input type="checkbox" id="synth" checked> Utiliser mon application Synthesia</label></div>
+</section>
+</main>
+
 <script>
 const $=s=>document.querySelector(s);
+const TABS=['create','library','schedule','videos','settings'];
+function tab(n,noScroll){if(!TABS.includes(n))n='create';TABS.forEach(t=>{$('#tab-'+t).hidden=t!==n;document.querySelector('[data-tab="'+t+'"]').setAttribute('aria-selected',t===n)});
+  try{history.replaceState(null,'','#'+n);localStorage.setItem('tab',n)}catch(e){}if(!noScroll)window.scrollTo({top:0,behavior:'smooth'})}
+document.querySelector('.nav').onclick=e=>{const b=e.target.closest('[data-tab]');if(b)tab(b.dataset.tab)};
+tab((location.hash||'').slice(1)||(()=>{try{return localStorage.getItem('tab')}catch(e){return ''}})()||'create',true);
+
 let songId=null,level=null,formats=new Set(),since=0,timer=null,opts=null,cur=-1,fmtLabel='';
 const api=(p,o)=>fetch(p,o).then(r=>r.json());
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -251,7 +339,7 @@ $('#tgo').onclick=()=>{$('#tgo').disabled=true;$('#tres').innerHTML='<p class="e
     $('#tres').innerHTML=r.items.length?r.items.map(i=>`<div class="tr"><span class="rk">${i.rank}</span><span class="n"><b>${esc(i.title)}</b><small>${esc(i.artist)}</small></span><button class="btn alt" data-q="${esc(i.title)}">MIDI libre</button><a class="btn alt" target="_blank" rel="noopener" href="${webUrl(i.title+' '+i.artist)}">🔎 Web</a></div>`).join(''):`<p class="note bad">${esc(r.message||'Aucune tendance disponible.')}</p>`
   }).catch(()=>{$('#tres').innerHTML='<p class="note bad">Impossible de charger les tendances.</p>'}).finally(()=>{$('#tgo').disabled=false})};
 $('#tres').onclick=e=>{const b=e.target.closest('[data-q]');if(b){$('#q').scrollIntoView({behavior:'smooth',block:'center'});runSearch(b.dataset.q)}};
-function info(){api('/api/info').then(i=>{$('#pubtxt').innerHTML='Publier automatiquement après le montage : '+[['YouTube',i.youtube],['TikTok',i.tiktok]].map(([n,ok])=>`${n} <b style="color:var(--${ok?'ok':'bad'})">${ok?'✓':'non connecté'}</b>`).join(' · ');$('#ver').innerHTML=`version <b>${esc(i.version||'?')}</b>`;$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'');
+function info(){api('/api/info').then(i=>{$('#pubtxt').innerHTML='Publier automatiquement après le montage : '+[['YouTube',i.youtube],['TikTok',i.tiktok]].map(([n,ok])=>`${n} <b style="color:var(--${ok?'ok':'bad'})">${ok?'✓':'non connecté'}</b>`).join(' · ');$('#ver').innerHTML=`v <b>${esc(i.version||'?')}</b>`;[['#pill-tt','TikTok',i.tiktok],['#pill-yt','YouTube',i.youtube]].forEach(([s,n,ok])=>{$(s).textContent=(ok?'✓ ':'✗ ')+n;$(s).className='pill '+(ok?'ok':'bad')});$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'');
   $('#engine').innerHTML=`Moteur : <b>${i.engine==='synthesia'?'Synthesia':i.engine?'rendu intégré':'vérification…'}</b>`;$('#engine').title=i.engine==='synthesia'?'Votre application Synthesia pilotée automatiquement':'Synthesia non prêt : rendu intégré utilisé'})}
 function vids(){api('/api/videos').then(v=>{if(!v.length)return;$('#vids').innerHTML=v.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${esc(x.level)} · ${esc(x.format)} · ${x.duration}s · qualité ${x.quality??'-'}/100 · ${esc(x.status)} · ${esc(x.at)}</small></div>${x.file?`<button data-f="${esc(x.file)}">Voir</button>`:''}</div>${x.file&&x.status!=='FAILED'?`<div class="pub"><button data-now="${x.id}">🚀 Publier maintenant</button><input type="datetime-local" data-when="${x.id}" class="sel" style="flex:none;padding:6px 8px"><button data-at="${x.id}">🗓 Programmer</button></div>`:''}${x.post&&x.file?pubBox(x.post):''}`).join('')})}
 $('#vids').onclick=e=>{const f=e.target.dataset.f;if(f){$('#player').innerHTML=`<video controls autoplay playsinline style="width:100%;max-height:70vh;border-radius:12px;background:#000;margin-top:12px" src="/files/${encodeURIComponent(f)}"></video>`;$('#player').scrollIntoView({behavior:'smooth',block:'center'})}};
@@ -272,9 +360,11 @@ $('#chk').onclick=()=>{$('#chk').disabled=true;$('#chkres').textContent='Vérifi
 const dfmt=iso=>new Date(iso).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 function sched(){api('/api/schedule').then(d=>{
   const nm={PENDING:'⏳ programmée',RUNNING:'⏫ envoi en cours',DONE:'✅ publiée',FAILED:'❌ échec',MISSED:'⚠ manquée'};
+  const pend=d.items.filter(x=>x.status==='PENDING');$('#b-sch').textContent=pend.length||'';
+  $('#nextpub').innerHTML=pend.length?`⏭ Prochaine publication : <b>${esc(pend[0].title)}</b> · ${esc(dfmt(pend[0].run_at))} <span style="margin-left:auto">${pend.length} en attente</span>`:'Aucune publication programmée. Utilise « Fabriquer et programmer » ci-dessous.';
   const un=d.unscheduled.length?`<p class="note" style="margin:10px 0 4px"><b>${d.unscheduled.length}</b> vidéo(s) prête(s) pas encore programmée(s).</p>`:'';
   $('#slist').innerHTML=un+(d.items.length?d.items.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${x.format==='horizontal'?'YouTube long':'TikTok + YouTube Shorts'} · ${esc(dfmt(x.run_at))} · ${nm[x.status]||esc(x.status)}${x.detail?' · '+esc(x.detail):''}</small></div>${x.status==='PENDING'?`<button data-cancel="${x.id}">Annuler</button>`:''}</div>`).join(''):'<p class="empty">Rien de programmé.</p>')})}
-function inb(){api('/api/inbox').then(d=>{$('#ibpath').textContent=d.path;$('#ibwait').textContent=d.waiting;$('#ibdone').textContent=d.done;$('#ibrights').checked=d.rights;
+function inb(){api('/api/inbox').then(d=>{$('#ibpath').textContent=d.path;$('#ibwait').textContent=d.waiting;$('#ibdone').textContent=d.done;$('#b-lib').textContent=d.to_make||'';$('#b-lib').dataset.n=d.to_make||0;$('#ibrights').checked=d.rights;
   const f=(d.folders||[])[0];if(f&&document.activeElement!==$('#fpath'))$('#fpath').value=f.path;
   $('#fstat').innerHTML=(f?(f.exists?`<b>${f.files}</b> fichier(s) MIDI dans ce dossier · `:`<b style="color:var(--bad)">dossier introuvable</b> · `):'Aucun dossier choisi · ')+`<b>${d.waiting}</b> en attente d'import · <b>${d.to_make}</b> morceau(x) à transformer en vidéo (l'agent prend les tiens en premier, dans l'ordre d'arrivée)`+(d.last_check?` · vérifié il y a ${Math.max(0,Math.round(Date.now()/1000-d.last_check))} s (automatique, toutes les 30 s)`:'')+(!d.rights?' · <b style="color:var(--bad)">coche la case ci-dessous pour autoriser l\'import</b>':'');
   if(d.done>inb.last)songs();inb.last=d.done})}

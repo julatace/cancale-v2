@@ -46,7 +46,7 @@ def post(u, body, headers=None):
 def test_page_and_options(srv):
     base, _ = srv
     html = urllib.request.urlopen(base + "/").read().decode()
-    assert "Piano Studio AI" in html and "Niveau de difficulté" in html
+    assert "Piano Studio" in html and "Niveau" in html and all(f'data-tab="{t}"' in html for t in ("create", "library", "schedule", "videos", "settings"))
     o = get(base + "/api/options")
     assert [l["key"] for l in o["levels"]] == ["facile", "moyen", "difficile"]
     assert {f["key"] for f in o["formats"]} == {"vertical", "horizontal"}

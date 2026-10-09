@@ -164,7 +164,7 @@ def build_filter(td: Path, duration: float, title="", subtitle="", hook="", cta=
     W, H, TOP = size[0], size[1], top
     c = f"crop=iw*{crop[2]:.4f}:ih*{crop[3]:.4f}:iw*{crop[0]:.4f}:ih*{crop[1]:.4f}," if crop else ""
     chain = (f"color=c={_hex(bg)}:s={W}x{H}:r=30:d={duration:.2f}[bg];"                      # fond = gris de Synthesia
-             f"[1:v]{c}scale={W}:{H - TOP - bottom_for(W, H)}:force_original_aspect_ratio=decrease:flags=lanczos[fg];"   # fenêtre entière, jamais rognée
+             f"[1:v]{c}scale={W}:{H - TOP - bottom_for(W, H)}:force_original_aspect_ratio=decrease:flags=lanczos,unsharp=5:5:0.45:5:5:0.0[fg];"   # fenêtre entière, jamais rognée ; léger renforcement de netteté (zoom d'une capture d'écran)
              f"[bg][fg]overlay=(W-w)/2:{int(app_box(src, crop, W, H, TOP)[2])}[v0]")           # app centrée, le gris du fond occupe le reste
     cur, extra, idx = "v0", [], 3          # entrées 0,1 = capture ; 2 = audio ; 3.. = PNG
     layers = []
@@ -194,7 +194,7 @@ def encode_args(duration: float, fps: int = 30) -> list[str]:
     """Réglages d'export pour TikTok / YouTube : H.264 High, débit plafonné, BT.709, 30 i/s constants ; son AAC 48 kHz normalisé à -14 LUFS
     (niveau de la plateforme : ni trop faible, ni écrêté) avec une entrée/sortie en fondu pour éviter les claquements."""
     af = f"loudnorm=I=-14:TP=-1.5:LRA=11,afade=t=in:d=0.04,afade=t=out:st={max(duration - 0.7, 0):.2f}:d=0.7"
-    return ["-af", af, "-r", str(fps), "-fps_mode", "cfr", "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-profile:v", "high", "-level", "4.2",
+    return ["-af", af, "-r", str(fps), "-fps_mode", "cfr", "-c:v", "libx264", "-preset", "slow", "-tune", "animation", "-crf", "16", "-profile:v", "high", "-level", "4.2",
             "-maxrate", "14M", "-bufsize", "28M", "-g", str(fps * 2), "-bf", "2", "-pix_fmt", "yuv420p",
             "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
             "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-shortest", "-movflags", "+faststart"]
@@ -267,7 +267,7 @@ def compose_landscape(capture, audio_wav, out, trim: float, duration: float, tit
         if cta:
             _tag(td / "cta.png", cta[:60], side); layers.append((td / "cta.png", W_ - side, 150, f":enable='gt(t,{max(duration - 3.5, 0):.1f})'"))
         chain = (f"color=c={_hex(bg)}:s={W_}x{H_}:r=30:d={duration:.2f}[bg];"
-                 f"[1:v]{c}scale={fw}:{H_}:force_original_aspect_ratio=decrease:flags=lanczos,pad={fw}:{H_}:(ow-iw)/2:(oh-ih)/2:color=black[fg];"
+                 f"[1:v]{c}scale={fw}:{H_}:force_original_aspect_ratio=decrease:flags=lanczos,unsharp=5:5:0.45:5:5:0.0,pad={fw}:{H_}:(ow-iw)/2:(oh-ih)/2:color=black[fg];"
                  f"[bg][fg]overlay={side}:0[v0]")
         cur = "v0"
         for n, (p, x, y, en) in enumerate(layers):
