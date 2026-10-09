@@ -118,6 +118,16 @@ def assign(conn, video_ids, when) -> list[tuple[int, datetime]]:
     return [(vid, dt) for grp, dt in zip(groups.values(), when) for vid in grp]
 
 
+def drop_orphans(conn) -> int:
+    """Retire les anciennes lignes « en attente » devenues sans objet : vidéo déjà publiée, ou fichier supprimé."""
+    n = 0
+    for r in conn.execute("SELECT s.id, v.status, v.output_path FROM schedule s LEFT JOIN videos v ON v.id=s.video_id WHERE s.status='PENDING'").fetchall():
+        if r["status"] != "READY" or not r["output_path"] or not Path(r["output_path"]).exists():
+            conn.execute("UPDATE schedule SET status='CANCELLED' WHERE id=?", (r["id"],)); n += 1
+    conn.commit()
+    return n
+
+
 def listing(conn, limit=40) -> list[dict]:
     rows = conn.execute("SELECT s.id, s.video_id, s.run_at, s.status, s.detail, v.title, v.style FROM schedule s LEFT JOIN videos v ON v.id=s.video_id "
                         "WHERE s.status!='CANCELLED' ORDER BY s.run_at DESC LIMIT ?", (limit,)).fetchall()

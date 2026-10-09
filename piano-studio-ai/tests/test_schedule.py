@@ -263,3 +263,15 @@ def test_cancel_stops_the_sending_between_two_videos(tmp_path, monkeypatch):
     finally:
         control.CANCEL.clear()
     assert sent == [1]                                                        # les suivantes ne sont pas envoyées
+
+
+def test_orphan_pending_rows_are_dropped(tmp_path):
+    c = _conn(tmp_path)
+    (tmp_path / "1.mp4").write_bytes(b"x")
+    c.execute("UPDATE videos SET output_path=? WHERE id=1", (str(tmp_path / "1.mp4"),))
+    c.execute("UPDATE videos SET status='PUBLISHED' WHERE id=2")                      # déjà publiée
+    c.commit()                                                                         # la vidéo 3 n'a plus de fichier
+    queue.plan(c, [1, 3], queue.slots(date(2030, 1, 6), 2, 2, ["12:30", "19:00"], now=datetime(2030, 1, 1).astimezone()))
+    c.execute("INSERT INTO schedule(video_id,run_at,status,created_at) VALUES(2,?,'PENDING',?)", (datetime(2030, 1, 7).isoformat(), db.now())); c.commit()
+    assert queue.drop_orphans(c) == 2
+    assert [x["video_id"] for x in queue.listing(c)] == [1]                           # ne reste que ce qui a encore un sens

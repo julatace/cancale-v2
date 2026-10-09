@@ -322,6 +322,7 @@ def my_songs_waiting(s) -> int:
 
 def schedule_view(s) -> dict:
     conn = db.connect(config.resolve(s, "database"))
+    squeue.drop_orphans(conn)                                        # anciennes lignes sans objet (vidéo publiée ou supprimée)
     rv = squeue.ready_videos(conn)
     return {"items": squeue.listing(conn), "unscheduled": squeue.unscheduled(conn), "ready": len(rv), "ready_titles": [f"{v['title']} ({v['format'] or '?'})" for v in rv[:8]]}
 
