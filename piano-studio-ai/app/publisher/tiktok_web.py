@@ -169,9 +169,6 @@ def post(video: Path, caption: str, publish: bool = False, say=log.info) -> str:
 
 def open_url(url: str, say, label: str) -> None:
     """Ouvre `url` dans le navigateur choisi (et le bon profil Chrome) après avoir vérifié le réglage JavaScript."""
-    say(f"🔐 Test du réglage JavaScript de {BROWSER}…")
-    _osa(f'tell application "{BROWSER}" to activate')
-    _js("1+1")
     say(f"🌐 Ouverture de {label} dans {BROWSER}…")
     if BROWSER == "Safari":
         _osa(f'tell application "Safari"\nactivate\nif (count of windows) = 0 then make new document\n'
@@ -179,7 +176,7 @@ def open_url(url: str, say, label: str) -> None:
     elif PROFILE:                                            # ouvre la page DANS le bon profil : sa fenêtre passe au premier plan
         d = resolve_profile(PROFILE)
         say(f"👤 Profil Chrome utilisé : {d}")
-        subprocess.run(["open", "-a", BROWSER, "--args", f"--profile-directory={d}", url], check=True)
+        subprocess.run(["open", "-na", BROWSER, "--args", f"--profile-directory={d}", url], check=True)   # -n : sinon Chrome déjà lancé ignore le profil demandé
         time.sleep(3)
         _osa(f'tell application "{BROWSER}" to activate')
     else:
@@ -190,6 +187,8 @@ def open_url(url: str, say, label: str) -> None:
             profs = ", ".join(f"« {p['name']} »" for p in chrome_profiles())
             raise RuntimeError("Chrome n'a pas de fenêtre de navigation (il affiche peut-être « Qui utilise Chrome ? »). Indique le profil du compte dans "
                                "config/settings.yaml (ligne chrome_profile)" + (f" : {profs}" if profs else "") + f". Détail : {str(e)[:120]}") from e
+    say(f"🔐 Test du réglage JavaScript de {BROWSER}…")
+    _wait("String(1+1==2)", f"{BROWSER} n'a pas ouvert de fenêtre de navigation (vérifie le profil dans chrome_profile)", 25)
 
 
 INJECT_CHUNK = 240_000          # caractères base64 par appel (une ligne de commande macOS est limitée à ~1 Mo)

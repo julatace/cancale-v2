@@ -360,3 +360,20 @@ def test_tiktok_uses_the_configured_chrome_profile_and_explains_when_no_window(m
     monkeypatch.setattr(tw, "chrome_profiles", lambda: [{"dir": "Default", "name": "angeled92", "email": ""}])
     with pytest.raises(RuntimeError, match="chrome_profile.*angeled92"):
         tw.open_url("https://x", lambda m: None, "TikTok")
+
+
+def test_page_is_opened_in_the_profile_before_testing_javascript(monkeypatch):
+    from app.publisher import tiktok_web as tw
+    order = []
+    monkeypatch.setattr(tw, "PROFILE", "angeled92")
+    monkeypatch.setattr(tw, "BROWSER", "Google Chrome")
+    monkeypatch.setattr(tw, "chrome_profiles", lambda: [{"dir": "Profile 3", "name": "angeled92", "email": ""}])
+    monkeypatch.setattr(tw.subprocess, "run", lambda cmd, **k: order.append(("open", cmd)))
+    monkeypatch.setattr(tw, "_osa", lambda s, timeout=30: order.append(("osa", s)) or "")
+    monkeypatch.setattr(tw, "_js", lambda c: order.append(("js", c)) or "true")
+    monkeypatch.setattr(tw.time, "sleep", lambda s: None)
+    tw.open_url("https://www.tiktok.com/tiktokstudio/upload", lambda m: None, "TikTok Studio")
+    kinds = [k for k, _ in order]
+    assert kinds.index("open") < kinds.index("js")                                   # d'abord la fenêtre du bon profil, ensuite le test JavaScript
+    cmd = order[kinds.index("open")][1]
+    assert cmd[:3] == ["open", "-na", "Google Chrome"] and "--profile-directory=Profile 3" in cmd
