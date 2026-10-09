@@ -124,6 +124,32 @@ def cancel(conn, schedule_id: int) -> bool:
     return cur.rowcount > 0
 
 
+def ready_videos(conn) -> list[dict]:
+    """Vidéos montées, pas encore publiées, dont le fichier existe encore (programmées ou non)."""
+    rows = conn.execute("SELECT id, title, style, output_path FROM videos WHERE status='READY' ORDER BY id").fetchall()
+    return [{"id": r["id"], "title": r["title"], "format": (r["style"] or "").partition("|")[2]} for r in rows if r["output_path"] and Path(r["output_path"]).exists()]
+
+
+def publish_all_ready(s, conn, say=log.info, publish=None) -> dict:
+    """Publie tout de suite, l'une après l'autre, toutes les vidéos prêtes. Leurs heures programmées sont retirées (pas de double publication)."""
+    publish = publish or publish_video
+    vids = ready_videos(conn)
+    ok = fail = 0
+    for i, v in enumerate(vids, 1):
+        conn.execute("UPDATE schedule SET status='CANCELLED' WHERE video_id=? AND status='PENDING'", (v["id"],))
+        conn.commit()
+        say(f"🚀 [{i}/{len(vids)}] Publication de « {(v['title'] or '')[:60]} » ({v['format'] or '?'})…")
+        try:
+            res = publish(s, conn, v["id"])
+            good = any(x["status"] in GOOD for x in res)
+        except Exception as e:
+            say(f"✖ Publication impossible : {e}")
+            good = False
+        ok += good
+        fail += not good
+    return {"published": ok, "failed": fail, "total": len(vids)}
+
+
 def cancel_all_pending(conn) -> int:
     """Annule toutes les publications en attente (les vidéos restent, seules les heures sont retirées)."""
     cur = conn.execute("UPDATE schedule SET status='CANCELLED' WHERE status='PENDING'")

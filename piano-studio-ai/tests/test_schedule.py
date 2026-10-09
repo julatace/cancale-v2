@@ -176,3 +176,19 @@ def test_each_video_is_published_right_after_its_montage_and_stopping_keeps_what
     assert job2.state["status"] == "done"
     c2 = db.connect(tmp_path / "d.sqlite3")
     assert len([x for x in q.listing(c2) if x["status"] == "PENDING"]) == 2                  # chaque vidéo programmée dès sa fabrication
+
+
+def test_publish_all_ready_posts_every_ready_video_once_and_drops_their_scheduled_times(tmp_path):
+    c = _conn(tmp_path)
+    for i in (1, 2, 3):
+        (tmp_path / f"{i}.mp4").write_bytes(b"x")
+        c.execute("UPDATE videos SET output_path=? WHERE id=?", (str(tmp_path / f"{i}.mp4"), i))
+    c.execute("UPDATE videos SET status='PUBLISHED' WHERE id=3")                          # déjà publiée : ignorée
+    c.commit()
+    queue.plan(c, [1, 2], queue.slots(date(2030, 1, 6), 2, 2, ["12:30", "19:00"], now=datetime(2030, 1, 1).astimezone()))
+    done = []
+    r = queue.publish_all_ready({}, c, say=lambda m: None, publish=lambda s, cn, vid: done.append(vid) or [{"platform": "tiktok", "status": "PUBLISHED", "detail": ""}])
+    assert done == [1, 2] and r == {"published": 2, "failed": 0, "total": 2}
+    assert [x for x in queue.listing(c) if x["status"] == "PENDING"] == []                # plus d'heure en attente : pas de double publication
+    r2 = queue.publish_all_ready({}, c, say=lambda m: None, publish=lambda s, cn, vid: (_ for _ in ()).throw(RuntimeError("boom")))
+    assert r2["failed"] == 2 and r2["published"] == 0                                    # un échec ne bloque pas les autres

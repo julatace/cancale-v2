@@ -310,7 +310,7 @@ def my_songs_waiting(s) -> int:
 
 def schedule_view(s) -> dict:
     conn = db.connect(config.resolve(s, "database"))
-    return {"items": squeue.listing(conn), "unscheduled": squeue.unscheduled(conn)}
+    return {"items": squeue.listing(conn), "unscheduled": squeue.unscheduled(conn), "ready": len(squeue.ready_videos(conn))}
 
 
 def due_runner(settings_loader, every=30, stop=None):
@@ -510,7 +510,7 @@ def make_handler(settings_loader):
         def do_POST(self):
             path = urlparse(self.path).path
             if path not in ("/api/run", "/api/upload", "/api/songs/delete", "/api/stop", "/api/stop-recording", "/api/import-found",
-                        "/api/schedule/plan", "/api/schedule/cancel", "/api/publish-now", "/api/week", "/api/inbox", "/api/inbox/rights", "/api/inbox/scan", "/api/folder", "/api/setting"):
+                        "/api/schedule/plan", "/api/schedule/cancel", "/api/publish-now", "/api/week", "/api/inbox", "/api/inbox/rights", "/api/inbox/scan", "/api/folder", "/api/setting", "/api/publish-ready"):
                 return self._send(404, b'{"error":"not found"}')
             origin = self.headers.get("Origin", "")
             if origin and not (origin.startswith("http://127.0.0.1") or origin.startswith("http://localhost")):
@@ -574,6 +574,14 @@ def make_handler(settings_loader):
                 if body.get("all"):
                     return self._json({"ok": True, "cancelled": squeue.cancel_all_pending(conn)})
                 return self._json({"ok": squeue.cancel(conn, int(body.get("id", 0)))})
+            if path == "/api/publish-ready":
+                def work_all():
+                    conn = db.connect(config.resolve(s, "database"))
+                    r = squeue.publish_all_ready(s, conn, say=logging.getLogger("piano").info)
+                    return f"{r['published']} publiée(s), {r['failed']} échec(s) sur {r['total']}"
+                if not JOB.start_task("publish-all", work_all):
+                    return self._json({"error": "une opération est déjà en cours"}, 409)
+                return self._json({"ok": True})
             if path == "/api/publish-now":
                 return self._publish_now(s, body)
             opt = options(s)

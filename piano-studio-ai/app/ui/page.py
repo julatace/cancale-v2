@@ -248,7 +248,7 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
     <label class="sw"><input type="checkbox" id="wnow" checked> Publier chaque vidéo dès qu'elle est montée <small style="color:var(--mute)">(décoche pour attendre les heures)</small></label>
   </div>
   <p class="note" id="west" style="margin:8px 0"></p>
-  <div class="row" style="border:0;padding:0;margin-top:6px"><button class="btn" id="wgo">🗓 Fabriquer et programmer l'agenda</button><button class="btn alt" id="wplan" title="Utilise les vidéos déjà prêtes au lieu d'en fabriquer">Programmer les vidéos déjà prêtes</button><span id="wmsg" class="note" style="margin:0"></span></div>
+  <div class="row" style="border:0;padding:0;margin-top:6px"><button class="btn" id="wnowall" style="background:var(--gold);color:var(--gold-ink)" title="Publie tout de suite, l'une après l'autre, toutes les vidéos montées qui n'ont pas encore été publiées">🚀 Publier maintenant les vidéos prêtes <span id="readyn"></span></button><button class="btn" id="wgo">🗓 Fabriquer et programmer l'agenda</button><button class="btn alt" id="wplan" title="Utilise les vidéos déjà prêtes au lieu d'en fabriquer">Programmer les vidéos déjà prêtes</button><span id="wmsg" class="note" style="margin:0"></span></div>
   <div id="slist"></div>
 </section>
 
@@ -372,7 +372,7 @@ $('#chk').onclick=()=>{$('#chk').disabled=true;$('#chkres').textContent='Vérifi
 const dfmt=iso=>new Date(iso).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 function sched(){api('/api/schedule').then(d=>{
   const nm={PENDING:'⏳ programmée',RUNNING:'⏫ envoi en cours',DONE:'✅ publiée',FAILED:'❌ échec',MISSED:'⚠ manquée'};
-  const pend=d.items.filter(x=>x.status==='PENDING');PENDING_N=pend.length;$('#b-sch').textContent=pend.length||'';
+  const pend=d.items.filter(x=>x.status==='PENDING');PENDING_N=pend.length;$('#readyn').textContent=d.ready?'('+d.ready+')':'';$('#wnowall').disabled=!d.ready;$('#b-sch').textContent=pend.length||'';
   $('#nextpub').innerHTML=pend.length?`⏭ Prochaine publication : <b>${esc(pend[0].title)}</b> · ${esc(dfmt(pend[0].run_at))} <span style="margin-left:auto">${pend.length} en attente</span>`:'Aucune publication programmée. Utilise « Fabriquer et programmer l\'agenda » ci-dessous.';
   const un=d.unscheduled.length?`<p class="note" style="margin:10px 0 4px"><b>${d.unscheduled.length}</b> vidéo(s) prête(s) pas encore programmée(s).</p>`:'';
   $('#slist').innerHTML=un+(pend.length?`<p style="margin:8px 0"><button class="btn alt" data-cancelall="1">Tout annuler (${pend.length} en attente)</button></p>`:'')+(d.items.length?d.items.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${x.format==='horizontal'?'YouTube long':'TikTok + YouTube Shorts'} · ${esc(dfmt(x.run_at))} · ${nm[x.status]||esc(x.status)}${x.detail?' · '+esc(x.detail):''}</small></div>${x.status==='PENDING'?`<button data-cancel="${x.id}">Annuler</button>`:''}</div>`).join(''):'<p class="empty">Rien de programmé.</p>')})}
@@ -403,6 +403,8 @@ $('#wgo').onclick=()=>{const n=Object.values(AG).reduce((a,b)=>a+b,0);if(!n)retu
   const pend=PENDING_N;const rep=pend>0&&confirm(pend+' publication(s) sont déjà programmées. Les remplacer par ce nouvel agenda ? (OK = remplacer, Annuler = les garder en plus)');
   api('/api/week',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...wbody(),replace:rep,formats:[...formats],synthesia:$('#synth').checked,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#wmsg').textContent=r.error;return}$('#wmsg').textContent='';watch('Démarrage de la production…')})};
+$('#wnowall').onclick=()=>{if(!confirm('Publier maintenant, une par une, toutes les vidéos prêtes sur TikTok et YouTube ? Ne touche ni à la souris ni au clavier pendant les envois.'))return;
+  api('/api/publish-ready',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>{if(r.error){$('#wmsg').textContent=r.error;return}watch('Publication des vidéos prêtes…')})};
 $('#wplan').onclick=()=>api('/api/schedule/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(wbody())})
   .then(r=>{$('#wmsg').textContent=r.error||r.message;sched()});
 document.addEventListener('click',e=>{
