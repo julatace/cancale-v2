@@ -206,6 +206,7 @@ def test_youtube_web_flow_without_api(tmp_path, monkeypatch):
     monkeypatch.setattr(tw, "_keys", lambda *l: calls.append("keys"))
     monkeypatch.setattr(tw, "_clip", lambda t: calls.append("clip:" + t[:12]))
     monkeypatch.setattr(tw, "choose_file", lambda p, say, **k: calls.append("file"))
+    monkeypatch.setattr(yw, "_paste_into", lambda sel, txt: calls.append(("text", sel, txt)))
     monkeypatch.setattr(yw.time, "sleep", lambda s: None)
     assert "non publié" in yw.post(v, "Titre", "Desc", publish=False)
     assert not any("done-button" in str(c) and "click" in str(c) for c in calls)
@@ -385,3 +386,23 @@ def test_youtube_also_opens_the_angeled92_profile():
     s = config.load_settings()
     yt = [a for a in adapters(s) if a.platform == "youtube"][0]
     assert yt.profile == "angeled92"
+
+
+def test_youtube_text_is_typed_into_the_page_and_checked(monkeypatch):
+    import json
+    import pytest
+    from app.publisher import tiktok_web as tw, youtube_web as yw
+    js = yw._insert_js("#title-textarea #textbox", 'Ça "marche"\nligne 2')
+    assert json.dumps('Ça "marche"\nligne 2') in js and "insertLineBreak" in js and "selectAll" in js      # texte protégé, retours à la ligne gérés
+    assert yw._same("Titre  de   la vidéo", "Titre de la vidéo") and not yw._same("25_1791399483_vertical.mp4", "Invention 8 - Bach")
+    calls = []
+    monkeypatch.setattr(tw, "_js", lambda c: "Invention 8 - Bach" if "insertText" in c else "true")
+    monkeypatch.setattr(tw, "_keys", lambda *a: calls.append("keys"))
+    monkeypatch.setattr(tw, "_clip", lambda t: calls.append("clip"))
+    monkeypatch.setattr(yw.time, "sleep", lambda s: None)
+    yw._paste_into("#title-textarea #textbox", "Invention 8 - Bach")
+    assert calls == []                                                          # la saisie directe a suffi : pas de presse-papiers
+    monkeypatch.setattr(tw, "_js", lambda c: "true" if ("selectAll" in c and "insertText" not in c) else "25_1791_vertical.mp4")             # la page garde l'ancien nom : on essaie le presse-papiers, puis on échoue clairement
+    with pytest.raises(RuntimeError, match="n'a pas été écrit"):
+        yw._paste_into("#title-textarea #textbox", "Invention 8 - Bach")
+    assert calls == ["clip", "keys"]

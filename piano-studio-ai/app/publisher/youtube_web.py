@@ -19,13 +19,38 @@ def _click(selector: str) -> bool:
     return tw._js(f'var e=document.querySelector({selector!r}); if(e){{e.click();"true"}}else{{"false"}}') == "true"
 
 
+def _insert_js(selector: str, text: str) -> str:
+    """JavaScript qui remplace le contenu de la zone de texte par `text`, comme une vraie saisie (événements « input » compris), puis rend le texte lu."""
+    import json
+    return ("(function(){var e=document.querySelector(" + json.dumps(selector) + ");if(!e)return 'absent';e.focus();"
+            "document.execCommand('selectAll');document.execCommand('delete');var L=" + json.dumps(text) + ".split('\\n');"
+            "for(var i=0;i<L.length;i++){if(i>0)document.execCommand('insertLineBreak');if(L[i])document.execCommand('insertText',false,L[i]);}"
+            "e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return e.innerText||e.textContent||'';})()")
+
+
+def _same(a: str, b: str) -> bool:
+    norm = lambda s: " ".join((s or "").split())
+    return norm(a)[:60] == norm(b)[:60] and len(norm(a)) >= min(len(norm(b)), 20)
+
+
 def _paste_into(selector: str, text: str) -> None:
+    """Écrit le texte dans la zone de YouTube : d'abord directement dans la page, puis (si le contenu ne correspond pas) avec le presse-papiers."""
+    got = tw._js(_insert_js(selector, text))
+    if got == "absent":
+        raise RuntimeError(f"zone de texte YouTube introuvable ({selector})")
+    time.sleep(0.5)
+    if _same(got, text):
+        return
+    log.warning("saisie directe non prise en compte (%s…) : essai avec le presse-papiers", (got or "")[:30])
     ok = tw._js(f'var e=document.querySelector({selector!r}); if(e){{e.focus(); document.execCommand("selectAll"); "true"}}else{{"false"}}')
     if ok != "true":
         raise RuntimeError(f"zone de texte YouTube introuvable ({selector})")
     tw._clip(text)
     tw._keys('keystroke "v" using command down')
     time.sleep(0.8)
+    got = tw._js(f'var e=document.querySelector({selector!r}); e?(e.innerText||e.textContent||""):""')
+    if not _same(got, text):
+        raise RuntimeError(f"le texte n'a pas été écrit dans YouTube ({selector}) : « {(got or '')[:40]} »")
 
 
 def post(video: Path, title: str, description: str, publish: bool = False, say=log.info) -> str:
