@@ -6,3 +6,4 @@ data/*/*
 logs/*
 !logs/.gitkeep
 *.sqlite3
+data/last_batch.json

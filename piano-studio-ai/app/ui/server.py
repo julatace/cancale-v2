@@ -83,6 +83,10 @@ class Job:
                 res = fn()
                 with self.lock:
                     self.state.update(status="done", result={"task": name, "summary": res})
+            except control.Cancelled:
+                self._add("■ Envoi arrêté. Les vidéos déjà envoyées le restent, les autres n'ont pas été touchées.")
+                with self.lock:
+                    self.state.update(status="cancelled", error=None)
             except Exception as e:
                 self._add(f"✖ ERREUR : {type(e).__name__}: {e}")
                 with self.lock:
@@ -105,9 +109,12 @@ class Job:
         lg.addHandler(h)
         try:
             results = self._produce(settings, level, formats, publish, count, song_id, lang, plan)
+            if not plan:                                                  # création simple : ce sont ces vidéos-là, et elles seules, qui sont « les dernières »
+                squeue.set_last_batch([v["video_id"] for r in results for v in (r.get("videos") or [r]) if v.get("video_id")])
             with self.lock:
                 self.state.update(status="done", result=results[-1] if count == 1 else results,
-                                  planned=[{"title": p["title"], "run_at": p["run_at"], "format": p["format"]} for p in getattr(self, "_planned", [])])
+                                  planned=[{"title": p["title"], "run_at": p["run_at"], "format": p["format"]} for p in getattr(self, "_planned", [])],
+                                  failures=list(getattr(self, "_fails", [])))
         except control.Cancelled:
             self._add("■ Création arrêtée. Synthesia est fermé et l'enregistrement coupé.")
             with self.lock:
@@ -128,6 +135,8 @@ class Job:
         t0, results, good_ids, attempts, done_groups = time.time(), [], [], 0, []
         max_attempts = count + min(count, 4)                            # une création ratée est refaite (avec un autre morceau), dans la limite de 4 reprises
         self._planned = []
+        self._fails = []
+        squeue.set_last_batch([])                                        # nouvelle fabrication : on repart d'une liste vide
         while len(good_ids) < count and attempts < max_attempts:
             spent = time.time() - t0
             done = len(good_ids)
@@ -152,6 +161,7 @@ class Job:
                 self._add(f"↻ Cette vidéo a échoué ({str(bad)[:120]}) : j'en refais une autre avec un autre morceau.")
                 continue
             good_ids += [v["video_id"] for v in ok_videos]
+            squeue.set_last_batch(good_ids)
             k = len(done_groups); done_groups.append([v["video_id"] for v in ok_videos])
             conn0 = db.connect(config.resolve(settings, "database"))
             slots = plan.get("slots") or []
@@ -166,6 +176,8 @@ class Job:
                     continue
                 for x in res:
                     self._add(f"   {'✓' if x['status'] in squeue.GOOD else '✖'} {x['platform']} : {x['status']}" + (f" — {x['detail'][:100]}" if x["status"] == "FAILED" else ""))
+                    if x["status"] == "FAILED":
+                        self._fails.append(f"{x['platform']} — « {v.get('title', '')[:45]} » : {x['detail'][:260]}")
                 if slot and squeue.native_time(slot):
                     self._planned.append({"title": v.get("title", ""), "run_at": squeue.native_time(slot).isoformat(timespec="minutes"), "format": v.get("format", "")})
         planned = self._planned
@@ -310,7 +322,8 @@ def my_songs_waiting(s) -> int:
 
 def schedule_view(s) -> dict:
     conn = db.connect(config.resolve(s, "database"))
-    return {"items": squeue.listing(conn), "unscheduled": squeue.unscheduled(conn), "ready": len(squeue.ready_videos(conn))}
+    rv = squeue.ready_videos(conn)
+    return {"items": squeue.listing(conn), "unscheduled": squeue.unscheduled(conn), "ready": len(rv), "ready_titles": [f"{v['title']} ({v['format'] or '?'})" for v in rv[:8]]}
 
 
 def due_runner(settings_loader, every=30, stop=None):
@@ -413,7 +426,8 @@ def make_handler(settings_loader):
             except ValueError:
                 return self._json({"error": "date invalide"}, 400)
             conn = db.connect(config.resolve(s, "database"))
-            ids = [int(i) for i in body.get("video_ids") or []] or [v["id"] for v in squeue.unscheduled(conn)]
+            last = {v["id"] for v in squeue.ready_videos(conn)}                     # seulement la dernière fabrication, jamais d'anciennes vidéos
+            ids = [int(i) for i in body.get("video_ids") or []] or [v["id"] for v in squeue.unscheduled(conn) if v["id"] in last]
             if not ids:
                 return self._json({"error": "Aucune vidéo prête à programmer. Créez-en d'abord."}, 400)
             at = body.get("at")                              # une seule vidéo à une date/heure précise (« mardi 19 h »)

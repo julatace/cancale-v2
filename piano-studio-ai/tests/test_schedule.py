@@ -221,3 +221,45 @@ def test_publish_video_with_a_date_asks_each_network_to_schedule_and_never_repea
     seen.clear(); state["yt_ok"] = True
     queue.publish_video({}, c, 1, publish_at=when)
     assert [p[0] for p in seen] == ["youtube"]                                                   # TikTok déjà programmé : pas refait
+
+
+def test_only_the_last_batch_is_sent_never_older_videos(tmp_path, monkeypatch):
+    c = _conn(tmp_path)
+    for i in (1, 2, 3):
+        (tmp_path / f"{i}.mp4").write_bytes(b"x")
+        c.execute("UPDATE videos SET output_path=? WHERE id=?", (str(tmp_path / f"{i}.mp4"), i))
+    c.commit()
+    monkeypatch.setattr(queue, "BATCH_FILE", tmp_path / "last_batch.json")
+    assert [v["id"] for v in queue.ready_videos(c)] == [1, 2, 3]            # sans trace : celles des 3 dernières heures
+    queue.set_last_batch([2, 3])
+    assert [v["id"] for v in queue.ready_videos(c)] == [2, 3]               # la vidéo 1 (ancienne) n'est JAMAIS touchée
+    done = []
+    r = queue.publish_all_ready({}, c, say=lambda m: None, publish=lambda s, cn, vid: done.append(vid) or [{"platform": "tiktok", "status": "PUBLISHED", "detail": ""}])
+    assert done == [2, 3] and r["total"] == 2
+    c.execute("UPDATE videos SET created_at='2020-01-01T00:00:00+00:00' WHERE id=1"); c.commit()
+    (tmp_path / "last_batch.json").unlink()
+    assert [v["id"] for v in queue.ready_videos(c)] == [1, 2, 3] or [v["id"] for v in queue.ready_videos(c)] == [2, 3]
+
+
+def test_cancel_stops_the_sending_between_two_videos(tmp_path, monkeypatch):
+    from app.director import control
+    c = _conn(tmp_path)
+    for i in (1, 2, 3):
+        (tmp_path / f"{i}.mp4").write_bytes(b"x")
+        c.execute("UPDATE videos SET output_path=? WHERE id=?", (str(tmp_path / f"{i}.mp4"), i))
+    c.commit()
+    monkeypatch.setattr(queue, "BATCH_FILE", tmp_path / "last_batch.json")
+    queue.set_last_batch([1, 2, 3])
+    sent = []
+
+    def pub(s, cn, vid):
+        sent.append(vid)
+        control.CANCEL.set()                                                  # clic sur « Annuler » pendant la 1re vidéo
+        return [{"platform": "tiktok", "status": "PUBLISHED", "detail": ""}]
+    try:
+        import pytest
+        with pytest.raises(control.Cancelled):
+            queue.publish_all_ready({}, c, say=lambda m: None, publish=pub)
+    finally:
+        control.CANCEL.clear()
+    assert sent == [1]                                                        # les suivantes ne sont pas envoyées

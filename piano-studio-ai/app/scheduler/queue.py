@@ -93,7 +93,7 @@ def unscheduled(conn) -> list[dict]:
 
 def plan(conn, video_ids, when: list[datetime]) -> list[dict]:
     """Une vidéo courte et sa version longue (même morceau) partent ensemble, au même créneau."""
-    vids = {v["id"]: v for v in unscheduled(conn)}
+    vids = {v["id"]: v for v in unscheduled(conn)}                   # (déjà limité par l'appelant aux vidéos de la dernière fabrication)
     groups: dict[object, list[dict]] = {}
     for vid in video_ids:
         v = vids.get(int(vid))
@@ -135,10 +135,34 @@ def cancel(conn, schedule_id: int) -> bool:
     return cur.rowcount > 0
 
 
-def ready_videos(conn) -> list[dict]:
-    """Vidéos montées, pas encore publiées, dont le fichier existe encore (programmées ou non)."""
-    rows = conn.execute("SELECT id, title, style, output_path FROM videos WHERE status='READY' ORDER BY id").fetchall()
-    return [{"id": r["id"], "title": r["title"], "format": (r["style"] or "").partition("|")[2]} for r in rows if r["output_path"] and Path(r["output_path"]).exists()]
+BATCH_FILE = config.ROOT / "data" / "last_batch.json"        # vidéos de la DERNIÈRE fabrication (les seules que les boutons « envoyer les vidéos prêtes » touchent)
+
+
+def set_last_batch(ids) -> None:
+    BATCH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    BATCH_FILE.write_text(json.dumps([int(i) for i in ids]))
+
+
+def last_batch() -> list[int] | None:
+    try:
+        return [int(i) for i in json.loads(BATCH_FILE.read_text())]
+    except Exception:
+        return None
+
+
+def ready_videos(conn, everything: bool = False) -> list[dict]:
+    """Vidéos montées, pas encore publiées, dont le fichier existe encore, de la DERNIÈRE fabrication seulement (jamais les anciennes).
+    Sans trace de la dernière fabrication : celles montées dans les 3 heures qui précèdent la plus récente."""
+    rows = conn.execute("SELECT id, title, style, output_path, created_at FROM videos WHERE status='READY' ORDER BY id").fetchall()
+    rows = [r for r in rows if r["output_path"] and Path(r["output_path"]).exists()]
+    if not everything:
+        batch = last_batch()
+        if batch is not None:
+            rows = [r for r in rows if r["id"] in set(batch)]
+        elif rows:
+            newest = datetime.fromisoformat(rows[-1]["created_at"])
+            rows = [r for r in rows if newest - datetime.fromisoformat(r["created_at"]) <= timedelta(hours=3)]
+    return [{"id": r["id"], "title": r["title"], "format": (r["style"] or "").partition("|")[2]} for r in rows]
 
 
 def publish_all_ready(s, conn, say=log.info, publish=None) -> dict:
@@ -146,7 +170,9 @@ def publish_all_ready(s, conn, say=log.info, publish=None) -> dict:
     publish = publish or publish_video
     vids = ready_videos(conn)
     ok = fail = 0
+    from app.director import control
     for i, v in enumerate(vids, 1):
+        control.check()                                    # « Annuler » stoppe avant la vidéo suivante
         conn.execute("UPDATE schedule SET status='CANCELLED' WHERE video_id=? AND status='PENDING'", (v["id"],))
         conn.commit()
         say(f"🚀 [{i}/{len(vids)}] Publication de « {(v['title'] or '')[:60]} » ({v['format'] or '?'})…")

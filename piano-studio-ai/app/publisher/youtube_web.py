@@ -106,7 +106,7 @@ def _post(video, title, description, publish, say, publish_at=None) -> str:
     video = Path(video).resolve()
     if not video.exists():
         raise RuntimeError(f"vidéo introuvable : {video}")
-    tw.open_url(UPLOAD_URL, say, "YouTube Studio")
+    tw.open_url(UPLOAD_URL, say, "YouTube Studio", site="youtube")
     tw._wait('String(!!document.querySelector("input[type=file]"))', "fenêtre d'envoi de YouTube non chargée", 60)
     if tw._js('String(location.hostname.indexOf("accounts.google")>=0)') == "true":
         raise RuntimeError("YouTube demande de se connecter : connecte ta chaîne dans ce profil Chrome puis relance")
@@ -125,7 +125,9 @@ def _post(video, title, description, publish, say, publish_at=None) -> str:
         if not _click("#next-button"):
             raise RuntimeError(f"bouton « Suivant » introuvable (étape {step})")
     time.sleep(1.5)
+    tw.trace("youtube", "1_texte")
     _visibility(publish_at, say)
+    tw.trace("youtube", "2_visibilite")
     if not publish:
         say("✋ Tout est prêt dans YouTube Studio : vérifie puis clique sur « Publier » toi-même.")
         return "prêt (non publié)"
@@ -134,8 +136,18 @@ def _post(video, title, description, publish, say, publish_at=None) -> str:
     tw._wait('String(!!document.querySelector("#done-button:not([disabled])") && document.querySelector("#done-button").getAttribute("aria-disabled")!=="true")',
              "le bouton « Publier » reste grisé (la vidéo est encore en cours d'envoi)", 300)
     _click("#done-button")
-    time.sleep(5)
+    end = time.monotonic() + 45                                              # YouTube doit CONFIRMER (fenêtre « Vidéo publiée / programmée »)
+    done = False
+    while time.monotonic() < end:
+        if tw._js('String(!!document.querySelector("ytcp-video-share-dialog, #share-url, .video-url-fadeable") || !document.querySelector("ytcp-uploads-dialog"))') == "true":
+            done = True
+            break
+        time.sleep(2)
+    tw.trace("youtube", "3_apres_publication")
+    if not done:
+        raise RuntimeError("YouTube n'a pas confirmé la publication (la fenêtre d'envoi est restée ouverte)")
     link = tw._js('var a=document.querySelector("ytcp-video-share-dialog a, .video-url-fadeable a, a[href*=\\"youtu.be\\"]"); a?a.href:""')
+    tw._js('var b=document.querySelector("ytcp-video-share-dialog #close-button button, ytcp-video-share-dialog #close-button, #close-button button");if(b)b.click();"ok"')   # ferme la fenêtre : on reste sur la même page
     if publish_at:
         from datetime import datetime
         return f"programmée le {datetime.fromisoformat(publish_at):%d/%m/%Y à %H:%M}" + (f" · {link}" if link else "")

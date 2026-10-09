@@ -248,7 +248,7 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
     <label class="sw"><input type="checkbox" id="wnow"> Tout publier tout de suite <small style="color:var(--mute)">(sinon chaque vidéo est <b>programmée dans TikTok et YouTube</b> à la date de l'agenda)</small></label>
   </div>
   <p class="note" id="west" style="margin:8px 0"></p>
-  <div class="row" style="border:0;padding:0;margin-top:6px"><button class="btn" id="wnowall" style="background:var(--gold);color:var(--gold-ink)" title="Publie tout de suite, l'une après l'autre, toutes les vidéos montées qui n'ont pas encore été publiées">🚀 Publier maintenant les vidéos prêtes <span id="readyn"></span></button><button class="btn" id="wgo">🗓 Fabriquer, envoyer et programmer</button><button class="btn alt" id="wplan" title="Utilise les vidéos déjà prêtes au lieu d'en fabriquer">Envoyer et programmer les vidéos déjà prêtes</button><span id="wmsg" class="note" style="margin:0"></span></div>
+  <div class="row" style="border:0;padding:0;margin-top:6px"><button class="btn" id="wnowall" style="background:var(--gold);color:var(--gold-ink)" title="Publie tout de suite, l'une après l'autre, toutes les vidéos montées qui n'ont pas encore été publiées">🚀 Envoyer maintenant la dernière fabrication <span id="readyn"></span></button><button class="btn" id="wgo">🗓 Fabriquer, envoyer et programmer</button><button class="btn alt" id="wplan" title="Utilise les vidéos déjà prêtes au lieu d'en fabriquer">Envoyer et programmer les vidéos déjà prêtes</button><span id="wmsg" class="note" style="margin:0"></span></div>
   <div id="slist"></div>
 </section>
 
@@ -289,7 +289,7 @@ tab((location.hash||'').slice(1)||(()=>{try{return localStorage.getItem('tab')}c
 let songId=null,level=null,formats=new Set(),since=0,timer=null,opts=null,cur=-1,fmtLabel='';
 const api=(p,o)=>fetch(p,o).then(r=>r.json());
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let ONLY_MINE=false,PENDING_N=0;
+let ONLY_MINE=false,PENDING_N=0,READY_N=0,READY_T=[];
 const STEPS=['Morceau','Passage','Fabrication','Qualité','Publication'];
 const dev=f=>f.width>f.height
   ?'<svg width="64" height="40" viewBox="0 0 64 40" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="58" height="34" rx="6"/><path d="M12 28h40" stroke-width="5" stroke-linecap="round" opacity=".35"/></svg>'
@@ -372,7 +372,7 @@ $('#chk').onclick=()=>{$('#chk').disabled=true;$('#chkres').textContent='Vérifi
 const dfmt=iso=>new Date(iso).toLocaleString('fr-FR',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 function sched(){api('/api/schedule').then(d=>{
   const nm={PENDING:'⏳ programmée',RUNNING:'⏫ envoi en cours',DONE:'✅ publiée',FAILED:'❌ échec',MISSED:'⚠ manquée'};
-  const pend=d.items.filter(x=>x.status==='PENDING');PENDING_N=pend.length;$('#readyn').textContent=d.ready?'('+d.ready+')':'';$('#wnowall').disabled=!d.ready;$('#b-sch').textContent=pend.length||'';
+  const pend=d.items.filter(x=>x.status==='PENDING');PENDING_N=pend.length;READY_N=d.ready;READY_T=d.ready_titles||[];$('#readyn').textContent=d.ready?'('+d.ready+')':'';$('#wnowall').disabled=!d.ready;$('#b-sch').textContent=pend.length||'';
   $('#nextpub').innerHTML=pend.length?`⏭ Prochaine publication : <b>${esc(pend[0].title)}</b> · ${esc(dfmt(pend[0].run_at))} <span style="margin-left:auto">${pend.length} en attente</span>`:'Aucune publication programmée. Utilise « Fabriquer et programmer l\'agenda » ci-dessous.';
   const un=d.unscheduled.length?`<p class="note" style="margin:10px 0 4px"><b>${d.unscheduled.length}</b> vidéo(s) prête(s) pas encore programmée(s).</p>`:'';
   $('#slist').innerHTML=un+(pend.length?`<p style="margin:8px 0"><button class="btn alt" data-cancelall="1">Tout annuler (${pend.length} en attente)</button></p>`:'')+(d.items.length?d.items.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${x.format==='horizontal'?'YouTube long':'TikTok + YouTube Shorts'} · ${esc(dfmt(x.run_at))} · ${nm[x.status]||esc(x.status)}${x.detail?' · '+esc(x.detail):''}</small></div>${x.status==='PENDING'?`<button data-cancel="${x.id}">Annuler</button>`:''}</div>`).join(''):'<p class="empty">Rien de programmé.</p>')})}
@@ -403,7 +403,7 @@ $('#wgo').onclick=()=>{const n=Object.values(AG).reduce((a,b)=>a+b,0);if(!n)retu
   const pend=PENDING_N;const rep=pend>0&&confirm(pend+' publication(s) sont déjà programmées. Les remplacer par ce nouvel agenda ? (OK = remplacer, Annuler = les garder en plus)');
   api('/api/week',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...wbody(),replace:rep,formats:[...formats],synthesia:$('#synth').checked,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#wmsg').textContent=r.error;return}$('#wmsg').textContent='';watch('Démarrage de la production…')})};
-$('#wnowall').onclick=()=>{if(!confirm('Publier maintenant, une par une, toutes les vidéos prêtes sur TikTok et YouTube ? Ne touche ni à la souris ni au clavier pendant les envois.'))return;
+$('#wnowall').onclick=()=>{if(!confirm('Envoyer maintenant à TikTok et YouTube ces '+READY_N+' vidéo(s) de la dernière fabrication ?\n\n'+READY_T.join('\n')+'\n\nNe touche ni à la souris ni au clavier pendant les envois (bouton Annuler pour arrêter).'))return;
   api('/api/publish-ready',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>{if(r.error){$('#wmsg').textContent=r.error;return}watch('Publication des vidéos prêtes…')})};
 $('#wplan').onclick=()=>api('/api/schedule/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(wbody())})
   .then(r=>{if(r.error){$('#wmsg').textContent=r.error;return}$('#wmsg').textContent='';watch('Envoi des vidéos prêtes aux réseaux…')});
@@ -436,7 +436,8 @@ function poll(){api('/api/status?since='+since).then(s=>{
   if(!run){clearInterval(timer);timer=null;vids();info();sched();cur=s.status==='done'?5:cur;stepper();
     if(s.status==='cancelled'){$('#now').textContent='Création arrêtée'}
     if(s.status==='failed'){$('#err').hidden=false;$('#err').textContent=s.error}
-    else if(s.planned&&s.planned.length){const f=s.planned[0];$('#now').innerHTML=`🗓 <b>${new Set(s.planned.map(p=>p.run_at)).size} vidéo(s) programmée(s) dans TikTok et YouTube</b> — la première sera en ligne ${esc(dfmt(f.run_at))}. Tu peux éteindre le Mac : les réseaux publient eux-mêmes.`;results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result);tab('schedule',true)}
+    if(s.failures&&s.failures.length){$('#err').hidden=false;$('#err').innerHTML='<b>Ce qui n\'a pas marché :</b><br>'+s.failures.map(f=>'✖ '+esc(f)).join('<br>')+'<br><small>Captures de chaque étape : dossier data/debug/steps · liste des boutons vus : data/debug/*_page.txt</small>'}
+    if(s.planned&&s.planned.length){const f=s.planned[0];$('#now').innerHTML=`🗓 <b>${new Set(s.planned.map(p=>p.run_at)).size} vidéo(s) programmée(s) dans TikTok et YouTube</b> — la première sera en ligne ${esc(dfmt(f.run_at))}. Tu peux éteindre le Mac : les réseaux publient eux-mêmes.`;results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result);tab('schedule',true)}
     else if(s.result&&s.result.task){$('#now').textContent='Terminé : '+s.result.summary}
     else if(s.result){$('#now').textContent='Terminé';results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result)}}
 })}

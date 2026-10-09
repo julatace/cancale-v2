@@ -50,13 +50,17 @@ def _osa(script: str, timeout: int = 30) -> str:
     return r.stdout.strip()
 
 
+TARGET = "active tab of front window"        # onglet visé par le JavaScript : « tab id T of window id W » une fois l'onglet du site ouvert
+TABS: dict[str, str] = {}                      # un onglet par site (tiktok, youtube), gardé et réutilisé pour toutes les vidéos
+
+
 def _js(code: str) -> str:
-    """Exécute du JavaScript dans l'onglet actif du navigateur."""
+    """Exécute du JavaScript dans l'onglet visé du navigateur."""
     esc = code.replace("\\", "\\\\").replace('"', '\\"')
     if BROWSER == "Safari":
         cmd = f'tell application "Safari" to do JavaScript "{esc}" in current tab of front window'
     else:
-        cmd = f'tell application "{BROWSER}" to execute active tab of front window javascript "{esc}"'
+        cmd = f'tell application "{BROWSER}" to execute {TARGET} javascript "{esc}"'
     try:
         return _osa(cmd)
     except RuntimeError as e:
@@ -224,6 +228,18 @@ def _shot(name="tiktok_web_erreur.png"):
         return ""
 
 
+def trace(site: str, label: str) -> None:
+    """Capture d'écran de l'étape (data/debug/steps/) : pour voir exactement ce que l'agent voyait si quelque chose ne va pas. Les 40 dernières sont gardées."""
+    try:
+        d = Path(__file__).resolve().parents[2] / "data" / "debug" / "steps"
+        d.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["screencapture", "-x", "-t", "jpg", str(d / f"{time.strftime('%H%M%S')}_{site}_{label}.jpg")], timeout=10)
+        for old in sorted(d.glob("*.jpg"))[:-40]:
+            old.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 DUMP_JS = ("(function(){var o=[];document.querySelectorAll('input,textarea,[role=radio],[role=switch],[role=checkbox],button,[role=button],[contenteditable=true],tp-yt-paper-radio-button').forEach(function(e){"
            "var r=e.getBoundingClientRect();if(!(r.width>0&&r.height>0))return;var t=(e.innerText||e.value||e.getAttribute('aria-label')||'').trim().replace(/\\s+/g,' ').slice(0,60);"
            "o.push([e.tagName.toLowerCase(),e.type||'',e.getAttribute('name')||'',e.getAttribute('role')||'',e.getAttribute('aria-checked')||e.getAttribute('aria-pressed')||(e.checked===undefined?'':String(e.checked)),(e.value||'').slice(0,40),t].join(' | '))});"
@@ -250,8 +266,47 @@ def post(video: Path, caption: str, publish: bool = False, say=log.info, publish
         raise RuntimeError(f"{e}" + (f" (capture d'écran : {shot})" if shot else "") + (f" (page : {dump})" if dump else "")) from e
 
 
-def open_url(url: str, say, label: str) -> None:
-    """Ouvre `url` dans le navigateur choisi (et le bon profil Chrome) après avoir vérifié le réglage JavaScript."""
+def _tab_alive(spec: str) -> bool:
+    try:
+        _osa(f'tell application "{BROWSER}" to get URL of {spec}')
+        return True
+    except RuntimeError:
+        return False
+
+
+def _front_tab_spec() -> str:
+    wid = _osa(f'tell application "{BROWSER}" to get id of front window')
+    tid = _osa(f'tell application "{BROWSER}" to get id of active tab of front window')
+    return f"tab id {tid} of window id {wid}"
+
+
+def _focus_tab(spec: str) -> None:
+    """Met l'onglet (déjà ouvert) au premier plan : un onglet caché est ralenti par Chrome."""
+    m = re.match(r"tab id (\d+) of window id (\d+)", spec)
+    if not m:
+        return
+    tid, wid = m.groups()
+    _osa(f'tell application "{BROWSER}"\nset w to window id {wid}\nrepeat with i from 1 to count of tabs of w\n'
+         f'if (id of tab i of w) is {tid} then set active tab index of w to i\nend repeat\nset index of w to 1\nactivate\nend tell')
+
+
+def open_url(url: str, say, label: str, site: str = "web") -> None:
+    """Ouvre `url` dans le navigateur choisi (et le bon profil Chrome). Pour une même plateforme, le MÊME onglet est réutilisé d'une vidéo à
+    l'autre : aucun nouvel onglet à chaque publication."""
+    global TARGET
+    if BROWSER != "Safari" and site in TABS and _tab_alive(TABS[site]):
+        TARGET = TABS[site]
+        say(f"🌐 {label} : même onglet réutilisé")
+        try:
+            _js("window.onbeforeunload=null; 'ok'")                # évite la fenêtre « Quitter le site ? »
+        except RuntimeError:
+            pass
+        _osa(f'tell application "{BROWSER}" to set URL of {TARGET} to "{url}"')
+        _focus_tab(TARGET)
+        time.sleep(2)
+        _wait("String(document.readyState==='complete')", f"la page {label} ne se charge pas", 45)
+        return
+    TARGET = "active tab of front window"
     say(f"🌐 Ouverture de {label} dans {BROWSER}…")
     if BROWSER == "Safari":
         _osa(f'tell application "Safari"\nactivate\nif (count of windows) = 0 then make new document\n'
@@ -272,6 +327,11 @@ def open_url(url: str, say, label: str) -> None:
                                "config/settings.yaml (ligne chrome_profile)" + (f" : {profs}" if profs else "") + f". Détail : {str(e)[:120]}") from e
     say(f"🔐 Test du réglage JavaScript de {BROWSER}…")
     _wait("String(1+1==2)", f"{BROWSER} n'a pas ouvert de fenêtre de navigation (vérifie le profil dans chrome_profile)", 25)
+    if BROWSER != "Safari" and site != "web":
+        try:
+            TABS[site] = TARGET = _front_tab_spec()                # on retient l'onglet pour les vidéos suivantes
+        except RuntimeError:
+            pass
 
 
 INJECT_CHUNK = 240_000          # caractères base64 par appel (une ligne de commande macOS est limitée à ~1 Mo)
@@ -336,7 +396,7 @@ def _post(video, caption, publish, say, publish_at=None):
     video = Path(video).resolve()
     if not video.exists():
         raise RuntimeError(f"vidéo introuvable : {video}")
-    open_url(UPLOAD_URL, say, "TikTok Studio")
+    open_url(UPLOAD_URL, say, "TikTok Studio", site="tiktok")
     _wait('String(!!document.querySelector("input[type=file]"))', "page d'envoi non chargée")
     if _js('String(/connecter|log in|se connecter/i.test(document.body.innerText.slice(0,400)) && !document.querySelector("input[type=file]"))') == "true":
         raise RuntimeError("TikTok demande de se connecter : connecte ton compte dans Safari puis relance")
@@ -354,11 +414,16 @@ def _post(video, caption, publish, say, publish_at=None):
         _keys('keystroke " "', f'keystroke "{tag}"', "delay 1.2", 'keystroke " "', "delay 0.4")
     _keys("delay 0.5", "key code 53")                  # Échap : ferme la liste de suggestions encore ouverte
     time.sleep(1.5)
+    typed = _js('var e=document.querySelector("[contenteditable=true]");e?(e.innerText||e.textContent||"").trim():""')
+    if len(typed) < min(len(body), 8):                                       # légende vide ou perdue : on s'arrête au lieu de publier sans texte
+        raise RuntimeError(f"la légende n'a pas été écrite dans TikTok (lu : « {typed[:40]} »)")
+    trace("tiktok", "1_legende")
     when = None
     if publish_at:
         from datetime import datetime
         when = datetime.fromisoformat(publish_at)
         schedule_tiktok(when, say)
+        trace("tiktok", "2_programmation")
     if not publish:
         say("✋ Tout est prêt dans le navigateur : vérifie puis clique sur « Publier » toi-même.")
         return "prêt (non publié)"
@@ -368,8 +433,19 @@ def _post(video, caption, publish, say, publish_at=None):
              'if(b){b.click();"true"}else{"false"}')
     if ok != "true":
         raise RuntimeError("bouton « Publier » introuvable ou grisé (vidéo encore en traitement ?)")
-    time.sleep(6)
-    _js('var b=[...document.querySelectorAll("button")].find(x=>/^(publier maintenant|post now|confirmer|confirm)$/i.test(x.innerText.trim())); if(b)b.click(); "ok"')
+    time.sleep(4)
+    _js('var b=[...document.querySelectorAll("button")].find(x=>/^(publier maintenant|post now|confirmer|confirm|planifier|schedule)$/i.test(x.innerText.trim())&&!x.disabled&&x.getBoundingClientRect().width>0&&document.querySelectorAll("[role=dialog],.TUXModal,.modal").length>0); if(b)b.click(); "ok"')
+    end = time.monotonic() + 40                                              # TikTok doit CONFIRMER : on ne dit « publié » que si c'est vrai
+    done = False
+    while time.monotonic() < end:
+        if _js('String(/publi[ée]e?|planifi[ée]e?|programm[ée]e?|t[ée]l[ée]vers[ée]e?|has been|scheduled|uploaded|manage your posts|g[ée]rer vos publications/i.test(document.body.innerText)'
+               ' && !document.querySelector("input[type=file]:not([hidden])") || !/upload/.test(location.pathname))') == "true":
+            done = True
+            break
+        time.sleep(2)
+    trace("tiktok", "3_apres_publication")
+    if not done:
+        raise RuntimeError("TikTok n'a pas confirmé la publication (la page est restée sur l'envoi)")
     return f"programmée le {when:%d/%m/%Y à %H:%M}" if when else "publié"
 
 

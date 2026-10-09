@@ -156,10 +156,11 @@ def test_tiktok_web_flow_prepares_without_publishing(tmp_path, monkeypatch):
     v = tmp_path / "v.mp4"; v.write_bytes(b"x")
     calls = []
     monkeypatch.setattr(tw, "_osa", lambda s, timeout=30: calls.append(s) or "")
-    monkeypatch.setattr(tw, "_js", lambda c: calls.append(c) or ("false" if "connecter" in c else "true"))
+    monkeypatch.setattr(tw, "_js", lambda c: calls.append(c) or ("false" if "connecter" in c else "légende de test" if "e.textContent" in c else "true"))
     monkeypatch.setattr(tw, "_keys", lambda *l: calls.append("keys"))
     monkeypatch.setattr(tw, "_clip", lambda t: calls.append("clip:" + t[:5]))
     monkeypatch.setattr(tw, "_real_click_upload", lambda say: calls.append("click"))
+    monkeypatch.setattr(tw, "trace", lambda *a: None)
     monkeypatch.setattr(tw.time, "sleep", lambda s: None)
     out = tw.post(v, "légende #piano", publish=False)
     assert "non publié" in out and not any("publier|post" in str(c) for c in calls)
@@ -446,3 +447,52 @@ def test_published_video_is_deleted_from_disk_but_failed_one_is_kept(tmp_path):
     assert cleanup.delete_after_publish(st, conn, ids[1], ok) == []                       # désactivable
     assert cleanup.purge_published({**st, "storage": {"delete_after_publish": True}}, conn) >= 2
     assert not (rend / "v2.mp4").exists()
+
+
+def test_same_tab_is_reused_for_every_video_of_a_site(monkeypatch):
+    from app.publisher import tiktok_web as tw
+    calls = []
+    monkeypatch.setattr(tw, "BROWSER", "Google Chrome")
+    monkeypatch.setattr(tw, "PROFILE", "angeled92")
+    monkeypatch.setattr(tw, "TABS", {})
+    monkeypatch.setattr(tw, "chrome_profiles", lambda: [{"dir": "Profile 3", "name": "angeled92", "email": ""}])
+    monkeypatch.setattr(tw.subprocess, "run", lambda cmd, **k: calls.append(("open", cmd)))
+    def osa(s, timeout=30):
+        calls.append(("osa", s))
+        if "get id of front window" in s: return "7"
+        if "get id of active tab" in s: return "42"
+        return ""
+    monkeypatch.setattr(tw, "_osa", osa)
+    monkeypatch.setattr(tw, "_js", lambda c: "true")
+    monkeypatch.setattr(tw.time, "sleep", lambda s: None)
+    tw.open_url("https://tiktok/upload", lambda m: None, "TikTok Studio", site="tiktok")           # 1re vidéo : ouverture dans le profil
+    assert tw.TABS["tiktok"] == "tab id 42 of window id 7" and tw.TARGET == "tab id 42 of window id 7"
+    n_open = sum(1 for k, _ in calls if k == "open")
+    tw.open_url("https://tiktok/upload", lambda m: None, "TikTok Studio", site="tiktok")           # vidéos suivantes : même onglet, aucune nouvelle fenêtre
+    assert sum(1 for k, _ in calls if k == "open") == n_open
+    assert any(k == "osa" and 'set URL of tab id 42 of window id 7' in s for k, s in calls)
+
+
+def test_tiktok_does_not_claim_success_without_confirmation(tmp_path, monkeypatch):
+    import pytest
+    from app.publisher import tiktok_web as tw
+    v = tmp_path / "v.mp4"; v.write_bytes(b"x")
+    monkeypatch.setattr(tw, "open_url", lambda *a, **k: None)
+    monkeypatch.setattr(tw, "choose_file", lambda *a, **k: None)
+    monkeypatch.setattr(tw, "_wait", lambda *a, **k: None)
+    monkeypatch.setattr(tw, "_clip", lambda t: None)
+    monkeypatch.setattr(tw, "_keys", lambda *a: None)
+    monkeypatch.setattr(tw, "trace", lambda *a: None)
+    monkeypatch.setattr(tw, "_shot", lambda *a, **k: "")
+    monkeypatch.setattr(tw, "save_dump", lambda *a: "")
+    t = {"v": 0.0}
+    monkeypatch.setattr(tw.time, "monotonic", lambda: t["v"])
+    monkeypatch.setattr(tw.time, "sleep", lambda s: t.__setitem__("v", t["v"] + s))
+    def js(c):
+        if "e.textContent" in c: return "Ma légende de test"                       # légende bien écrite
+        if "connecter" in c: return "false"                                        # connecté
+        if "has been" in c: return "false"                                        # TikTok ne confirme jamais la publication
+        return "true"
+    monkeypatch.setattr(tw, "_js", js)
+    with pytest.raises(RuntimeError, match="n'a pas confirmé"):
+        tw.post(v, "Ma légende de test #piano", publish=True)
