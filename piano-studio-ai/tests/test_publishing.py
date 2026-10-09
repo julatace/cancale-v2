@@ -377,3 +377,11 @@ def test_page_is_opened_in_the_profile_before_testing_javascript(monkeypatch):
     assert kinds.index("open") < kinds.index("js")                                   # d'abord la fenêtre du bon profil, ensuite le test JavaScript
     cmd = order[kinds.index("open")][1]
     assert cmd[:3] == ["open", "-na", "Google Chrome"] and "--profile-directory=Profile 3" in cmd
+
+
+def test_youtube_also_opens_the_angeled92_profile():
+    from app import config
+    from app.publisher import adapters
+    s = config.load_settings()
+    yt = [a for a in adapters(s) if a.platform == "youtube"][0]
+    assert yt.profile == "angeled92"
