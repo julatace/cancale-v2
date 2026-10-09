@@ -18,8 +18,8 @@ from .falling import HORIZONTAL, VERTICAL, Layout, _font as _font_raw  # noqa
 log = logging.getLogger(__name__)
 _font = lru_cache(maxsize=64)(_font_raw)
 
-LOOKAHEAD = 2.4
-MIN_WHITES, MAX_WHITES = 10, 24          # plus serré = plus zoomé
+LOOKAHEAD = 3.6                          # on voit la note arriver longtemps à l'avance : le temps de placer les doigts
+MIN_WHITES, MAX_WHITES = 17, 28          # au moins ~2,5 octaves : lisible, sans zoom qui sautille          # plus serré = plus zoomé
 LEFT = ((92, 214, 210), (35, 150, 150))  # (clair, foncé) main gauche
 RIGHT = ((248, 128, 90), (205, 85, 55))  # main droite
 INK = (38, 36, 40)
@@ -54,19 +54,22 @@ class Camera:
             self.c = lo + MAX_WHITES / 2
 
     def target(self, t: float):
-        near = [n for n in self.notes if n.end > t - 0.3 and n.start < t + LOOKAHEAD * 0.7]
+        """Fenêtre qui couvre les notes des 6 prochaines secondes (on ne bouge pas pour une note isolée)."""
+        near = [n for n in self.notes if n.end > t - 0.3 and n.start < t + 6.0]
         if not near:
             return self.c, self.w
         xs = [xpos(n.pitch)[0] for n in near]
-        lo, hi = min(xs) - 1.5, max(xs) + 2.5
+        lo, hi = min(xs) - 2, max(xs) + 3
         w = min(max(hi - lo, MIN_WHITES), MAX_WHITES, max(self.full[1] - self.full[0], MIN_WHITES))
         return (lo + hi) / 2, w
 
     def step(self, t: float, dt: float):
-        c, w = self.target(t)
-        k = 1 - math.exp(-dt * 2.2)                       # lissage : mouvements doux, jamais brusques
-        self.c += (c - self.c) * k
-        self.w += (w - self.w) * k * 0.8
+        if t >= getattr(self, "_next", 0.0):              # le plan de caméra change au plus toutes les 2,5 s : image stable, jamais nerveuse
+            self.tc, self.tw = self.target(t)
+            self._next = t + 2.5
+        k = 1 - math.exp(-dt * 1.1)                       # glissement lent et continu
+        self.c += (self.tc - self.c) * k
+        self.w += (self.tw - self.w) * k
         lo_lim, hi_lim = self.full
         half = self.w / 2
         self.c = min(max(self.c, lo_lim + half), max(hi_lim - half, lo_lim + half))
