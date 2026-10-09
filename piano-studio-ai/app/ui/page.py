@@ -289,7 +289,7 @@ tab((location.hash||'').slice(1)||(()=>{try{return localStorage.getItem('tab')}c
 let songId=null,level=null,formats=new Set(),since=0,timer=null,opts=null,cur=-1,fmtLabel='';
 const api=(p,o)=>fetch(p,o).then(r=>r.json());
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let ONLY_MINE=false,PENDING_N=0,READY_N=0,READY_T=[];
+let ONLY_MINE=false,PENDING_N=0,READY_N=0,READY_T=[],YT_DAILY=4;
 const STEPS=['Morceau','Passage','Fabrication','Qualité','Publication'];
 const dev=f=>f.width>f.height
   ?'<svg width="64" height="40" viewBox="0 0 64 40" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="58" height="34" rx="6"/><path d="M12 28h40" stroke-width="5" stroke-linecap="round" opacity=".35"/></svg>'
@@ -392,6 +392,7 @@ function agenda(){$('#agenda').innerHTML=agDays().map((d,i)=>{const k=iso(d),n=A
   return `<div class="day${n?' on':''}"><small>${esc(lab)}</small><div class="d">${d.getDate()} ${esc(d.toLocaleDateString('fr-FR',{month:'short'}))}</div><div class="c"><button data-d="${k}" data-s="-1" aria-label="Moins">−</button><b>${n}</b><button data-d="${k}" data-s="1" aria-label="Plus">+</button></div></div>`}).join('');west()}
 function west(){const n=Object.values(AG).reduce((a,b)=>a+b,0);const j=Object.values(AG).filter(x=>x>0).length;
   $('#west').textContent=n?`${n} vidéo${n>1?'s':''} sur ${j} jour${j>1?'s':''}. Compte environ ${n*4} minutes (3 à 4 par morceau). Chaque vidéo est envoyée à TikTok et YouTube dès qu'elle est montée, et programmée DANS chaque réseau à la date choisie (jusqu'à 10 jours). Ne touche pas au Mac pendant ce temps.`:'Clique sur + pour choisir le nombre de vidéos de chaque jour.';
+  const per=formats.size>1?2:1,up=n*per;if(n&&up>YT_DAILY)$('#west').innerHTML+=`<br><b style="color:var(--bad)">⚠ YouTube limite à ${YT_DAILY} envois par jour</b> : ${n} vidéo${n>1?'s':''} × ${per} format${per>1?'s':''} = ${up} envois. ${YT_DAILY} partent aujourd'hui, les autres attendent (TikTok part tout de suite) et sont envoyées automatiquement quand YouTube le permet — <b>laisse la page ouverte</b>. Pour tout envoyer plus vite, décoche un format.`;
   $('#wgo').disabled=!n}
 $('#agenda').onclick=e=>{const b=e.target.closest('[data-d]');if(!b)return;const k=b.dataset.d;AG[k]=Math.max(0,Math.min(MAXN,(AG[k]||0)+(+b.dataset.s)));agenda()};
 document.querySelector('.quick').onclick=e=>{const b=e.target.closest('[data-quick]');if(!b)return;const v=+b.dataset.quick;agDays().forEach((d,i)=>{AG[iso(d)]=(i>=1&&i<=7)?v:0});agenda()};
@@ -434,6 +435,7 @@ function poll(){api('/api/status?since='+since).then(s=>{
   if(!run){clearInterval(timer);timer=null;vids();info();sched();cur=s.status==='done'?5:cur;stepper();
     if(s.status==='cancelled'){$('#now').textContent='Création arrêtée'}
     if(s.status==='failed'){$('#err').hidden=false;$('#err').textContent=s.error}
+    if(s.waiting&&s.waiting.length){$('#err').hidden=false;$('#err').innerHTML=($('#err').innerHTML||'')+'<b>⏳ En attente de la limite YouTube :</b><br>'+s.waiting.map(f=>esc(f)).join('<br>')}
     if(s.failures&&s.failures.length){$('#err').hidden=false;$('#err').innerHTML='<b>Ce qui n\'a pas marché :</b><br>'+s.failures.map(f=>'✖ '+esc(f)).join('<br>')+'<br><small>Captures de chaque étape : dossier data/debug/steps · liste des boutons vus : data/debug/*_page.txt</small>'}
     if(s.planned&&s.planned.length){const f=s.planned[0];$('#now').innerHTML=`🗓 <b>${new Set(s.planned.map(p=>p.run_at)).size} vidéo(s) programmée(s) dans TikTok et YouTube</b> — la première sera en ligne ${esc(dfmt(f.run_at))}. Tu peux éteindre le Mac : les réseaux publient eux-mêmes.`;results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result);tab('schedule',true)}
     else if(s.result&&s.result.task){$('#now').textContent='Terminé : '+s.result.summary}
@@ -447,7 +449,7 @@ $('#go').onclick=()=>{
   $('#job').scrollIntoView({behavior:'smooth',block:'start'});
   api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked,synthesia:$('#synth').checked,song_id:songId,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#now').textContent=r.error;return}if(!timer)timer=setInterval(poll,1500);poll()})};
-api('/api/options').then(o=>{opts=o;$('#maxrec').value=o.max_record_seconds;$('#lang').innerHTML=o.languages.map(l=>`<option value="${l.key}"${l.key===o.default_language?' selected':''}>${l.label}</option>`).join('');$('#tc').innerHTML=o.countries.map(c=>`<option value="${c.key}">${c.label}</option>`).join('');level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
+api('/api/options').then(o=>{opts=o;$('#maxrec').value=o.max_record_seconds;YT_DAILY=o.youtube_daily||4;$('#lang').innerHTML=o.languages.map(l=>`<option value="${l.key}"${l.key===o.default_language?' selected':''}>${l.label}</option>`).join('');$('#tc').innerHTML=o.countries.map(c=>`<option value="${c.key}">${c.label}</option>`).join('');level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
 info();vids();songs();sched();inb();setInterval(info,20000);setInterval(sched,30000);setInterval(inb,10000);
 api('/api/status').then(s=>{if(s.status==='running'){$('#job').hidden=false;since=0;timer=setInterval(poll,1500);poll()}});
 </script></div></body></html>

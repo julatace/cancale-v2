@@ -114,7 +114,7 @@ class Job:
             with self.lock:
                 self.state.update(status="done", result=results[-1] if count == 1 else results,
                                   planned=[{"title": p["title"], "run_at": p["run_at"], "format": p["format"]} for p in getattr(self, "_planned", [])],
-                                  failures=list(getattr(self, "_fails", [])))
+                                  failures=list(getattr(self, "_fails", [])), waiting=list(getattr(self, "_waiting", [])))
         except control.Cancelled:
             self._add("■ Création arrêtée. Synthesia est fermé et l'enregistrement coupé.")
             with self.lock:
@@ -136,6 +136,7 @@ class Job:
         max_attempts = count + min(count, 4)                            # une création ratée est refaite (avec un autre morceau), dans la limite de 4 reprises
         self._planned = []
         self._fails = []
+        self._waiting = []
         squeue.set_last_batch([])                                        # nouvelle fabrication : on repart d'une liste vide
         while len(good_ids) < count and attempts < max_attempts:
             spent = time.time() - t0
@@ -175,6 +176,10 @@ class Job:
                     self._add(f"✖ Envoi impossible : {e}")
                     continue
                 for x in res:
+                    if x["status"] == "WAITING":
+                        self._add(f"   ⏳ {x['platform']} : {x['detail']}")
+                        self._waiting.append(f"« {v.get('title', '')[:45]} » → YouTube : {x['detail']}")
+                        continue
                     self._add(f"   {'✓' if x['status'] in squeue.GOOD else '✖'} {x['platform']} : {x['status']}" + (f" — {x['detail'][:100]}" if x["status"] in ("FAILED", "UNCERTAIN") else ""))
                     if x["status"] in ("FAILED", "UNCERTAIN"):
                         self._fails.append(f"{x['platform']} — « {v.get('title', '')[:45]} » : {x['detail'][:260]}")
@@ -228,6 +233,7 @@ def options(s) -> dict:
         "languages": [{"key": "fr", "label": "Français"}, {"key": "en", "label": "English"}, {"key": "es", "label": "Español"}],
         "default_language": s.get("language", "fr"),
         "max_record_seconds": int(s.get("synthesia", {}).get("max_record_seconds", 90)),
+        "youtube_daily": int(s.get("youtube", {}).get("max_uploads_per_day", 4)),
         "countries": [{"key": k, "label": v} for k, v in mtrends.COUNTRIES.items()],
     }
 
@@ -336,6 +342,9 @@ def due_runner(settings_loader, every=30, stop=None):
                 inbox.LAST_CHECK["at"] = time.time()
                 if inbox.waiting(s) and inbox.rights_confirmed(s):          # nouveaux sons dans ton dossier : importés tout seuls
                     inbox.scan(s, import_upload)
+                cn = db.connect(config.resolve(s, "database"))
+                if squeue.waiting_youtube(cn) and squeue.youtube_capacity(s, cn) > 0:       # la limite quotidienne de YouTube s'est libérée : on reprend
+                    JOB.start_task("youtube-reprise", lambda: f"{squeue.resume_waiting(s, db.connect(config.resolve(s, 'database')), say=logging.getLogger('piano').info)} vidéo(s) envoyée(s) à YouTube")
             except Exception as e:
                 logging.getLogger("piano").warning("programmation : %s", e)
             time.sleep(every)

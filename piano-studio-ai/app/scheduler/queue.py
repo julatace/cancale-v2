@@ -226,6 +226,46 @@ def cancel_all_pending(conn) -> int:
     return cur.rowcount
 
 
+COUNTED = ("SCHEDULED", "PUBLISHED", "DRAFT", "UNCERTAIN", "SENDING")
+
+
+def _yt_used(conn):
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    return conn.execute(f"SELECT published_at FROM publications WHERE platform='youtube' AND status IN ({','.join('?' * len(COUNTED))}) AND published_at>? ORDER BY published_at",
+                        (*COUNTED, cutoff)).fetchall()
+
+
+def youtube_capacity(s, conn) -> int:
+    """Envois YouTube encore possibles : YouTube limite le nombre de vidéos envoyées par 24 h (réglage youtube.max_uploads_per_day, 4 par défaut)."""
+    return max(int(s.get("youtube", {}).get("max_uploads_per_day", 4)) - len(_yt_used(conn)), 0)
+
+
+def youtube_free_at(s, conn):
+    """Heure (locale) à laquelle YouTube accepte de nouveau un envoi."""
+    used = _yt_used(conn)
+    cap = int(s.get("youtube", {}).get("max_uploads_per_day", 4))
+    if len(used) < cap or not used:
+        return datetime.now().astimezone()
+    return (datetime.fromisoformat(used[len(used) - cap]["published_at"]) + timedelta(hours=24, minutes=2)).astimezone()
+
+
+def waiting_youtube(conn) -> list[dict]:
+    rows = conn.execute("SELECT video_id, post_id FROM publications WHERE platform='youtube' AND status='WAITING' ORDER BY video_id").fetchall()
+    return [{"video_id": r["video_id"], "slot": r["post_id"] or None} for r in rows]
+
+
+def resume_waiting(s, conn, say=log.info) -> int:
+    """Envoie à YouTube, dès que sa limite quotidienne le permet, les vidéos qui attendaient (TikTok est déjà fait). Garde la date de mise en ligne prévue."""
+    n = 0
+    for w in waiting_youtube(conn):
+        if youtube_capacity(s, conn) <= 0:
+            break
+        say(f"▶ YouTube accepte de nouveau un envoi : reprise de la vidéo {w['video_id']}")
+        res = publish_video(s, conn, w["video_id"], publish_at=w["slot"])
+        n += any(x["platform"] == "youtube" and x["status"] in GOOD for x in res)
+    return n
+
+
 def native_time(publish_at, now: datetime | None = None):
     """Heure à confier à TikTok / YouTube (leur programmation), ou None = publier tout de suite (seulement si aucune date n'est demandée).
     Une heure trop proche est avancée au plus tôt possible ; trop lointaine (plus de 10 jours) : SlotError, rien n'est publié."""
@@ -284,6 +324,14 @@ def publish_video(s, conn, video_id: int, publish_at=None) -> list[dict]:
             if done.get(ad.platform) in ("SENDING", "UNCERTAIN"):      # envoi interrompu / non confirmé : peut déjà être en ligne, donc JAMAIS renvoyé tout seul
                 out.append({"platform": ad.platform, "status": "UNCERTAIN",
                             "detail": f"envoi non confirmé : regarde dans {ad.platform} si la vidéo y est avant de réessayer (renvoyer risquerait un doublon)"})
+                continue
+            if ad.platform == "youtube" and youtube_capacity(s, conn) <= 0:               # limite quotidienne de YouTube atteinte : on garde la vidéo, TikTok part quand même
+                free = youtube_free_at(s, conn)
+                conn.execute("INSERT OR REPLACE INTO publications(video_id,platform,post_id,status,published_at) VALUES(?,?,?,?,?)",
+                             (video_id, "youtube", (when.replace(tzinfo=None).isoformat(timespec="minutes") if when else ""), "WAITING", db.now()))
+                conn.commit()
+                out.append({"platform": "youtube", "status": "WAITING",
+                            "detail": f"limite de {s.get('youtube', {}).get('max_uploads_per_day', 4)} envois par 24 h atteinte : reprise automatique vers {free:%d/%m %H:%M} (page ouverte)"})
                 continue
             conn.execute("INSERT OR REPLACE INTO publications(video_id,platform,post_id,status,published_at) VALUES(?,?,?,?,?)",
                          (video_id, ad.platform, "", "SENDING", db.now()))                 # « envoi en cours » : survit à un arrêt brutal de l'app

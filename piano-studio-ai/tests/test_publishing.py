@@ -546,3 +546,40 @@ def test_failed_scheduling_keeps_the_video_as_a_draft_in_each_network(tmp_path, 
     yt = yw.YouTubeWeb(publish=True)
     r2 = yt.publish(v, {"title": "Titre", "description": "d", "hashtags": [], "publish_at": "2030-01-06T19:00"}, "1")
     assert r2.status == "DRAFT" and closed == [1]
+
+
+def test_youtube_daily_limit_keeps_the_video_waiting_while_tiktok_goes_and_resumes_later(tmp_path, monkeypatch):
+    import app.publisher as pubs
+    from datetime import datetime, timedelta, timezone
+    from app.database import db
+    from app.scheduler import queue
+    c = db.connect(tmp_path / "t.sqlite3")
+    db.add_song(c, "A", "x", "s", "LEGAL_CONFIRMED", hash="a")
+    for i in range(1, 7):
+        (tmp_path / f"{i}.mp4").write_bytes(b"x")
+        c.execute("INSERT INTO videos(song_id,style,duration,output_path,quality_score,status,title,meta,created_at) VALUES(1,'facile|vertical',60,?,95,'READY','V',?,?)",
+                  (str(tmp_path / f"{i}.mp4"), "{}", db.now()))
+    c.commit()
+    sent = []
+
+    class Net:
+        def __init__(self, name): self.platform = name
+        def publish(self, video, meta, key):
+            from app.publisher.base import Result
+            sent.append((self.platform, key))
+            return Result(self.platform, "SCHEDULED" if meta.get("publish_at") else "PUBLISHED", key, "ok")
+    monkeypatch.setattr(pubs, "adapters", lambda s, fmt=None: [Net("tiktok"), Net("youtube")])
+    st = {"youtube": {"max_uploads_per_day": 4}, "storage": {"delete_after_publish": False}}
+    when = datetime.now().astimezone() + timedelta(days=2)
+    res = [queue.publish_video(st, c, i, publish_at=when) for i in range(1, 7)]
+    yt = [r for rr in res for r in rr if r["platform"] == "youtube"]
+    assert [x["status"] for x in yt] == ["SCHEDULED"] * 4 + ["WAITING"] * 2                  # 4 envois YouTube, les 2 suivants attendent
+    assert [p for p, _ in sent if p == "tiktok"] == ["tiktok"] * 6                           # TikTok n'est jamais bloqué
+    assert "limite de 4 envois" in yt[-1]["detail"] and queue.youtube_capacity(st, c) == 0
+    assert [w["video_id"] for w in queue.waiting_youtube(c)] == [5, 6] and queue.waiting_youtube(c)[0]["slot"]   # la date prévue est gardée
+    old = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()                     # 25 h plus tard : les envois de la veille ne comptent plus
+    c.execute("UPDATE publications SET published_at=? WHERE platform='youtube' AND status='SCHEDULED'", (old,)); c.commit()
+    sent.clear()
+    assert queue.resume_waiting(st, c, say=lambda m: None) == 2
+    assert sent == [("youtube", "5"), ("youtube", "6")]                                      # reprise automatique : seulement YouTube, TikTok n'est pas refait
+    assert queue.waiting_youtube(c) == []

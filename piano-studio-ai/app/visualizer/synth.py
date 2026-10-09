@@ -1,17 +1,26 @@
-"""Piano de secours (numpy) : plusieurs cordes légèrement désaccordées, harmoniques qui s'éteignent à des vitesses différentes,
-bruit de marteau, stéréo selon la hauteur et réverbération douce. Sur Mac, le piano du système (afconvert) est préféré."""
+"""Son du piano. Sur Mac : le piano du système (synthétiseur General MIDI d'Apple, via `afconvert`), bien plus réaliste ; velocités adoucies, pédale
+de sustain automatique, réverbération légère. Sinon (ou si afconvert échoue) : piano de secours en numpy — cordes désaccordées, 20 harmoniques à
+deux phases d'extinction (attaque rapide puis résonance), bruit de marteau, stéréo selon la hauteur, réverbération avec premières réflexions, filtrage doux."""
+import shutil
+import subprocess
+import sys
+import tempfile
 import wave
+from pathlib import Path
 
 import numpy as np
 
 SR = 44100
-K = 8                          # nombre d'harmoniques
+K = 20                         # nombre d'harmoniques (8 donnait un son fin, « électronique »)
 
 
-def _reverb(x: np.ndarray, wet=0.14, seconds=0.9, seed=0) -> np.ndarray:
+def _reverb(x: np.ndarray, wet=0.17, seconds=1.1, seed=0) -> np.ndarray:
     rng = np.random.default_rng(seed)
     n = int(seconds * SR)
-    ir = rng.standard_normal(n) * np.exp(-np.arange(n) / SR / 0.28)
+    ir = rng.standard_normal(n) * np.exp(-np.arange(n) / SR / 0.32)
+    ir = np.convolve(ir, np.ones(4) / 4, mode="same")                  # queue filtrée : chaude, pas sifflante
+    for d, g in ((0.011, 0.55), (0.019, 0.45), (0.029, 0.35), (0.043, 0.25)):   # premières réflexions : sensation de pièce
+        ir[int(d * SR)] += g * np.abs(ir).max() * 3
     ir[: int(0.01 * SR)] *= np.linspace(0, 1, int(0.01 * SR))
     ir /= np.abs(ir).sum() ** 0.5 * 12
     block = 1 << 16
@@ -27,33 +36,129 @@ def _reverb(x: np.ndarray, wet=0.14, seconds=0.9, seed=0) -> np.ndarray:
 
 def _note(p: int, vel: int, hold: float) -> np.ndarray:
     f0 = 440.0 * 2 ** ((p - 69) / 12)
-    L = int(min(hold + 0.5, 3.8) * SR)
+    L = int(min(hold + 0.7, 4.5) * SR)
     t = (np.arange(L, dtype=np.float32) / SR)[None, :]
     nstr = 1 if p < 33 else 2 if p < 48 else 3
-    v = (vel / 127) ** 1.3
-    base_decay = 0.5 + f0 / 900
+    v = (vel / 127) ** 1.25
     out = np.zeros(L, dtype=np.float32)
-    B = 1e-4 * (f0 / 220) ** 2                          # inharmonicité de la corde
+    B = 1.2e-4 * (f0 / 220) ** 2                          # inharmonicité de la corde
     ks = np.arange(1, K + 1, dtype=np.float32)[:, None]
+    low = np.clip((84 - p) / 60, 0.0, 1.0)                 # graves : plus longs et plus riches ; aigus : brefs et purs
+    d_fast = (1.6 + f0 / 500) * (1 + 0.35 * (ks - 1))      # extinction rapide (attaque)
+    d_slow = (0.28 + f0 / 1800) * (1 + 0.12 * (ks - 1))     # résonance longue (« after-sound » du piano)
+    tilt = 1.25 - 0.55 * v + 0.35 * (1 - low)               # forte frappe = plus brillant
     for s in range(nstr):
-        cents = (s - (nstr - 1) / 2) * 1.6               # cordes légèrement désaccordées = son plus vivant
+        cents = (s - (nstr - 1) / 2) * 2.2                  # cordes légèrement désaccordées : battements vivants
         f = f0 * 2 ** (cents / 1200)
         fk = ks * f * np.sqrt(1 + B * ks ** 2)
-        amp = (1.0 / ks ** (1.15 - 0.5 * v)) * (fk < SR / 2.2)       # plus fort = plus brillant
-        dec = base_decay * (1 + 0.55 * (ks - 1))                      # les aigus s'éteignent plus vite
-        out += (amp * np.exp(-t * dec) * np.sin(2 * np.pi * fk * t)).sum(axis=0) / nstr
-    n_h = int(0.012 * SR)                                # bruit de marteau
+        amp = (1.0 / ks ** tilt) * (fk < SR / 2.3)
+        env = 0.62 * np.exp(-t * d_fast) + 0.38 * np.exp(-t * d_slow)
+        ph = (s * 0.7 + ks * 0.37)
+        out += (amp * env * np.sin(2 * np.pi * fk * t + ph)).sum(axis=0) / nstr
+    n_h = int(0.016 * SR)                                # bruit de marteau (filtré : sourd, pas sifflant)
     rng = np.random.default_rng(p * 131 + vel)
-    out[:n_h] += (rng.standard_normal(n_h) * np.linspace(1, 0, n_h) ** 2 * 0.07 * v).astype(np.float32)
+    nz = rng.standard_normal(n_h)
+    nz = np.convolve(nz, np.ones(5) / 5, mode="same")
+    out[:n_h] += (nz * np.linspace(1, 0, n_h) ** 2 * 0.06 * v).astype(np.float32)
     ti = t[0]
-    out *= np.minimum(ti / 0.003, 1.0)
-    out *= np.where(ti > hold, np.exp(-(ti - hold) * 9), 1.0)       # relâchement
+    out *= np.minimum(ti / 0.004, 1.0)                    # attaque très courte
+    rel = 5.0 + 6.0 * (1 - low)                           # relâchement : pédale douce, plus court dans l'aigu
+    out *= np.where(ti > hold, np.exp(-(ti - hold) * rel), 1.0)
     return out * v
 
 
+def _eq(x: np.ndarray) -> np.ndarray:
+    """Filtre doux : coupe les infra-graves (< 35 Hz) et adoucit l'extrême aigu (> 9 kHz) pour éviter un son dur ou métallique."""
+    n = len(x)
+    X = np.fft.rfft(x)
+    f = np.fft.rfftfreq(n, 1 / SR)
+    g = np.clip(f / 40.0, 0, 1) ** 4 * (1.0 / (1.0 + (f / 9000.0) ** 2) ** 0.7)
+    return np.fft.irfft(X * g, n)
+
+
+def render_system(notes, start: float, duration: float, run=subprocess.run) -> np.ndarray | None:
+    """Piano du système macOS via `afconvert` (MIDI -> WAV). Retourne None si indisponible : l'appelant bascule alors sur le piano numpy."""
+    afc = shutil.which("afconvert")
+    if not afc or not (sys.platform == "darwin" or run is not subprocess.run):
+        return None
+    from app.midi_analyzer.writer import make_midi
+    ev = []
+    for n in notes:
+        if n.end <= start or n.start >= start + duration:
+            continue
+        s0 = max(n.start, start) - start
+        d = max(min(n.end, start + duration) - max(n.start, start), 0.06)
+        vel = int(np.clip(50 + 0.5 * n.velocity, 40, 112))             # velocités adoucies : ni timides ni agressives
+        ev.append((s0 * 2.0, d * 2.0, n.pitch, vel))                    # 120 BPM : 1 seconde = 2 temps
+    if not ev:
+        return None
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            mid, wav = Path(td) / "a.mid", Path(td) / "a.wav"
+            mid.write_bytes(_with_pedal(make_midi(ev, bpm=120), ev))
+            r = run([afc, "-f", "WAVE", "-d", "LEI16@44100", str(mid), str(wav)], capture_output=True, text=True, timeout=180)
+            if getattr(r, "returncode", 1) or not wav.exists():
+                return None
+            with wave.open(str(wav), "rb") as w:
+                ch, sw, sr = w.getnchannels(), w.getsampwidth(), w.getframerate()
+                raw = w.readframes(w.getnframes())
+        if sw != 2:
+            return None
+        a = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+        a = a.reshape(-1, ch)
+        if ch == 1:
+            a = np.repeat(a, 2, axis=1)
+        if sr != SR:                                                     # rééchantillonnage simple (afconvert sort normalement du 44,1 kHz)
+            idx = np.linspace(0, len(a) - 1, int(len(a) * SR / sr))
+            a = np.stack([np.interp(idx, np.arange(len(a)), a[:, c]) for c in (0, 1)], axis=1).astype(np.float32)
+        if len(a) < 0.4 * duration * SR:                                 # sortie anormalement courte : on ne s'y fie pas
+            return None
+        return a
+    except Exception:
+        return None
+
+
+def _with_pedal(midi: bytes, ev) -> bytes:
+    """Ajoute une pédale de sustain automatique (CC64) : enfoncée, relâchée un instant toutes les ~2,2 s et à chaque silence franc : le piano « chante »
+    sans brouiller les harmonies. Réécrit le fichier MIDI avec ces événements."""
+    import struct
+    from app.midi_analyzer.writer import vlq
+    ppq = 480
+    items = []
+    for s, d, p, v in ev:
+        items.append((int(s * ppq), 1, 0x90, p, v)); items.append((int((s + d) * ppq), 0, 0x80, p, 0))
+    end = max((int((s + d) * ppq) for s, d, _, _ in ev), default=0)
+    step = int(2.2 * 2 * ppq)                                            # 2,2 s à 120 BPM
+    t = 0
+    items.append((0, 2, 0xB0, 64, 127))
+    while t + step < end:
+        t += step
+        items.append((t - 40, 2, 0xB0, 64, 0)); items.append((t + 20, 3, 0xB0, 64, 127))   # petit « lever de pédale »
+    items.append((end + 480, 2, 0xB0, 64, 0))
+    items.sort()
+    tempo = b"\x00\xff\x51\x03" + int(60e6 / 120).to_bytes(3, "big")
+    body, last = tempo, 0
+    for tt, _, st, a, b in items:
+        body += vlq(tt - last) + bytes([st, a, b]); last = tt
+    body += b"\x00\xff\x2f\x00"
+    return b"MThd" + struct.pack(">IHHH", 6, 0, 1, ppq) + b"MTrk" + struct.pack(">I", len(body)) + body
+
+
 def render_audio(notes, start: float, duration: float) -> np.ndarray:
-    """Retourne un tableau (N, 2) stéréo flottant dans [-1, 1]."""
+    """Retourne un tableau (N, 2) stéréo flottant dans [-1, 1] : piano du système sur Mac, sinon piano numpy."""
     n_out = int(duration * SR)
+    sysaud = render_system(notes, start, duration)
+    if sysaud is not None:
+        buf = sysaud[:n_out]
+        if len(buf) < n_out:
+            buf = np.vstack([buf, np.zeros((n_out - len(buf), 2), dtype=np.float32)])
+        buf = np.stack([_reverb(buf[:, 0].astype(np.float64), wet=0.10, seed=1), _reverb(buf[:, 1].astype(np.float64), wet=0.10, seed=2)], axis=1)
+        peak = float(np.abs(buf).max())
+        if peak > 0:
+            buf = buf / peak * 0.89
+        fade = min(int(0.5 * SR), len(buf))
+        buf[-fade:] *= np.linspace(1, 0, fade)[:, None]
+        return buf.astype(np.float32)
     buf = np.zeros((n_out + 4 * SR, 2), dtype=np.float32)
     for n in notes:
         if n.end <= start or n.start >= start + duration:
@@ -73,6 +178,7 @@ def render_audio(notes, start: float, duration: float) -> np.ndarray:
     buf = buf[:n_out]
     if np.abs(buf).max() > 0:
         buf = np.stack([_reverb(buf[:, 0].astype(np.float64), seed=1), _reverb(buf[:, 1].astype(np.float64), seed=2)], axis=1)
+        buf = np.stack([_eq(buf[:, 0]), _eq(buf[:, 1])], axis=1)                    # filtre doux APRÈS la réverbération
         peak = np.abs(buf).max()
         buf = np.tanh(buf / peak * 1.5) / np.tanh(1.5) * 0.89           # limiteur doux
     fade = min(int(0.5 * SR), len(buf))
