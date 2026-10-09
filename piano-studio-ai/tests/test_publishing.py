@@ -406,3 +406,14 @@ def test_youtube_text_is_typed_into_the_page_and_checked(monkeypatch):
     with pytest.raises(RuntimeError, match="n'a pas été écrit"):
         yw._paste_into("#title-textarea #textbox", "Invention 8 - Bach")
     assert calls == ["clip", "keys"]
+
+
+def test_youtube_short_can_be_switched_off_and_only_the_horizontal_video_goes():
+    from app import config
+    from app.publisher import adapters
+    s = config.load_settings()
+    names = lambda fmt: sorted(a.platform for a in adapters(s, fmt=fmt))
+    assert "youtube" in names("vertical") and "youtube" in names("horizontal")        # par défaut : Short + vidéo normale
+    s["youtube"] = {**s["youtube"], "shorts": False}
+    assert "youtube" not in names("vertical") and "tiktok" in names("vertical")        # plus de Short, TikTok continue
+    assert "youtube" in names("horizontal")                                            # la vidéo horizontale part toujours sur YouTube

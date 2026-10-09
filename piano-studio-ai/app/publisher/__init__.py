@@ -19,5 +19,6 @@ def adapters(settings, platforms_cfg=None, fmt=None):
               else TikTok(mode=settings.get("tiktok", {}).get("mode", "draft"))),
            "instagram": Unavailable("instagram", "un compte Business + Meta app approuvée"),
            "facebook": Unavailable("facebook", "une Page + Meta app approuvée")}
-    out += [reg[k] for k, v in cfg.items() if v.get("enabled") and k in reg and (fmt is None or fmt in v.get("formats", [fmt]))]
+    out += [reg[k] for k, v in cfg.items() if v.get("enabled") and k in reg and (fmt is None or fmt in v.get("formats", [fmt]))
+            and not (k == "youtube" and fmt == "vertical" and not yt.get("shorts", True))]      # youtube.shorts: false -> la vidéo verticale ne part pas en Short
     return out

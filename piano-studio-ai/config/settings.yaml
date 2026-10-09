@@ -95,6 +95,7 @@ tiktok:
   mode: web              # web = pilote Safari déjà connecté (sans clé API, voir tiktok-web) ; draft = la vidéo arrive dans la boîte de réception TikTok (vous touchez « Publier ») ; direct = publication immédiate (privée tant que l'app n'est pas approuvée)
 youtube:
   mode: web              # web = pilote YouTube Studio dans Chrome (aucune clé API, public tout de suite) ; api = API officielle (./p.sh youtube-login, privé tant que Google n'a pas validé le projet)
+  shorts: true           # true = la vidéo verticale part aussi en YouTube Short ; false = YouTube ne reçoit que la vidéo horizontale (vidéo normale)
   web_publish: true      # mode web : true = clique aussi sur Publier (automatique) ; false = prépare tout et vous cliquez vous-même
   chrome_profile: "angeled92"   # profil Chrome de la chaîne YouTube (nom affiché, e-mail ou dossier ; ./p.sh chrome-profiles)
   privacy: public        # mode api seulement
