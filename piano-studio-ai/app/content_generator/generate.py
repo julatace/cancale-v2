@@ -69,8 +69,11 @@ def _tags_for(song: dict, L: dict, rnd: random.Random) -> list[str]:
 def generate(song: dict, difficulty: str, seed: int, used_titles: set[str], bpm: float | None = None, lang: str = "fr") -> dict:
     L = LANGS.get(lang, LANGS["fr"])
     rnd = random.Random(seed)
+    # mémoire des accroches : on évite celles déjà vues dans les titres récents, on ne répète qu'une fois toutes épuisées
+    seen = {t.rsplit(" - ", 1)[-1] for t in used_titles}
+    fresh = [h for h in L["hooks"] if h not in seen] or L["hooks"]
     for _ in range(30):
-        hook = rnd.choice(L["hooks"])
+        hook = rnd.choice(fresh)
         title = f"{song['title']} - {hook}"[:95]
         if title not in used_titles:
             break
