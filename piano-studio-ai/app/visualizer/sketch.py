@@ -8,9 +8,15 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from app.director import control
+import logging
+from functools import lru_cache
+
+from app.director import control, progress
 from . import synth
-from .falling import HORIZONTAL, VERTICAL, Layout, _font  # noqa
+from .falling import HORIZONTAL, VERTICAL, Layout, _font as _font_raw  # noqa
+
+log = logging.getLogger(__name__)
+_font = lru_cache(maxsize=64)(_font_raw)
 
 LOOKAHEAD = 2.4
 MIN_WHITES, MAX_WHITES = 10, 24          # plus serré = plus zoomé
@@ -189,7 +195,9 @@ def render_video(notes, start: float, duration: float, out_path, title="", subti
     out_path = Path(out_path)
     with tempfile.TemporaryDirectory() as td:
         wav = Path(td) / "a.wav"
+        progress.report("Son du piano", 2)
         synth.write_wav(wav, audio if audio is not None else synth.render_audio(ns, start, duration))
+        progress.report("Dessin des images", 20)
         cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
                "-s", f"{layout.W}x{layout.H}", "-r", str(fps), "-i", "-", "-i", str(wav), "-c:v", "libx264", "-preset", "veryfast",
                "-crf", "18", "-tune", "animation", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-shortest",
@@ -204,6 +212,11 @@ def render_video(notes, start: float, duration: float, out_path, title="", subti
                         control.STOP_RECORD.clear()
                         break
                 t = i / fps
+                if i % fps == 0:
+                    pct = 20 + 78 * i / max(int(duration * fps), 1)
+                    progress.report("Dessin des images", pct)
+                    if i and i % (fps * 15) == 0:
+                        log.info("🎞 Dessin des images : %d%%", pct)
                 img = render_frame(rel, t, cam.step(t, 1 / fps), layout, hand_split)
                 _title(img, title, subtitle, layout)
                 p.stdin.write(img.tobytes())
@@ -211,6 +224,7 @@ def render_video(notes, start: float, duration: float, out_path, title="", subti
             if result is not None:
                 result["duration"] = written / fps
             p.stdin.close()
+            progress.report("Finalisation de la vidéo", 99)
             err = p.stderr.read().decode()[-400:]
             if p.wait() != 0:
                 raise RuntimeError(f"ffmpeg: {err}")

@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from app import config
+from app.director import progress
 from app.database import db
 from app.director import control, difficulty, pipeline, stock
 from app.music_discovery import importer, inbox, search as msearch, trends as mtrends
@@ -141,6 +142,8 @@ class Job:
     def _produce(self, settings, level, formats, publish, count, song_id, lang, plan):
         """Crée `count` vidéos ; en mode « semaine » : s'arrête quand le temps alloué est écoulé, puis programme les publications."""
         self._preflight()
+        self._count, self._done = count, 0
+        progress.reset()
         if not plan:
             return [RUNNER(settings, level=level, formats=formats, publish=publish, song_id=song_id, lang=lang) for _ in range(count)]
         budget = float(plan.get("minutes") or 0) * 60                  # 0 = pas de limite (mode agenda)
@@ -157,6 +160,8 @@ class Job:
                 self._add(f"⏱ Temps alloué ({plan['minutes']:g} min) bientôt écoulé : {done} création(s) faite(s).")
                 break
             attempts += 1
+            self._done = done
+            progress.reset()
             self._add(f"━━ Vidéo {done + 1}/{count} ━━" + (f" (reprise {attempts - done - 1})" if attempts - done - 1 > 0 else ""))
             try:
                 res = RUNNER(settings, level=level, formats=formats, publish=False, song_id=song_id, lang=lang)
@@ -228,7 +233,8 @@ class Job:
 
     def snapshot(self, since=0):
         with self.lock:
-            return {**self.state, "logs": [m for n, m in self.logs if n > since], "last": self.n}
+            return {**self.state, "logs": [m for n, m in self.logs if n > since], "last": self.n,
+                    "progress": {**progress.get(), "done": getattr(self, "_done", 0), "count": getattr(self, "_count", 0)}}
 
 
 JOB = Job()

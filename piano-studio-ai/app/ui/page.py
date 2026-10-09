@@ -52,6 +52,7 @@ header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:22p
 .stepper{padding:0;margin-left:0}
 .now{font-size:18px;font-weight:700;margin:2px 0 10px}
 .bar{height:6px;border-radius:9px;background:var(--line);overflow:hidden}.bar i{display:block;height:100%;width:30%;background:var(--brand);border-radius:9px;animation:mv 1.3s infinite ease-in-out}
+.bar i.det{animation:none;margin-left:0;transition:width .6s}#pct{font-size:13px;color:var(--mute);margin-top:6px}
 @keyframes mv{0%{margin-left:-30%}100%{margin-left:100%}}
 details{margin-top:12px;color:var(--mute);font-size:14px}summary{cursor:pointer}
 #log{max-height:220px;overflow:auto;font:12.5px/1.55 ui-monospace,Menlo,monospace;white-space:pre-wrap;margin:8px 0 0}
@@ -180,7 +181,7 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
   <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><b>Création</b><span style="display:flex;gap:10px;align-items:center"><span class="chip" id="chip">En cours</span><button id="stoprec" class="stop">■ Arrêter l'enregistrement</button><button id="stop" class="stop ghost">Annuler</button></span></div>
   <ol class="stepper" id="stepper"></ol>
   <div class="now" id="now">…</div>
-  <div class="bar" id="bar"><i></i></div>
+  <div class="bar" id="bar"><i></i></div><div id="pct"></div>
   <p class="err" id="err" hidden></p>
   <details><summary>Détails techniques</summary><pre id="log"></pre></details>
   <div class="res" id="res"></div>
@@ -427,10 +428,14 @@ function track(line){const m=line.match(/\[(vertical|horizontal)\]/);if(m)fmtLab
   if(line.startsWith('✂'))cur=1;else if(k!==null&&k>cur)cur=k}
 function results(r){const list=r.videos||[r];$('#res').innerHTML=list.filter(x=>x&&x.video).map(x=>{const f=x.video.split('/').pop(),bad=x.status==='FAILED';
   return `<div class="vid"><div class="meta"><span>${x.format==='horizontal'?'Horizontal long':'Vertical court'} ${x.engine?`<span class="tag ${x.engine==='synthesia'?'mine':''}">${x.engine==='synthesia'?'Fait avec Synthesia':'Rendu intégré'}</span>`:''}</span><span class="chip ${bad?'bad':'ok'}">${bad?'Échec':'Qualité '+(x.qc?x.qc.score:'-')+'/100'}</span></div>${bad?`<p class="err">${esc(x.error||'La fabrication a échoué')}</p>`:`<video controls playsinline preload="metadata" src="/files/${encodeURIComponent(f)}"></video><a href="/files/${encodeURIComponent(f)}" download="${esc(f)}">⬇ Télécharger</a>${pubBox(x.post)}${pubResult(x)}${x.post&&x.post.thumbnail?`<a href="/files/${encodeURIComponent(x.post.thumbnail)}" download="${esc(x.post.thumbnail)}" style="margin-left:14px">🖼 Miniature</a>`:''}`}</div>`}).join('')}
+function bar(s){const p=s.progress,i=$('#bar i');if(s.status==='done'){i.className='det';i.style.width='100%';$('#pct').textContent='';return}
+  if(!p||!p.count||s.status!=='running'){i.className='';i.style.width='';$('#pct').textContent='';return}
+  const w=Math.max(3,Math.min(99,(p.done+p.pct/100)/p.count*100));i.className='det';i.style.width=w.toFixed(0)+'%';
+  const age=p.t?Math.round(Date.now()/1000-p.t):0;$('#pct').textContent=`Vidéo ${Math.min(p.done+1,p.count)}/${p.count}`+(p.label?` · ${p.label}${p.pct?' '+Math.round(p.pct)+' %':''}`:'')+` · ${Math.round(w)} % du lot`}
 function poll(){api('/api/status?since='+since).then(s=>{
   since=s.last;const L=$('#log');s.logs.forEach(l=>track(l));
   if(s.logs.length){L.textContent+=s.logs.join('\n')+'\n';L.scrollTop=L.scrollHeight;const last=s.logs[s.logs.length-1];$('#now').textContent=(fmtLabel&&s.status==='running'?fmtLabel+' · ':'')+last.replace(/\s*\[(vertical|horizontal)\]\s*/,' ').trim()}
-  stepper();const run=s.status==='running';$('#bar').hidden=!run;$('#stop').hidden=!run;$('#stoprec').hidden=!run;if(run&&!$('#stoprec').dataset.busy){$('#stop').disabled=false;$('#stoprec').disabled=false};if(!run)delete $('#stoprec').dataset.busy;estimate();if(run){$('#go').disabled=true;$('#go').textContent='Création en cours…'}
+  stepper();const run=s.status==='running';bar(s);$('#bar').hidden=!run;$('#stop').hidden=!run;$('#stoprec').hidden=!run;if(run&&!$('#stoprec').dataset.busy){$('#stop').disabled=false;$('#stoprec').disabled=false};if(!run)delete $('#stoprec').dataset.busy;estimate();if(run){$('#go').disabled=true;$('#go').textContent='Création en cours…'}
   $('#chip').textContent=run?'En cours':s.status==='done'?'Terminé':s.status==='cancelled'?'Arrêté':'Échec';$('#chip').className='chip '+(s.status==='done'?'ok':s.status==='failed'||s.status==='cancelled'?'bad':'');
   if(!run){clearInterval(timer);timer=null;vids();info();sched();cur=s.status==='done'?5:cur;stepper();
     if(s.status==='cancelled'){$('#now').textContent='Création arrêtée'}

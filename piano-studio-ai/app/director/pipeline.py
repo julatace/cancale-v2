@@ -19,6 +19,7 @@ from app.publisher import adapters
 from app.quality_control import qc
 from app.section_selector.selector import select_section
 from app.section_selector.hook import select_hook
+from app.director import progress
 from app.director import control, difficulty
 from app.visualizer import falling, synth
 from app.synthesia_controller import mac, sync
@@ -117,6 +118,7 @@ def _render(s, notes, sec, out, meta, tempo, content=None, F=None) -> str:
     layout = (F["width"], F["height"], F["banner"])
     """Synthesia (app de l'utilisateur) si disponible, sinon rendu intégré : la production ne s'arrête jamais."""
     cfg = s.get("synthesia", {})
+    progress.report("Préparation", 1)
     if s.get("style", "sketch") == "sketch":             # style « dessiné » : rendu intégré, caméra qui zoome sur la zone jouée
         from app.visualizer import sketch
         res = {}

@@ -194,3 +194,9 @@ def test_recording_limit_can_be_changed_from_the_page(tmp_path, monkeypatch):
     assert post({"key": "engine", "value": "x"})[0] == 400                       # seuls les réglages prévus sont modifiables
     assert sv.options(st)["max_record_seconds"] == 90
     httpd.shutdown()
+
+
+def test_status_has_progress():
+    from app.ui import server
+    snap = server.JOB.snapshot()
+    assert set(snap["progress"]) >= {"label", "pct", "done", "count"}
