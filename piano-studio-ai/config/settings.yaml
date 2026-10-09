@@ -101,6 +101,9 @@ youtube:
   privacy: public        # mode api seulement
   category: "10"
 songs:
+  only_mine: true       # true = l'agent ne prend QUE les morceaux de ton dossier MIDI (jamais de morceau de la réserve ni composé) ; false = il complète avec la réserve
   prefer_mine: true     # les morceaux que tu fournis (boîte de réception, ajout dans la page) sont utilisés en premier, dans l'ordre d'arrivée
 inbox:
   watch: ["~/Desktop/MIDI"]    # dossiers lus en plus de data/inbox : chaque MIDI est copié dans la bibliothèque, l'original ne bouge pas
+storage:
+  delete_after_publish: true   # une vidéo publiée partout où elle devait l'être est supprimée de l'ordinateur (fichier, miniature, copie de secours)

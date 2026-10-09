@@ -53,3 +53,44 @@ def test_run_due_failure_is_recorded(tmp_path):
     queue.run_due({}, c, now, publish=lambda *a: [{"platform": "tiktok", "status": "FAILED", "detail": "boom"}])
     x = queue.listing(c)[0]
     assert x["status"] == "FAILED" and "boom" in x["detail"]
+
+
+def test_agenda_slots_one_per_video_and_past_days_ignored():
+    from datetime import date, datetime
+    now = datetime(2030, 1, 6, 8, 0).astimezone()
+    days = [{"date": "2030-01-05", "count": 3}, {"date": "2030-01-07", "count": 2}, {"date": "2030-01-06", "count": 1}, {"date": "2030-01-08", "count": 0},
+            {"date": "2030-01-09", "count": 3}]
+    sl = queue.slots_for_days(days, ["12:30", "19:00"], now=now)
+    assert [(d.day, d.hour) for d in sl] == [(6, 12), (7, 12), (7, 19), (9, 9), (9, 12), (9, 19)]      # hier ignoré, 0 vidéo ignoré, 3 le même jour = 3 heures
+    assert queue.slots_for_days([{"date": "2030-01-07", "count": 9}], None, now=now).__len__() == 6     # plafonné à 6 par jour
+
+
+def test_agenda_endpoints_produce_and_plan(tmp_path, monkeypatch):
+    import json, threading, urllib.request, urllib.error
+    from datetime import date, timedelta
+    from http.server import ThreadingHTTPServer
+    from app import config
+    from app.ui import server as sv
+    st = config.load_settings()
+    st["paths"] = {**st["paths"], "data_dir": str(tmp_path), "database": str(tmp_path / "d.sqlite3"), "logs_dir": str(tmp_path / "l")}
+    runs = []
+    monkeypatch.setattr(sv, "RUNNER", lambda settings, **k: runs.append(1) or {"videos": []})
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), sv.make_handler(lambda: st))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+
+    def post(path, body):
+        req = urllib.request.Request(f"http://127.0.0.1:{httpd.server_address[1]}{path}", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            r = urllib.request.urlopen(req); return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+    d1, d2 = (date.today() + timedelta(days=k) for k in (2, 3))
+    assert post("/api/week", {"days": [], "formats": ["vertical"]})[0] == 400                          # agenda vide : message clair
+    assert post("/api/week", {"days": [{"date": d1.isoformat(), "count": 2}, {"date": d2.isoformat(), "count": 1}], "formats": ["vertical"], "synthesia": False})[0] == 200
+    import time
+    for _ in range(100):
+        if sv.JOB.snapshot()["status"] != "running":
+            break
+        time.sleep(0.1)
+    assert len(runs) == 3                                                                              # une création par vidéo demandée dans l'agenda
+    httpd.shutdown()

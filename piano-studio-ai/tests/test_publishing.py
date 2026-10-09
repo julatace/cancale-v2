@@ -120,6 +120,7 @@ def test_pipeline_creates_thumbnail_and_publishes_per_format(tmp_path, monkeypat
     st["paths"] = {**st["paths"], "data_dir": str(tmp_path / "d"), "database": str(tmp_path / "db.sqlite3"), "logs_dir": str(tmp_path / "l")}
     st["duration_target"], st["duration_range"], st["engine"] = 6, [4, 8], "builtin"
     st["formats"]["vertical"]["min_duration"] = 0
+    st["storage"] = {"delete_after_publish": False}                    # ici on relit la miniature après la publication
     got = []
     class Spy:
         platform = "spy"
@@ -417,3 +418,31 @@ def test_youtube_short_can_be_switched_off_and_only_the_horizontal_video_goes():
     s["youtube"] = {**s["youtube"], "shorts": False}
     assert "youtube" not in names("vertical") and "tiktok" in names("vertical")        # plus de Short, TikTok continue
     assert "youtube" in names("horizontal")                                            # la vidéo horizontale part toujours sur YouTube
+
+
+def test_published_video_is_deleted_from_disk_but_failed_one_is_kept(tmp_path):
+    from app import config
+    from app.database import db
+    from app.director import cleanup
+    st = config.load_settings()
+    st["paths"] = {**st["paths"], "data_dir": str(tmp_path), "database": str(tmp_path / "d.sqlite3"), "logs_dir": str(tmp_path / "l")}
+    conn = db.connect(tmp_path / "d.sqlite3")
+    db.add_song(conn, "A", "x", "s", "LEGAL_CONFIRMED", hash="a")
+    rend = tmp_path / "rendered"; rend.mkdir()
+    ids = []
+    for i in (1, 2):
+        mp4 = rend / f"v{i}.mp4"; mp4.write_bytes(b"x" * 1000); mp4.with_suffix(".jpg").write_bytes(b"j")
+        (tmp_path / "published" / str(i)).mkdir(parents=True); (tmp_path / "published" / str(i) / "video.mp4").write_bytes(b"x")
+        ids.append(conn.execute("INSERT INTO videos(song_id,style,duration,output_path,quality_score,status,title,meta,created_at) VALUES(1,'facile|vertical',60,?,95,'PUBLISHED','T','{}',?)", (str(mp4), db.now())).lastrowid)
+    conn.commit()
+    ok = [{"platform": "outbox", "status": "EXPORTED"}, {"platform": "tiktok", "status": "PUBLISHED"}, {"platform": "youtube", "status": "PUBLISHED"}]
+    ko = [{"platform": "outbox", "status": "EXPORTED"}, {"platform": "tiktok", "status": "PUBLISHED"}, {"platform": "youtube", "status": "FAILED"}]
+    assert cleanup.delete_after_publish(st, conn, ids[1], ko) == []                       # YouTube a échoué : on garde tout pour réessayer
+    assert (rend / "v2.mp4").exists() and (tmp_path / "published" / "2").exists()
+    removed = cleanup.delete_after_publish(st, conn, ids[0], ok)
+    assert "v1.mp4" in removed and "v1.jpg" in removed and not (rend / "v1.mp4").exists() and not (tmp_path / "published" / "1").exists()
+    assert conn.execute("SELECT status, title FROM videos WHERE id=?", (ids[0],)).fetchone()["status"] == "PUBLISHED"        # l'historique reste
+    st["storage"] = {"delete_after_publish": False}
+    assert cleanup.delete_after_publish(st, conn, ids[1], ok) == []                       # désactivable
+    assert cleanup.purge_published({**st, "storage": {"delete_after_publish": True}}, conn) >= 2
+    assert not (rend / "v2.mp4").exists()

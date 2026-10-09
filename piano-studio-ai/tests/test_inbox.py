@@ -138,3 +138,21 @@ def test_video_export_is_tuned_for_flat_graphics_and_sharpened():
     assert "animation" in compose.encode_args(60) and "-tune" in compose.encode_args(60)
     chain, _ = compose.build_filter(__import__("pathlib").Path("/tmp"), 6, "T", "S", "", "", None, (1080, 1920), 460, compose.DEFAULT_BG, (1470, 956))
     assert "unsharp" in chain
+
+
+def test_only_my_folder_is_used_and_an_empty_folder_gives_a_clear_error(tmp_path):
+    import pytest
+    from app.database import db
+    from app.director import pipeline
+    st = _st(tmp_path)
+    st["songs"] = {"only_mine": True, "prefer_mine": True}
+    conn = db.connect(tmp_path / "d.sqlite3")
+    other = tmp_path / "r.mid"; other.write_bytes(song())
+    db.add_song(conn, "Réserve", "Mutopia", "Mutopia: libre", "LEGAL_CONFIRMED", midi_path=other, hash="r")
+    with pytest.raises(RuntimeError, match="dossier MIDI"):
+        pipeline.pick_song(conn, st, 1)                                   # la réserve ne remplace JAMAIS ton dossier
+    f = tmp_path / "m.mid"; f.write_bytes(song(sparse_beats=17))
+    db.add_song(conn, "Le mien", "Moi", "user_owned: Fourni par l'utilisateur (droits confirmés)", "LEGAL_CONFIRMED", midi_path=f, hash="m")
+    assert pipeline.pick_song(conn, st, 1)[2]["title"] == "Le mien"
+    from app.director import stock
+    assert stock.refill_in_background(st).join(1) is None                 # rien n'est téléchargé en arrière-plan

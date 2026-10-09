@@ -280,6 +280,15 @@ def cmd_youtube_web(s, a):
     return 0
 
 
+def cmd_clean(s, a):
+    """Supprime du disque les vidéos déjà publiées."""
+    from .director import cleanup
+    conn = db.connect(config.resolve(s, "database"))
+    n = cleanup.purge_published(s, conn)
+    print(f"🧹 {n} fichier(s)/dossier(s) supprimé(s).")
+    return 0
+
+
 def cmd_chrome_profiles(s, a):
     """Liste les profils Chrome pour choisir celui du compte TikTok."""
     from .publisher import tiktok_web
@@ -338,6 +347,7 @@ def main(argv=None):
     cmds["tiktok-web"] = cmd_tiktok_web
     cmds["chrome-profiles"] = cmd_chrome_profiles
     cmds["inbox"] = cmd_inbox
+    cmds["clean"] = cmd_clean
     cmds["youtube-web"] = cmd_youtube_web
     cmds["schedule"], cmds["publish-due"], cmds["publish-now"] = cmd_schedule, cmd_publish_due, cmd_publish_now
     cmds["mac-setup"] = cmd_mac_setup

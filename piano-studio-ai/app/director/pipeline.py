@@ -71,6 +71,9 @@ def pick_song(conn, s, seed, exclude=()) -> tuple[int, Path, dict]:
     ok = [r for r in rows if r["id"] not in exclude and r["midi_path"] and Path(r["midi_path"]).exists()
           and db.song_usable(conn, r["id"], s["same_song_cooldown_days"])[0]]
     mine = [r for r in ok if (r["source"] or "").startswith("user_owned: Fourni")]
+    if s.get("songs", {}).get("only_mine", False) and not mine:             # uniquement ton dossier MIDI : rien d'autre ne remplace
+        raise RuntimeError("Plus aucun morceau disponible dans ton dossier MIDI (vide, ou tous déjà utilisés ces %d derniers jours). "
+                           "Ajoute de nouveaux fichiers .mid dans le dossier : ils sont détectés automatiquement." % s["same_song_cooldown_days"])
     if mine and s.get("songs", {}).get("prefer_mine", True):          # tes morceaux (boîte de réception, ajout manuel) passent d'abord, dans l'ordre d'arrivée
         recent = [(x[0] or "").strip().lower() for x in conn.execute(                # ... mais jamais 2 fois de suite le même artiste si on a le choix
             "SELECT s.artist FROM videos v JOIN songs s ON s.id=v.song_id ORDER BY v.id DESC LIMIT 4")]
@@ -505,4 +508,7 @@ def _finalize(s, conn, sid, level, fmt_name, F, out, sec, content, report, publi
             conn.execute("UPDATE videos SET status='PUBLISHED' WHERE id=?", (vid,))
             report["status"] = "PUBLISHED"
         conn.commit()
+        from app.director import cleanup
+        if cleanup.delete_after_publish(s, conn, vid, report["publications"]):      # publiée partout : fichiers supprimés
+            report["deleted"] = True
     return report

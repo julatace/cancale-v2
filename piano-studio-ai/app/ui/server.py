@@ -111,7 +111,7 @@ class Job:
         """Crée `count` vidéos ; en mode « semaine » : s'arrête quand le temps alloué est écoulé, puis programme les publications."""
         if not plan:
             return [RUNNER(settings, level=level, formats=formats, publish=publish, song_id=song_id, lang=lang) for _ in range(count)]
-        budget = float(plan.get("minutes") or 0) * 60
+        budget = float(plan.get("minutes") or 0) * 60                  # 0 = pas de limite (mode agenda)
         t0, results, made = time.time(), [], 0
         for i in range(count):
             spent = time.time() - t0
@@ -134,7 +134,7 @@ class Job:
                             self._add(f"✖ Publication impossible : {e}")
         conn = db.connect(config.resolve(settings, "database"))
         ids = [v["id"] for v in squeue.unscheduled(conn)]       # ce qui reste prêt (non publié sur le coup) est programmé
-        when = squeue.slots(plan["first_day"], max(len(ids), 1) * 1, plan["per_day"], plan["times"])
+        when = plan.get("slots") or squeue.slots(plan["first_day"], max(len(ids), 1) * 1, plan["per_day"], plan["times"])
         planned = squeue.plan(conn, ids, when)
         n_slots = len({p["run_at"] for p in planned})
         self._add(f"🗓 {n_slots} publication(s) programmée(s) : du {planned[0]['run_at'].replace('T', ' ')} au {planned[-1]['run_at'].replace('T', ' ')}." if planned
@@ -208,7 +208,7 @@ def info(s) -> dict:
     if time.time() - _ENGINE["at"] > 60 and not _ENGINE["busy"]:
         _ENGINE["busy"] = True
         threading.Thread(target=_probe_engine, args=(s,), daemon=True).start()
-    return {"stock": stock.count(s), "stock_target": s.get("stock", {}).get("target", 3), "engine": _ENGINE["value"], "version": VERSION,
+    return {"stock": stock.count(s), "stock_target": s.get("stock", {}).get("target", 3), "engine": _ENGINE["value"], "version": VERSION, "only_mine": bool(s.get("songs", {}).get("only_mine", False)), "to_make": my_songs_waiting(s),
             "youtube": s.get("youtube", {}).get("mode") == "web" or all(os.environ.get(k) for k in ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN")),
             "tiktok": s.get("tiktok", {}).get("mode") == "web" or all(os.environ.get(k) for k in ("TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REFRESH_TOKEN"))}
 
@@ -383,6 +383,14 @@ def make_handler(settings_loader):
                     when = [datetime.fromisoformat(at).astimezone()]
                 except ValueError:
                     return self._json({"error": "date/heure invalide"}, 400)
+            elif body.get("days") is not None:
+                try:
+                    when = squeue.slots_for_days(body["days"], body.get("times"))
+                except (ValueError, KeyError, TypeError):
+                    return self._json({"error": "agenda invalide"}, 400)
+                if not when:
+                    return self._json({"error": "Choisis au moins une vidéo sur un jour à venir dans l'agenda."}, 400)
+                ids = ids[:len(when)]
             else:
                 when = squeue.slots(first, len(ids), per_day, squeue.parse_times(body.get("times") or ["12:30", "19:00"]))
             planned = squeue.plan(conn, ids, when)
@@ -537,7 +545,18 @@ def make_handler(settings_loader):
             if not formats or not all(f in {x["key"] for x in opt["formats"]} for f in formats):
                 return self._json({"error": "format inconnu"}, 400)
             plan = None
-            if body.get("week"):
+            if body.get("week") and body.get("days") is not None:                  # agenda : nombre de vidéos voulu pour chaque jour
+                try:
+                    slots = squeue.slots_for_days(body["days"], body.get("times"))
+                except (ValueError, KeyError, TypeError):
+                    return self._json({"error": "agenda invalide"}, 400)
+                if not slots:
+                    return self._json({"error": "Choisis au moins une vidéo sur un jour à venir dans l'agenda."}, 400)
+                slots = slots[:30]
+                plan = {"slots": slots, "immediate": bool(body.get("immediate", False)), "times": squeue.parse_times(body.get("times") or []) or ["12:30", "19:00"]}
+                count = len(slots)
+                publish = False
+            elif body.get("week"):
                 try:
                     plan = {"minutes": min(max(float(body.get("minutes", 30) or 30), 5), 600),
                             "per_day": min(max(int(body.get("per_day", 2) or 2), 1), 6),

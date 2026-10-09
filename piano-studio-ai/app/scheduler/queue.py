@@ -50,6 +50,28 @@ def slots(first_day: date, count: int, per_day: int, times, now: datetime | None
     return out
 
 
+DEFAULT_TIMES = ["12:30", "19:00", "09:00", "16:00", "21:00", "11:00"]
+
+
+def slots_for_days(days, times=None, now: datetime | None = None) -> list[datetime]:
+    """Agenda : `days` = [{"date": "2026-10-12", "count": 2}, ...] -> un créneau par vidéo, heures locales. Pour n vidéos le même jour on prend
+    les n premières heures de la liste (complétée par des heures par défaut), triées. Les créneaux déjà passés (ou à moins de 10 min) sont ignorés."""
+    chosen = parse_times(times) if times else []
+    chosen = chosen or DEFAULT_TIMES[:2]
+    pool = chosen + [x for x in DEFAULT_TIMES if x not in chosen]
+    now = (now or datetime.now().astimezone()) + timedelta(minutes=10)
+    out = []
+    for d in sorted(days, key=lambda x: x["date"]):
+        day = date.fromisoformat(d["date"])
+        n = max(0, min(int(d.get("count", 0)), 6))
+        for hhmm in sorted(pool[:n]):
+            h, m = (int(x) for x in hhmm.split(":"))
+            dt = datetime(day.year, day.month, day.day, h, m).astimezone()
+            if dt > now:
+                out.append(dt)
+    return out
+
+
 def _utc(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat()
 
@@ -134,6 +156,8 @@ def publish_video(s, conn, video_id: int) -> list[dict]:
     if any(x["status"] in GOOD for x in out):
         conn.execute("UPDATE videos SET status='PUBLISHED' WHERE id=?", (video_id,))
     conn.commit()
+    from app.director import cleanup
+    cleanup.delete_after_publish(s, conn, video_id, out)                  # tout est parti : on libère la place sur l'ordinateur
     return out
 
 
