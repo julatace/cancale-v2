@@ -154,28 +154,28 @@ class Job:
             good_ids += [v["video_id"] for v in ok_videos]
             k = len(done_groups); done_groups.append([v["video_id"] for v in ok_videos])
             conn0 = db.connect(config.resolve(settings, "database"))
-            if plan.get("immediate"):                         # chaque vidéo part TOUT DE SUITE après son montage (rien n'attend la fin du lot)
-                for v in ok_videos:
-                    self._add(f"🚀 Publication immédiate de « {v.get('title', '')[:50]} »…")
-                    try:
-                        squeue.publish_video(settings, conn0, v["video_id"])
-                    except Exception as e:
-                        self._add(f"✖ Publication impossible : {e}")
-            else:                                             # sinon : programmée tout de suite à son créneau (si on arrête, ce qui est fait est déjà programmé)
-                slots = plan.get("slots") or []
-                if k < len(slots):
-                    new = squeue.plan(conn0, [v["video_id"] for v in ok_videos], [slots[k]])
-                    self._planned += new
-                    if new:
-                        self._add(f"🗓 Programmée : {new[-1]['run_at'].replace('T', ' ')}")
+            slots = plan.get("slots") or []
+            slot = None if plan.get("immediate") or k >= len(slots) else slots[k]
+            for v in ok_videos:                               # dès le montage : envoi aux réseaux, programmé DANS chaque réseau à la date prévue
+                nice = f"{slot:%d/%m %H:%M}" if slot else "tout de suite"
+                self._add(f"🚀 « {v.get('title', '')[:50]} » : envoi aux réseaux ({nice})…")
+                try:
+                    res = squeue.publish_video(settings, conn0, v["video_id"], publish_at=slot)
+                except Exception as e:
+                    self._add(f"✖ Envoi impossible : {e}")
+                    continue
+                for x in res:
+                    self._add(f"   {'✓' if x['status'] in squeue.GOOD else '✖'} {x['platform']} : {x['status']}" + (f" — {x['detail'][:100]}" if x["status"] == "FAILED" else ""))
+                if slot and squeue.native_time(slot):
+                    self._planned.append({"title": v.get("title", ""), "run_at": squeue.native_time(slot).isoformat(timespec="minutes"), "format": v.get("format", "")})
         planned = self._planned
         n_slots = len({p["run_at"] for p in planned})
         if planned:
-            self._add(f"🗓 {n_slots} publication(s) programmée(s) : du {planned[0]['run_at'].replace('T', ' ')} au {planned[-1]['run_at'].replace('T', ' ')}.")
-        elif plan.get("immediate"):
-            self._add(f"🚀 {len(done_groups)} vidéo(s) publiée(s) au fil de l'eau.")
+            self._add(f"🗓 {n_slots} vidéo(s) programmée(s) DANS TikTok et YouTube : du {planned[0]['run_at'].replace('T', ' ')} au {planned[-1]['run_at'].replace('T', ' ')}.")
+        elif done_groups:
+            self._add(f"🚀 {len(done_groups)} vidéo(s) envoyée(s) aux réseaux.")
         else:
-            self._add("🗓 Rien à programmer (aucune vidéo réussie).")
+            self._add("Aucune vidéo réussie.")
         if len(good_ids) < count:
             self._add(f"⚠ {len(good_ids)} vidéo(s) réussie(s) sur {count} demandée(s) : relance « Fabriquer et programmer l'agenda » pour compléter.")
         return results
@@ -432,8 +432,24 @@ def make_handler(settings_loader):
                 ids = ids[:len(when)]
             else:
                 when = squeue.slots(first, len(ids), per_day, squeue.parse_times(body.get("times") or ["12:30", "19:00"]))
-            planned = squeue.plan(conn, ids, when)
-            return self._json({"planned": planned, "message": f"{len({p['run_at'] for p in planned})} publication(s) programmée(s)."})
+            pairs = squeue.assign(conn, ids, when)                    # chaque vidéo est envoyée aux réseaux, qui la programment eux-mêmes à cette date
+            if not pairs:
+                return self._json({"error": "Aucune vidéo prête à programmer."}, 400)
+
+            def work_pairs():
+                c2 = db.connect(config.resolve(s, "database"))
+                ok = 0
+                for vid, dt in pairs:
+                    logging.getLogger("piano").info("🚀 Vidéo %s : envoi aux réseaux (%s)…", vid, f"{dt:%d/%m %H:%M}" if squeue.native_time(dt) else "tout de suite")
+                    try:
+                        res = squeue.publish_video(s, c2, vid, publish_at=dt)
+                        ok += any(x["status"] in squeue.GOOD for x in res)
+                    except Exception as e:
+                        logging.getLogger("piano").info("✖ Envoi impossible : %s", e)
+                return f"{ok} vidéo(s) envoyée(s) sur {len(pairs)}"
+            if not JOB.start_task("schedule-ready", work_pairs):
+                return self._json({"error": "une opération est déjà en cours"}, 409)
+            return self._json({"ok": True, "message": f"Envoi de {len(pairs)} vidéo(s) aux réseaux…"})
 
         def _publish_now(self, s, body):
             vid = int(body.get("video_id", 0))

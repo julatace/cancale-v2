@@ -4,7 +4,9 @@ Mêmes prérequis que TikTok (voir tiktok_web.py) : Chrome > Affichage > Dévelo
 cliclick, Accessibilité pour Terminal. Avantage sur l'API : la vidéo est publiée tout de suite en public (pas de « privé tant que Google
 n'a pas validé ton projet »). NON testé sur un vrai YouTube : Studio change souvent ; chaque étape dit ce qui bloque.
 La miniature personnalisée n'est pas envoyée (à ajouter à la main dans Studio si tu y tiens)."""
+import json
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -53,15 +55,54 @@ def _paste_into(selector: str, text: str) -> None:
         raise RuntimeError(f"le texte n'a pas été écrit dans YouTube ({selector}) : « {(got or '')[:40]} »")
 
 
-def post(video: Path, title: str, description: str, publish: bool = False, say=log.info) -> str:
+def _visibility(publish_at, say) -> None:
+    """Dernière étape de YouTube Studio : « Public » tout de suite, ou « Programmer » à une date et une heure (programmation de YouTube lui-même)."""
+    if not publish_at:
+        if not _click('tp-yt-paper-radio-button[name="PUBLIC"]'):
+            raise RuntimeError("choix « Public » introuvable")
+        time.sleep(0.6)
+        if tw._js('var r=document.querySelector(\'tp-yt-paper-radio-button[name="PUBLIC"]\');r?String(r.getAttribute("aria-checked")==="true"||r.hasAttribute("checked")):"false"') != "true":
+            raise RuntimeError("la vidéo est restée privée : le choix « Public » n'a pas été pris en compte")
+        return
+    from datetime import datetime
+    when = datetime.fromisoformat(publish_at)
+    say(f"🗓 Programmation sur YouTube : {when:%d/%m/%Y %H:%M}…")
+    if not _click("#second-container-expand-button"):
+        raise RuntimeError("section « Programmer » introuvable dans YouTube Studio")
+    tw._wait('String(!!document.querySelector("#datepicker-trigger"))', "le sélecteur de date de YouTube n'apparaît pas", 15)
+    _click("#datepicker-trigger")
+    tw._wait('String(!!document.querySelector("ytcp-date-picker input, tp-yt-paper-dialog input"))', "le champ date de YouTube n'apparaît pas", 15)
+    lang = "navigator.language"
+    date_js = f"new Date({when.year},{when.month - 1},{when.day}).toLocaleDateString({lang},{{day:'numeric',month:'short',year:'numeric'}})"
+    time_js = f"new Date({when.year},{when.month - 1},{when.day},{when.hour},{when.minute}).toLocaleTimeString({lang},{{hour:'numeric',minute:'2-digit'}})"
+    for sel, expr in (("ytcp-date-picker input, tp-yt-paper-dialog input", date_js), ("#time-of-day-container input", time_js)):
+        got = tw._js(f"(function(){{var e=document.querySelector({json.dumps(sel)});if(!e)return 'absent';e.focus();document.execCommand('selectAll');"
+                     f"document.execCommand('insertText',false,{expr});return e.value}})()")
+        if got == "absent":
+            raise RuntimeError(f"champ de programmation YouTube introuvable ({sel})")
+        tw._keys("key code 36", "delay 0.5")                                      # Entrée : valide la date / l'heure saisie
+        time.sleep(0.6)
+        if sel.startswith("#time"):
+            tw._js(f"(function(){{var e=document.querySelector({json.dumps(sel)});e&&e.click();return 'ok'}})()")
+    time.sleep(0.6)
+    shown = tw._js('(function(){var d=document.querySelector("#datepicker-trigger"),t=document.querySelector("#time-of-day-container input");'
+                   'return (d?d.innerText:"")+" | "+(t?t.value:"")})()')
+    day_ok = str(when.day) in re.findall(r"\d+", shown.split("|")[0])
+    min_ok = f"{when.minute:02d}" in shown.split("|")[-1]
+    if not (day_ok and min_ok):
+        raise RuntimeError(f"la programmation n'a pas été prise en compte par YouTube (affiché : {shown.strip()[:60]})")
+
+
+def post(video: Path, title: str, description: str, publish: bool = False, say=log.info, publish_at: str | None = None) -> str:
     try:
-        return _post(video, title, description, publish, say)
+        return _post(video, title, description, publish, say, publish_at)
     except Exception as e:
         shot = tw._shot("youtube_web_erreur.png")
-        raise RuntimeError(f"{e}" + (f" (capture d'écran : {shot})" if shot else "")) from e
+        dump = tw.save_dump("youtube_web")
+        raise RuntimeError(f"{e}" + (f" (capture d'écran : {shot})" if shot else "") + (f" (page : {dump})" if dump else "")) from e
 
 
-def _post(video, title, description, publish, say) -> str:
+def _post(video, title, description, publish, say, publish_at=None) -> str:
     video = Path(video).resolve()
     if not video.exists():
         raise RuntimeError(f"vidéo introuvable : {video}")
@@ -84,8 +125,7 @@ def _post(video, title, description, publish, say) -> str:
         if not _click("#next-button"):
             raise RuntimeError(f"bouton « Suivant » introuvable (étape {step})")
     time.sleep(1.5)
-    if not _click('tp-yt-paper-radio-button[name="PUBLIC"]'):
-        raise RuntimeError("choix « Public » introuvable")
+    _visibility(publish_at, say)
     if not publish:
         say("✋ Tout est prêt dans YouTube Studio : vérifie puis clique sur « Publier » toi-même.")
         return "prêt (non publié)"
@@ -96,6 +136,9 @@ def _post(video, title, description, publish, say) -> str:
     _click("#done-button")
     time.sleep(5)
     link = tw._js('var a=document.querySelector("ytcp-video-share-dialog a, .video-url-fadeable a, a[href*=\\"youtu.be\\"]"); a?a.href:""')
+    if publish_at:
+        from datetime import datetime
+        return f"programmée le {datetime.fromisoformat(publish_at):%d/%m/%Y à %H:%M}" + (f" · {link}" if link else "")
     return link or "publié"
 
 
@@ -113,8 +156,9 @@ class YouTubeWeb:
         from .youtube import YouTube
         sn = YouTube.build_snippet({**meta, "title": meta.get("youtube_title") or meta.get("title") or "Piano"}, "public", "10")["snippet"]
         tw.PROFILE = self.profile
+        pa = meta.get("publish_at")
         try:
-            st = post(video, sn["title"], sn["description"], self.go)
+            st = post(video, sn["title"], sn["description"], self.go or bool(pa), publish_at=pa)
         except Exception as e:
             return Result(self.platform, "FAILED", "", f"{e}")
-        return Result(self.platform, "PUBLISHED" if self.go else "EXPORTED", key, st)
+        return Result(self.platform, "SCHEDULED" if pa else ("PUBLISHED" if self.go else "EXPORTED"), key, st)

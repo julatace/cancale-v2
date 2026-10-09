@@ -12,7 +12,8 @@ from app import config
 from app.database import db
 
 log = logging.getLogger("piano.queue")
-GOOD = ("PUBLISHED", "DRAFT")
+GOOD = ("PUBLISHED", "DRAFT", "SCHEDULED")                       # SCHEDULED = programmée DANS le réseau (TikTok / YouTube la mettront en ligne à l'heure)
+MIN_LEAD_MIN, MAX_LEAD_DAYS = 20, 10                              # TikTok : programmation de 15 min à 10 jours à l'avance
 
 
 def parse_times(times) -> list[str]:
@@ -65,7 +66,7 @@ def slots_for_days(days, times=None, now: datetime | None = None) -> list[dateti
     out, late = [], 0
     for d in sorted(days, key=lambda x: x["date"]):
         day = date.fromisoformat(d["date"])
-        if day < now.date():
+        if day < now.date() or day > now.date() + timedelta(days=MAX_LEAD_DAYS):
             continue
         n = max(0, min(int(d.get("count", 0)), 6))
         for hhmm in sorted(pool[:n]):
@@ -105,6 +106,16 @@ def plan(conn, video_ids, when: list[datetime]) -> list[dict]:
             out.append({"video_id": v["id"], "title": v["title"], "format": v["format"], "run_at": dt.isoformat(timespec="minutes")})
     conn.commit()
     return out
+
+
+def assign(conn, video_ids, when) -> list[tuple[int, datetime]]:
+    """Associe chaque vidéo prête à un créneau (la version courte et la version longue d'un même morceau partagent le même créneau)."""
+    marks = ",".join("?" * len(video_ids)) or "NULL"
+    rows = conn.execute(f"SELECT id, song_id FROM videos WHERE id IN ({marks}) AND status='READY' ORDER BY id", [int(i) for i in video_ids]).fetchall()
+    groups: dict[object, list[int]] = {}
+    for r in rows:
+        groups.setdefault(r["song_id"] or f"v{r['id']}", []).append(r["id"])
+    return [(vid, dt) for grp, dt in zip(groups.values(), when) for vid in grp]
 
 
 def listing(conn, limit=40) -> list[dict]:
@@ -157,8 +168,22 @@ def cancel_all_pending(conn) -> int:
     return cur.rowcount
 
 
-def publish_video(s, conn, video_id: int) -> list[dict]:
-    """Publie une vidéo déjà créée sur les plateformes de son format. Une plateforme en échec ne bloque pas les autres."""
+def native_time(publish_at, now: datetime | None = None):
+    """Heure de programmation à confier aux réseaux, ou None = publier tout de suite (créneau déjà passé, trop proche ou trop lointain)."""
+    if not publish_at:
+        return None
+    dt = publish_at if isinstance(publish_at, datetime) else datetime.fromisoformat(str(publish_at))
+    dt = dt.astimezone() if dt.tzinfo else dt.astimezone()
+    now = now or datetime.now().astimezone()
+    if dt < now + timedelta(minutes=MIN_LEAD_MIN) or dt > now + timedelta(days=MAX_LEAD_DAYS):
+        return None
+    return dt
+
+
+def publish_video(s, conn, video_id: int, publish_at=None) -> list[dict]:
+    """Envoie une vidéo déjà créée aux réseaux de son format. Avec `publish_at`, chaque réseau la PROGRAMME lui-même à cette date et heure
+    (TikTok Studio « Planifier », YouTube Studio « Programmer »). Une plateforme en échec ne bloque pas les autres, et un nouvel appel ne
+    refait que ce qui a échoué."""
     from app.publisher import adapters
     from app.publisher.base import Result
     row = conn.execute("SELECT output_path, style, meta FROM videos WHERE id=?", (int(video_id),)).fetchone()
@@ -170,6 +195,9 @@ def publish_video(s, conn, video_id: int) -> list[dict]:
     fmt = (row["style"] or "").partition("|")[2] or None
     content = json.loads(row["meta"] or "{}")
     content["shorts"] = fmt != "horizontal"                # la vidéo horizontale est une vidéo YouTube normale, pas un Short
+    when = native_time(publish_at)
+    if when:
+        content["publish_at"] = when.replace(tzinfo=None).isoformat(timespec="minutes")     # heure locale du Mac, telle qu'affichée dans les réseaux
     if content.get("thumbnail") and (video.parent / content["thumbnail"]).exists():
         content["thumbnail"] = str(video.parent / content["thumbnail"])
     else:
@@ -178,9 +206,13 @@ def publish_video(s, conn, video_id: int) -> list[dict]:
     for plat in ("tiktok", "youtube"):
         if s2[plat].get("mode") == "web":
             s2[plat]["web_publish"] = True                 # « publier » veut dire publier : on clique aussi sur le bouton
+    done = {r["platform"]: r["status"] for r in conn.execute("SELECT platform, status FROM publications WHERE video_id=?", (video_id,))}
     out = []
     for ad in adapters(s2, fmt=fmt):
         if ad.platform == "outbox":
+            continue
+        if done.get(ad.platform) in GOOD:                  # déjà parti sur ce réseau : on ne le refait pas
+            out.append({"platform": ad.platform, "status": done[ad.platform], "detail": "déjà envoyé"})
             continue
         try:
             r = ad.publish(video, content, str(video_id))
@@ -194,6 +226,16 @@ def publish_video(s, conn, video_id: int) -> list[dict]:
         out.append({"platform": r.platform, "status": r.status, "detail": r.detail})
     if any(x["status"] in GOOD for x in out):
         conn.execute("UPDATE videos SET status='PUBLISHED' WHERE id=?", (video_id,))
+    if when:                                               # trace dans « Programmation » : ce qui est programmé DANS les réseaux
+        ok_names = ", ".join(x["platform"] for x in out if x["status"] in GOOD)
+        bad = [x for x in out if x["status"] not in GOOD]
+        conn.execute("INSERT INTO schedule(video_id,run_at,status,detail,created_at) VALUES(?,?,?,?,?)",
+                     (video_id, _utc(when), "DONE" if ok_names and not bad else "FAILED",
+                      (f"programmée dans {ok_names}" if ok_names else "") + ("; " if ok_names and bad else "") +
+                      ("; ".join(f"{x['platform']} : {x['detail'][:80]}" for x in bad)), db.now()))
+        if bad:                                            # filet de sécurité : l'app republiera à l'heure ce qui a échoué (réseaux déjà faits ignorés)
+            conn.execute("INSERT INTO schedule(video_id,run_at,status,detail,created_at) VALUES(?,?,'PENDING',?,?)",
+                         (video_id, _utc(when), "reprise automatique à l'heure (programmation du réseau impossible)", db.now()))
     conn.commit()
     from app.director import cleanup
     cleanup.delete_after_publish(s, conn, video_id, out)                  # tout est parti : on libère la place sur l'ordinateur

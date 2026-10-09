@@ -239,16 +239,16 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
 <div class="next" id="nextpub">Aucune publication programmée.</div>
 <div style="height:14px"></div>
 <section class="card" id="sched">
-  <div class="step"><div><h2>Programmation</h2><p>L'agent fabrique les vidéos puis les publie tout seul à l'heure choisie. Laisse cette page ouverte et le Mac allumé (il ne se met pas en veille tant que la page tourne).</p></div></div>
+  <div class="step"><div><h2>Programmation</h2><p>Chaque vidéo est envoyée à TikTok et YouTube dès qu'elle est montée, avec la programmation de chaque réseau (date et heure de mise en ligne). Tu n'as pas besoin de laisser le Mac allumé ensuite : TikTok et YouTube publient eux-mêmes.</p></div></div>
   <div class="agenda-head"><b>Combien de vidéos veux-tu publier chaque jour ?</b>
     <span class="quick"><button class="btn alt" data-quick="2">2 par jour (7 jours)</button><button class="btn alt" data-quick="1">1 par jour (7 jours)</button><button class="btn alt" data-quick="0">Tout effacer</button></span></div>
   <div class="agenda" id="agenda" role="group" aria-label="Agenda des prochains jours"></div>
   <div class="row" style="margin-top:14px;border:0;padding:0">
     <label class="sw">Heures de publication <input type="text" id="wtimes" value="12:30, 19:00" class="sel" style="width:150px;flex:none" aria-label="Heures de publication"></label>
-    <label class="sw"><input type="checkbox" id="wnow" checked> Publier chaque vidéo dès qu'elle est montée <small style="color:var(--mute)">(décoche pour attendre les heures)</small></label>
+    <label class="sw"><input type="checkbox" id="wnow"> Tout publier tout de suite <small style="color:var(--mute)">(sinon chaque vidéo est <b>programmée dans TikTok et YouTube</b> à la date de l'agenda)</small></label>
   </div>
   <p class="note" id="west" style="margin:8px 0"></p>
-  <div class="row" style="border:0;padding:0;margin-top:6px"><button class="btn" id="wnowall" style="background:var(--gold);color:var(--gold-ink)" title="Publie tout de suite, l'une après l'autre, toutes les vidéos montées qui n'ont pas encore été publiées">🚀 Publier maintenant les vidéos prêtes <span id="readyn"></span></button><button class="btn" id="wgo">🗓 Fabriquer et programmer l'agenda</button><button class="btn alt" id="wplan" title="Utilise les vidéos déjà prêtes au lieu d'en fabriquer">Programmer les vidéos déjà prêtes</button><span id="wmsg" class="note" style="margin:0"></span></div>
+  <div class="row" style="border:0;padding:0;margin-top:6px"><button class="btn" id="wnowall" style="background:var(--gold);color:var(--gold-ink)" title="Publie tout de suite, l'une après l'autre, toutes les vidéos montées qui n'ont pas encore été publiées">🚀 Publier maintenant les vidéos prêtes <span id="readyn"></span></button><button class="btn" id="wgo">🗓 Fabriquer, envoyer et programmer</button><button class="btn alt" id="wplan" title="Utilise les vidéos déjà prêtes au lieu d'en fabriquer">Envoyer et programmer les vidéos déjà prêtes</button><span id="wmsg" class="note" style="margin:0"></span></div>
   <div id="slist"></div>
 </section>
 
@@ -384,14 +384,14 @@ $('#fsave').onclick=()=>api('/api/folder',{method:'POST',headers:{'Content-Type'
 $('#fscan').onclick=()=>{$('#fstat').textContent='Import en cours…';api('/api/inbox/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>{if(r.error){$('#fstat').textContent=r.error;return}songs();inb();
   setTimeout(()=>{$('#fstat').insertAdjacentHTML('afterbegin',`<b style="color:var(--ok)">${r.imported} importé(s)</b>${r.duplicates?`, ${r.duplicates} déjà présent(s)`:''}${r.errors.length?`, <span style="color:var(--bad)">${r.errors.length} refusé(s) : ${esc(r.errors.slice(0,3).join(' ; '))}</span>`:''} — `)},400)})};
 inb.last=0;$('#ibrights').onchange=e=>api('/api/inbox/rights',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmed:e.target.checked})}).then(inb);
-const AG={};const DAYS=14,MAXN=6;
+const AG={};const DAYS=10,MAXN=6;
 const iso=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
 const agDays=()=>Array.from({length:DAYS},(_,i)=>{const d=new Date();d.setDate(d.getDate()+i);return d});
 function agenda(){$('#agenda').innerHTML=agDays().map((d,i)=>{const k=iso(d),n=AG[k]||0;
   const lab=i===0?'Aujourd\'hui':i===1?'Demain':d.toLocaleDateString('fr-FR',{weekday:'short'});
   return `<div class="day${n?' on':''}"><small>${esc(lab)}</small><div class="d">${d.getDate()} ${esc(d.toLocaleDateString('fr-FR',{month:'short'}))}</div><div class="c"><button data-d="${k}" data-s="-1" aria-label="Moins">−</button><b>${n}</b><button data-d="${k}" data-s="1" aria-label="Plus">+</button></div></div>`}).join('');west()}
 function west(){const n=Object.values(AG).reduce((a,b)=>a+b,0);const j=Object.values(AG).filter(x=>x>0).length;
-  $('#west').textContent=n?`${n} vidéo${n>1?'s':''} sur ${j} jour${j>1?'s':''}. Compte environ ${n*4} minutes de fabrication (3 à 4 minutes par morceau) : laisse le Mac tourner, l'agent fabrique puis programme. Il prend tes morceaux dans l'ordre.`:'Clique sur + pour choisir le nombre de vidéos de chaque jour.';
+  $('#west').textContent=n?`${n} vidéo${n>1?'s':''} sur ${j} jour${j>1?'s':''}. Compte environ ${n*4} minutes (3 à 4 par morceau). Chaque vidéo est envoyée à TikTok et YouTube dès qu'elle est montée, et programmée DANS chaque réseau à la date choisie (jusqu'à 10 jours). Ne touche pas au Mac pendant ce temps.`:'Clique sur + pour choisir le nombre de vidéos de chaque jour.';
   $('#wgo').disabled=!n}
 $('#agenda').onclick=e=>{const b=e.target.closest('[data-d]');if(!b)return;const k=b.dataset.d;AG[k]=Math.max(0,Math.min(MAXN,(AG[k]||0)+(+b.dataset.s)));agenda()};
 document.querySelector('.quick').onclick=e=>{const b=e.target.closest('[data-quick]');if(!b)return;const v=+b.dataset.quick;agDays().forEach((d,i)=>{AG[iso(d)]=(i>=1&&i<=7)?v:0});agenda()};
@@ -406,14 +406,14 @@ $('#wgo').onclick=()=>{const n=Object.values(AG).reduce((a,b)=>a+b,0);if(!n)retu
 $('#wnowall').onclick=()=>{if(!confirm('Publier maintenant, une par une, toutes les vidéos prêtes sur TikTok et YouTube ? Ne touche ni à la souris ni au clavier pendant les envois.'))return;
   api('/api/publish-ready',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>{if(r.error){$('#wmsg').textContent=r.error;return}watch('Publication des vidéos prêtes…')})};
 $('#wplan').onclick=()=>api('/api/schedule/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(wbody())})
-  .then(r=>{$('#wmsg').textContent=r.error||r.message;sched()});
+  .then(r=>{if(r.error){$('#wmsg').textContent=r.error;return}$('#wmsg').textContent='';watch('Envoi des vidéos prêtes aux réseaux…')});
 document.addEventListener('click',e=>{
   const ca=e.target.closest('[data-cancelall]');if(ca){if(confirm('Annuler toutes les publications en attente ? (les vidéos ne sont pas supprimées)'))api('/api/schedule/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({all:true})}).then(sched);return}
   const c=e.target.closest('[data-cancel]');if(c){api('/api/schedule/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:+c.dataset.cancel})}).then(sched);return}
   const n=e.target.closest('[data-now]');if(n){if(!confirm('Publier cette vidéo maintenant ? Ne touche ni à la souris ni au clavier pendant l\'envoi.'))return;
     api('/api/publish-now',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_id:+n.dataset.now})}).then(r=>{if(r.error){alert(r.error);return}watch('Publication en cours…')});return}
   const s=e.target.closest('[data-at]');if(s){const v=document.querySelector(`input[data-when="${s.dataset.at}"]`).value;if(!v){alert('Choisis d\'abord la date et l\'heure.');return}
-    api('/api/schedule/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_ids:[+s.dataset.at],at:v})}).then(r=>{if(r.error){alert(r.error);return}sched();s.textContent='Programmée ✓'})}});
+    api('/api/schedule/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_ids:[+s.dataset.at],at:v})}).then(r=>{if(r.error){alert(r.error);return}watch('Envoi aux réseaux…')})}});
 function pubResult(x){
   if(!x.publications||!x.publications.length)return '';
   const names={youtube:x.format==='horizontal'?'YouTube (vidéo longue)':'YouTube Shorts',tiktok:'TikTok',outbox:'Dossier prêt à poster'};
@@ -436,7 +436,7 @@ function poll(){api('/api/status?since='+since).then(s=>{
   if(!run){clearInterval(timer);timer=null;vids();info();sched();cur=s.status==='done'?5:cur;stepper();
     if(s.status==='cancelled'){$('#now').textContent='Création arrêtée'}
     if(s.status==='failed'){$('#err').hidden=false;$('#err').textContent=s.error}
-    else if(s.planned&&s.planned.length){const f=s.planned[0];$('#now').innerHTML=`🗓 <b>${new Set(s.planned.map(p=>p.run_at)).size} publication(s) programmée(s)</b> — la première part ${esc(dfmt(f.run_at))}. Laisse cette page ouverte et le Mac allumé : l\'agent publie tout seul à l\'heure.`;results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result);tab('schedule',true)}
+    else if(s.planned&&s.planned.length){const f=s.planned[0];$('#now').innerHTML=`🗓 <b>${new Set(s.planned.map(p=>p.run_at)).size} vidéo(s) programmée(s) dans TikTok et YouTube</b> — la première sera en ligne ${esc(dfmt(f.run_at))}. Tu peux éteindre le Mac : les réseaux publient eux-mêmes.`;results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result);tab('schedule',true)}
     else if(s.result&&s.result.task){$('#now').textContent='Terminé : '+s.result.summary}
     else if(s.result){$('#now').textContent='Terminé';results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result)}}
 })}

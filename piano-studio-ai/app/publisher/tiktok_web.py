@@ -7,6 +7,7 @@ NON testé sur un vrai TikTok : l'interface web de TikTok change ; chaque étape
 """
 import json
 import logging
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -125,6 +126,70 @@ def _sheet_open() -> bool:
         return False
 
 
+
+def _click_text_js(pattern: str, scope: str = "document") -> str:
+    """JavaScript : clique sur le plus petit élément visible dont le texte correspond à `pattern` (regex) ; rend « true » / « false »."""
+    return ("(function(){var re=new RegExp(" + json.dumps(pattern) + ",'i'),best=null,ba=1e12;" + scope + ".querySelectorAll('button,label,[role=radio],[role=button],[role=option],li,div,span,input[type=radio]').forEach(function(e){"
+            "var t=((e.innerText||e.value||e.getAttribute('aria-label')||'')+'').trim();if(!t||t.length>40||!re.test(t))return;var r=e.getBoundingClientRect();"
+            "if(!(r.width>0&&r.height>0)||e.disabled||e.getAttribute('aria-disabled')==='true'||/disabled/i.test(e.className||''))return;var a=r.width*r.height;if(a<ba){ba=a;best=e}});"
+            "if(!best)return 'false';best.click();return 'true'})()")
+
+
+def _tt_fields() -> list[dict]:
+    """Champs date / heure de la zone « Quand publier » de TikTok Studio (repérés par la forme de leur valeur)."""
+    raw = _js("(function(){var o=[];document.querySelectorAll('input').forEach(function(e,i){var r=e.getBoundingClientRect();if(!(r.width>0&&r.height>0))return;"
+              "o.push(i+'|'+(e.value||'')+'|'+(e.placeholder||''))});return o.join('\\n')})()")
+    out = []
+    for line in (raw or "").splitlines():
+        i, v, ph = (line.split("|") + ["", ""])[:3]
+        kind = "time" if re.fullmatch(r"\s*\d{1,2}:\d{2}(\s*[AaPp][Mm])?\s*", v) else "date" if re.search(r"\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{1,2}\s+\w+\.?\s+\d{4}", v) else ""
+        if kind:
+            out.append({"i": int(i), "kind": kind, "value": v})
+    return out
+
+
+def _open_field(i: int) -> None:
+    _js(f"(function(){{var e=document.querySelectorAll('input')[{i}];e.focus();e.click();return 'ok'}})()")
+    time.sleep(0.8)
+
+
+def _pick_text(text: str) -> bool:
+    """Clique dans la fenêtre déroulante ouverte l'élément dont le texte est exactement `text` (jour du calendrier, heure, minutes)."""
+    return _js("(function(){var best=null,ba=1e12;document.querySelectorAll('div,span,li,button,td,[role=option],[role=gridcell]').forEach(function(e){"
+               "if(((e.innerText||'')+'').trim()!==" + json.dumps(text) + ")return;var r=e.getBoundingClientRect();if(!(r.width>0&&r.height>0)||r.width>90)return;"
+               "if(e.getAttribute('aria-disabled')==='true'||/disabled|other-month|outside/i.test(e.className||''))return;var a=r.width*r.height;if(a<ba){ba=a;best=e}});"
+               "if(!best)return 'false';best.click();return 'true'})()") == "true"
+
+
+def schedule_tiktok(when, say) -> None:
+    """Règle « Planifier » dans TikTok Studio : date et heure de mise en ligne (de 15 minutes à 10 jours à l'avance). Vérifie ce qui est affiché ensuite."""
+    say(f"🗓 Programmation sur TikTok : {when:%d/%m/%Y %H:%M}…")
+    if _js(_click_text_js(r"^(planifier|programmer|schedule)")) != "true":
+        raise RuntimeError("option « Planifier » introuvable dans TikTok Studio")
+    time.sleep(1.2)
+    fields = _tt_fields()
+    date_f = next((f for f in fields if f["kind"] == "date"), None)
+    time_f = next((f for f in fields if f["kind"] == "time"), None)
+    if not date_f or not time_f:
+        raise RuntimeError(f"champs date/heure de TikTok introuvables ({fields})")
+    _open_field(date_f["i"])                                              # calendrier : mois suivant si besoin, puis le jour
+    for _ in range(2):
+        cur = next((f for f in _tt_fields() if f["kind"] == "date"), date_f)["value"]
+        if str(when.day) in re.findall(r"\d+", cur) and when.strftime("%Y") in cur and (when.strftime("%m") in cur or when.strftime("%b").lower()[:3] in cur.lower()):
+            break
+        if not _pick_text(str(when.day)):
+            _js(_click_text_js(r"^(›|>|»|next|suivant)$"))
+            time.sleep(0.6)
+            _pick_text(str(when.day))
+    _open_field(time_f["i"])                                              # heure : liste des heures puis des minutes (pas de 5)
+    hh, mm = f"{when.hour:02d}", f"{(when.minute // 5) * 5:02d}"
+    _pick_text(hh); time.sleep(0.4); _pick_text(mm)
+    _js("document.body.click()"); time.sleep(0.6)
+    seen = " ".join(f["value"] for f in _tt_fields())
+    if f"{hh}:{mm}" not in seen.replace(" ", "") and f"{int(hh)}:{mm}" not in seen:
+        raise RuntimeError(f"l'heure choisie ({hh}:{mm}) n'apparaît pas dans TikTok (valeurs lues : {seen[:80]})")
+
+
 def _real_click_upload(say, strict: bool = True) -> None:
     """Vrai clic souris sur le bouton « Sélectionner … » (un clic JavaScript est refusé : pas de geste humain). Ne continue que si la fenêtre « Ouvrir » apparaît."""
     import shutil
@@ -159,12 +224,30 @@ def _shot(name="tiktok_web_erreur.png"):
         return ""
 
 
-def post(video: Path, caption: str, publish: bool = False, say=log.info) -> str:
+DUMP_JS = ("(function(){var o=[];document.querySelectorAll('input,textarea,[role=radio],[role=switch],[role=checkbox],button,[role=button],[contenteditable=true],tp-yt-paper-radio-button').forEach(function(e){"
+           "var r=e.getBoundingClientRect();if(!(r.width>0&&r.height>0))return;var t=(e.innerText||e.value||e.getAttribute('aria-label')||'').trim().replace(/\\s+/g,' ').slice(0,60);"
+           "o.push([e.tagName.toLowerCase(),e.type||'',e.getAttribute('name')||'',e.getAttribute('role')||'',e.getAttribute('aria-checked')||e.getAttribute('aria-pressed')||(e.checked===undefined?'':String(e.checked)),(e.value||'').slice(0,40),t].join(' | '))});"
+           "return o.slice(0,150).join('\\n')})()")
+
+
+def save_dump(name: str) -> str:
+    """Enregistre la liste des boutons / cases / champs visibles de la page (aide à comprendre pourquoi une étape a échoué)."""
     try:
-        return _post(video, caption, publish, say)
+        out = Path(__file__).resolve().parents[2] / "data" / "debug" / f"{name}_page.txt"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(_js(DUMP_JS) or "")
+        return str(out)
+    except Exception:
+        return ""
+
+
+def post(video: Path, caption: str, publish: bool = False, say=log.info, publish_at: str | None = None) -> str:
+    try:
+        return _post(video, caption, publish, say, publish_at)
     except Exception as e:
         shot = _shot()
-        raise RuntimeError(f"{e}" + (f" (capture d'écran : {shot})" if shot else "")) from e
+        dump = save_dump("tiktok_web")
+        raise RuntimeError(f"{e}" + (f" (capture d'écran : {shot})" if shot else "") + (f" (page : {dump})" if dump else "")) from e
 
 
 def open_url(url: str, say, label: str) -> None:
@@ -249,7 +332,7 @@ def choose_file(path, say, verify: str | None = None, wait: int = 30) -> None:
     _dialog_pick(path, say)
 
 
-def _post(video, caption, publish, say):
+def _post(video, caption, publish, say, publish_at=None):
     video = Path(video).resolve()
     if not video.exists():
         raise RuntimeError(f"vidéo introuvable : {video}")
@@ -271,17 +354,23 @@ def _post(video, caption, publish, say):
         _keys('keystroke " "', f'keystroke "{tag}"', "delay 1.2", 'keystroke " "', "delay 0.4")
     _keys("delay 0.5", "key code 53")                  # Échap : ferme la liste de suggestions encore ouverte
     time.sleep(1.5)
+    when = None
+    if publish_at:
+        from datetime import datetime
+        when = datetime.fromisoformat(publish_at)
+        schedule_tiktok(when, say)
     if not publish:
         say("✋ Tout est prêt dans le navigateur : vérifie puis clique sur « Publier » toi-même.")
         return "prêt (non publié)"
-    say("🚀 Clic sur « Publier »…")
-    ok = _js('var b=[...document.querySelectorAll("button")].find(x=>/^(publier|post)$/i.test(x.innerText.trim())&&!x.disabled);'
+    say("🚀 Clic sur « Planifier »…" if when else "🚀 Clic sur « Publier »…")
+    pat = "planifier|programmer|schedule" if when else "publier|post"
+    ok = _js('var b=[...document.querySelectorAll("button")].find(x=>/^(' + pat + ')$/i.test(x.innerText.trim())&&!x.disabled);'
              'if(b){b.click();"true"}else{"false"}')
     if ok != "true":
         raise RuntimeError("bouton « Publier » introuvable ou grisé (vidéo encore en traitement ?)")
     time.sleep(6)
-    _js('var b=[...document.querySelectorAll("button")].find(x=>/^(publier maintenant|post now)$/i.test(x.innerText.trim())); if(b)b.click(); "ok"')
-    return "publié"
+    _js('var b=[...document.querySelectorAll("button")].find(x=>/^(publier maintenant|post now|confirmer|confirm)$/i.test(x.innerText.trim())); if(b)b.click(); "ok"')
+    return f"programmée le {when:%d/%m/%Y à %H:%M}" if when else "publié"
 
 
 class TikTokWeb:
@@ -298,8 +387,9 @@ class TikTokWeb:
         cap = (meta.get("tiktok_caption") or meta.get("description") or meta.get("title") or "").strip()
         global PROFILE
         PROFILE = self.profile
+        pa = meta.get("publish_at")
         try:
-            st = post(video, cap, self.go)
+            st = post(video, cap, self.go or bool(pa), publish_at=pa)
         except Exception as e:
             return Result(self.platform, "FAILED", "", f"{e}")
-        return Result(self.platform, "PUBLISHED" if self.go else "EXPORTED", key, st)
+        return Result(self.platform, "SCHEDULED" if pa else ("PUBLISHED" if self.go else "EXPORTED"), key, st)

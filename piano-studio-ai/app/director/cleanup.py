@@ -6,7 +6,7 @@ from pathlib import Path
 from app import config
 
 log = logging.getLogger("piano.cleanup")
-GOOD = ("PUBLISHED", "DRAFT")
+GOOD = ("PUBLISHED", "DRAFT", "SCHEDULED")
 
 
 def enabled(s) -> bool:
