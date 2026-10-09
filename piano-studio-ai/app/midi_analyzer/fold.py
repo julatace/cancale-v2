@@ -23,3 +23,21 @@ def choose_lowest(notes, n_keys: int, floor: int = 21, ceil: int = 108) -> int:
         if score > best_score:
             best, best_score = lo, score
     return max(best, floor)
+
+
+def choose_span(notes, min_keys: int = 36, max_keys: int = 60, floor: int = 21, ceil: int = 108) -> tuple[int, int]:
+    """(plus bas Do, nombre de touches) : l'étendue réelle du morceau (98 % des notes), arrondie à des octaves entières, entre
+    min_keys et max_keys. Les notes rares hors étendue sont ramenées par octave ; si le morceau est plus large que max_keys,
+    on garde la fenêtre qui contient le plus de notes."""
+    if not notes:
+        return 48, min_keys
+    ps = sorted(n.pitch for n in notes)
+    lo_p, hi_p = ps[int(len(ps) * 0.01)], ps[min(int(len(ps) * 0.99), len(ps) - 1)]
+    lowest = max((lo_p // 12) * 12, floor // 12 * 12 + (12 if floor % 12 else 0))
+    span = hi_p - lowest + 1
+    keys = ((span + 11) // 12) * 12
+    if keys > max_keys:
+        return choose_lowest(notes, max_keys, floor, ceil), max_keys
+    if keys < min_keys:                                         # morceau étroit : on garde le minimum, centré sur les notes
+        return choose_lowest(notes, min_keys, floor, ceil), min_keys
+    return lowest, min(keys, ceil - lowest + 1)

@@ -12,7 +12,7 @@ from app.database import db
 from app.midi_analyzer.analyzer import analyze
 from app.midi_analyzer.parser import parse_midi, parse_midi_info
 from app.midi_analyzer.arrange import arrange_for_piano
-from app.midi_analyzer.fold import choose_lowest, fold_notes
+from app.midi_analyzer.fold import choose_lowest, choose_span, fold_notes
 from app.renderer import framing
 from app.music_discovery import generator, importer
 from app.publisher import adapters
@@ -170,6 +170,18 @@ def _target(F, s, ana) -> float:
     return min(s["duration_target"], ana["duration"], cap)
 
 
+def _fit_tempo(base, piece_bpm: float, lv: dict):
+    """Étire le morceau au tempo du niveau, puis le ralentit encore si le passage le plus rapide dépasse la vitesse lisible du niveau.
+    Retourne (notes, niveau avec son tempo réel, table de tempo, facteur total, ralentissement supplémentaire)."""
+    factor = difficulty.speed_factor(piece_bpm, lv["bpm"])
+    notes = difficulty.stretch_notes(base, factor)
+    extra = difficulty.comfortable_extra(notes, lv.get("max_rate"))
+    if extra < 1.0:
+        notes = difficulty.stretch_notes(notes, extra)
+    lv2 = {**lv, "bpm": round(lv["bpm"] * extra, 1)}
+    return notes, lv2, [(0.0, lv2["bpm"])], factor * extra, extra
+
+
 def _formats(s, fmt, formats) -> list[tuple[str, dict]]:
     names = list(formats) if formats else [fmt or s.get("default_format", "vertical")]
     fm = s.get("formats", {})
@@ -189,7 +201,9 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
     log.info("🎯 Niveau : %s (%s BPM) | Formats : %s", lv["label"], lv["bpm"], ", ".join(n for n, _ in fmts))
     control.check()
     tried = set()
+    s0, lv_orig, level_orig = s, lv, level           # réglages d'origine (étendue des touches et tempo sont recalculés pour chaque morceau)
     for attempt_song in range(6):                   # on écarte les morceaux trop denses / trop courts pour la demande
+        lv, level = lv_orig, level_orig
         sid, midi, meta = song_by_id(conn, song_id) if song_id else pick_song(conn, s, seed + attempt_song * 7919, exclude=tried)
         tried.add(sid)
         log.info("♪ Morceau choisi : %s - %s", meta["title"], meta["artist"])
@@ -201,13 +215,19 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
                 log.info("🎹 Arrangement de piano : %d pistes -> %d (mélodie, basse, accompagnement), batterie exclue", n_tracks, len({n.track for n in notes}))
         except Exception as e:
             log.warning("arrangement ignoré (%s)", e)
-        kb = s["keyboard"]
-        kb_lo = choose_lowest(notes, kb["keys"]) if kb.get("adaptive", True) else kb["lowest_key"]
-        notes = fold_notes(notes, kb_lo, kb["keys"])                                    # plage jouée, choisie selon le morceau
+        kb = s0["keyboard"]
+        if kb.get("adaptive", True):                                         # étendue réelle du morceau (octaves entières), sans écraser les notes rares
+            kb_lo, kb_n = choose_span(notes, kb["keys"], kb.get("max_keys", 60))
+        else:
+            kb_lo, kb_n = kb["lowest_key"], kb["keys"]
+        notes = fold_notes(notes, kb_lo, kb_n)
+        s = {**s0, "keyboard": {**kb, "keys": kb_n}}                          # la suite (cadrage, rendu) utilise cette étendue
+        log.info("🎹 Touches : %d touches à partir de la note %d", kb_n, kb_lo)
         base, piece_bpm = notes, analyze(notes, tempo)["bpm"]
-        factor = difficulty.speed_factor(piece_bpm, lv["bpm"])
-        notes = difficulty.stretch_notes(base, factor)                                  # tempo = niveau
-        tempo = [(0.0, lv["bpm"])]
+        lv_base = lv
+        notes, lv, tempo, factor, extra = _fit_tempo(base, piece_bpm, lv)    # tempo = niveau, puis vitesse de lecture confortable
+        if extra < 1.0:
+            log.info("🐢 Passages trop rapides à lire : tempo ralenti de %d %% (%.0f BPM)", round((1 - extra) * 100), lv["bpm"])
         ana = analyze(notes, tempo)
         log.info("🔎 Analyse : %s notes, durée %ss (tempo x%.2f -> %s BPM)", ana["note_count"], ana["duration"], factor, lv["bpm"])
         first_sec = select_section(notes, _target(fmts[0][1], s, ana))
@@ -216,14 +236,14 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
         if not song_id and not level_forced and not too_short and first_sec["density"] > lv["max_density"]:
             dcfg = difficulty.config(s)                   # niveau non imposé : on essaie un niveau plus rapide plutôt que de jeter ton morceau
             for name2, lv2 in sorted(dcfg["levels"].items(), key=lambda kv: kv[1]["bpm"]):
-                if lv2["bpm"] <= lv["bpm"] or name2 not in dcfg["rotation"]:
+                if lv2["bpm"] <= lv_base["bpm"] or name2 not in dcfg["rotation"]:
                     continue
-                n2 = difficulty.stretch_notes(base, difficulty.speed_factor(piece_bpm, lv2["bpm"]))
-                a2 = analyze(n2, [(0.0, lv2["bpm"])])
+                n2, lv2, tempo2, _f2, _x2 = _fit_tempo(base, piece_bpm, lv2)
+                a2 = analyze(n2, tempo2)
                 f2 = select_section(n2, _target(fmts[0][1], s, a2))
                 if f2["density"] <= lv2["max_density"] and a2["duration"] >= min_len:
                     log.info("↗ Niveau %s -> %s : le morceau est trop dense pour %s", lv["label"], lv2["label"], lv["label"])
-                    level, lv, notes, tempo, ana, first_sec = name2, lv2, n2, [(0.0, lv2["bpm"])], a2, f2
+                    level, lv, notes, tempo, ana, first_sec = name2, lv2, n2, tempo2, a2, f2
                     break
         if song_id:
             if too_short or first_sec["density"] > lv["max_density"]:
