@@ -25,6 +25,9 @@ score_weights:
   novelty: 0.10
 
 style: sketch          # sketch = rendu dessiné intégré (aucune app requise) | synthesia = app Synthesia = rendu dessiné à la main intégré (zoom/dézoom)
+sketch:
+  view: wide            # close = zoomé | medium | wide = vue d'ensemble de loin
+  supersample: 2        # 2 = traits lisses (recommandé) | 1 = un peu plus rapide
 engine: auto            # auto = Synthesia si le Mac est prêt, sinon rendu intégré | synthesia | builtin
 synthesia:
   app_path: /Applications/Synthesia.app

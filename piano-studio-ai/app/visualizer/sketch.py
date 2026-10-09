@@ -21,7 +21,9 @@ log = logging.getLogger(__name__)
 _font = lru_cache(maxsize=64)(_font_raw)
 
 LOOKAHEAD = 3.6                          # on voit la note arriver longtemps à l'avance : le temps de placer les doigts
-MIN_WHITES, MAX_WHITES = 17, 28          # au moins ~2,5 octaves : lisible, sans zoom qui sautille          # plus serré = plus zoomé
+# vue : (touches blanches visibles min, max). « wide » = vue d'ensemble de loin, jusqu'au clavier entier (52 touches blanches)
+VIEWS = {"close": (12, 20), "medium": (17, 28), "wide": (30, 52)}
+MIN_WHITES, MAX_WHITES = VIEWS["wide"]
 LEFT = ((92, 214, 210), (35, 150, 150))  # (clair, foncé) main gauche
 RIGHT = ((248, 128, 90), (205, 85, 55))  # main droite
 INK = (38, 36, 40)
@@ -46,14 +48,15 @@ def xpos(p: int) -> tuple[float, float, bool]:
 class Camera:
     """Fenêtre [a, b] en touches blanches, lissée : se resserre sur les passages calmes, s'élargit quand ça s'étend."""
 
-    def __init__(self, notes, W: int, H: int):
+    def __init__(self, notes, W: int, H: int, view: str = "wide"):
         self.notes, self.ratio = notes, W / H
+        self.minw, self.maxw = VIEWS.get(view, VIEWS["wide"])
         lo = min(xpos(n.pitch)[0] for n in notes); hi = max(xpos(n.pitch)[0] for n in notes) + 1
         self.full = (lo - 1, hi + 1)
         c = (lo + hi) / 2
-        self.c, self.w = c, min(max(hi - lo + 2, MIN_WHITES), MAX_WHITES)
-        if hi - lo > MAX_WHITES:
-            self.c = lo + MAX_WHITES / 2
+        self.c, self.w = c, min(max(hi - lo + 2, self.minw), self.maxw)
+        if hi - lo > self.maxw:
+            self.c = lo + self.maxw / 2
 
     def target(self, t: float):
         """Fenêtre qui couvre les notes des 6 prochaines secondes (on ne bouge pas pour une note isolée)."""
@@ -62,7 +65,7 @@ class Camera:
             return self.c, self.w
         xs = [xpos(n.pitch)[0] for n in near]
         lo, hi = min(xs) - 2, max(xs) + 3
-        w = min(max(hi - lo, MIN_WHITES), MAX_WHITES, max(self.full[1] - self.full[0], MIN_WHITES))
+        w = min(max(hi - lo, self.minw), self.maxw, max(self.full[1] - self.full[0], self.minw))
         return (lo + hi) / 2, w
 
     def step(self, t: float, dt: float):
@@ -137,7 +140,7 @@ def render_frame(notes, t, cam_range, L: Layout, split=60, pressed=None):
         col = LEFT if n.pitch < split else RIGHT
         soon = 0 <= n.start - t < 0.7                                           # prochaine note à jouer : trait plus épais, on la repère d'un coup d'œil
         _bar(d, x0, y0, x1, y1, col, hash((n.pitch, round(n.start, 3))) & 0xffff, lw + (3 if soon else 0))
-        if sx > 34 and y1 - y0 > sx * 0.9:
+        if sx > 20 * (W / 1080) and y1 - y0 > sx * 0.9:
             name = _NAMES[n.pitch % 12]
             f = _font(int(min(sx * 0.62, 60)))
             d.text(((x0 + x1) / 2 - 2, y1 - sx * 0.18), name, font=f, fill=INK, anchor="ms")
@@ -173,7 +176,7 @@ def render_frame(notes, t, cam_range, L: Layout, split=60, pressed=None):
     for p in range(0, 128):                                                    # repères Do3 / Do4…
         if p % 12 == 0:
             px = xpos(p)[0]
-            if a <= px < b and sx > 30:
+            if a <= px < b and sx > 18 * (W / 1080):
                 d.text(((px - a) * sx + sx * 0.5, H - 28), f"C{p // 12 - 1}", font=_font(int(min(sx * 0.4, 34))), fill=(120, 118, 124), anchor="ms")
     return img
 
@@ -234,12 +237,14 @@ def hand_split_for(notes, default=60) -> int:
 
 
 def render_video(notes, start: float, duration: float, out_path, title="", subtitle="", fps=30, hand_split=None, layout: Layout = VERTICAL,
-                 result: dict | None = None, audio: np.ndarray | None = None):
+                 result: dict | None = None, audio: np.ndarray | None = None, view: str = "wide", supersample: int = 2):
     ns = clean_notes([n for n in notes if n.end > start and n.start < start + duration])
     if not ns:
         raise ValueError("aucune note dans la section")
     rel = [type(n)(n.start - start, n.end - start, n.pitch, n.velocity, n.track, n.channel) for n in ns]
-    cam = Camera(rel, layout.W, layout.H)
+    cam = Camera(rel, layout.W, layout.H, view)
+    ss = 2 if (supersample or 1) >= 2 else 1                    # 2 = dessin en double taille puis réduction exacte (rapide, traits lisses)
+    big = Layout(layout.W * ss, layout.H * ss, layout.TOP * ss, layout.KB_H * ss) if ss > 1 else layout   # dessin plus grand puis réduit : traits lisses
     hand_split = hand_split if hand_split is not None else hand_split_for(rel)
     final = Path(out_path)
     out_path = final.with_name(final.stem + ".part.mp4")            # écrit sous un nom provisoire : jamais de fichier à moitié fini à la place d'une vidéo
@@ -272,7 +277,9 @@ def render_video(notes, start: float, duration: float, out_path, title="", subti
                     progress.report("Dessin des images", pct)
                     if i and i % (fps * 15) == 0:
                         log.info("🎞 Dessin des images : %d%%", pct)
-                img = render_frame(rel, t, cam.step(t, 1 / fps), layout, hand_split)
+                img = render_frame(rel, t, cam.step(t, 1 / fps), big, hand_split)
+                if ss > 1:
+                    img = img.reduce(2)
                 _title(img, title, subtitle, layout)
                 edge = min(t, duration - t)
                 if edge < 0.5:                                                  # fondu d'entrée / sortie
