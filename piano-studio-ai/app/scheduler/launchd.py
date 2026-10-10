@@ -23,3 +23,29 @@ def install(times, root, home=Path.home()) -> Path:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(build_plist(times, root))
     return p
+
+
+AGENT_LABEL = "com.pianostudio.agent"
+
+
+def build_agent_plist(root: Path) -> bytes:
+    """Lance l'interface (et donc le pilote automatique) à l'ouverture de session, la relance si elle plante."""
+    return plistlib.dumps({
+        "Label": AGENT_LABEL,
+        "ProgramArguments": ["/bin/bash", str(root / "p.sh"), "ui", "--no-browser"],
+        "WorkingDirectory": str(root),
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        "ThrottleInterval": 30,
+        "StandardOutPath": str(root / "logs" / "agent.out.log"),
+        "StandardErrorPath": str(root / "logs" / "agent.err.log"),
+        "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"},
+    })
+
+
+def install_agent(root, home=Path.home()) -> Path:
+    p = home / "Library" / "LaunchAgents" / f"{AGENT_LABEL}.plist"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    (Path(root) / "logs").mkdir(parents=True, exist_ok=True)
+    p.write_bytes(build_agent_plist(Path(root)))
+    return p

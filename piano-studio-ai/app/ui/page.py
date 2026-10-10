@@ -230,6 +230,15 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
   <p>Choisis combien de vidéos par jour, appuie sur le bouton : l'agent fabrique tout, l'envoie à TikTok et YouTube et le programme à la bonne date. Tu peux ensuite éteindre le Mac.</p>
   <ol class="how"><li><b>1.</b> Mets tes morceaux .mid dans le dossier <b>Bureau/MIDI</b> <span id="tomake"></span></li><li><b>2.</b> Choisis le nombre de vidéos par jour</li><li><b>3.</b> Clique sur <b>Fabriquer et programmer</b></li></ol>
 </section>
+<section class="card" id="auto">
+  <div class="step"><div><h2>🤖 Pilote automatique</h2><p>Activé, l'agent garde ton agenda plein tout seul : dès qu'il manque des vidéos, il les fabrique avec tes morceaux et les programme dans TikTok et YouTube. Laisse simplement cette page ouverte.</p></div></div>
+  <div class="row" style="margin-top:0;border:0;padding:0">
+    <label class="sw"><input type="checkbox" id="apon"> <b id="aplabel">Pilote automatique</b></label>
+    <label class="sw">Vidéos par jour <select id="apday" class="sel" style="width:80px;flex:none"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+    <label class="sw">Jours d'avance <select id="apdays" class="sel" style="width:80px;flex:none"><option>3</option><option>5</option><option>7</option><option>9</option></select></label>
+  </div>
+  <p class="note" id="apmsg" style="margin:10px 0 0"></p>
+</section>
 <div class="next" id="nextpub">Aucune publication programmée.</div>
 <div style="height:14px"></div>
 <section class="card" id="sched">
@@ -448,6 +457,11 @@ function bar(s){const p=s.progress,i=$('#bar i');if(s.status==='done'){i.classNa
   if(!p||!p.count||s.status!=='running'){i.className='';i.style.width='';$('#pct').textContent='';return}
   const w=Math.max(3,Math.min(99,(p.done+p.pct/100)/p.count*100));i.className='det';i.style.width=w.toFixed(0)+'%';
   const age=p.t?Math.round(Date.now()/1000-p.t):0;$('#pct').textContent=`Vidéo ${Math.min(p.done+1,p.count)}/${p.count}`+(p.label?` · ${p.label}${p.pct?' '+Math.round(p.pct)+' %':''}`:'')+` · ${Math.round(w)} % du lot`}
+function ap(){api('/api/autopilot').then(a=>{if(a.error)return;$('#apon').checked=!!a.enabled;$('#apday').value=a.per_day;$('#apdays').value=a.days;
+  $('#aplabel').textContent=a.enabled?'Pilote automatique : activé':'Pilote automatique : désactivé';
+  $('#apmsg').textContent=a.enabled?(a.message||'Vérification…')+(a.missing?` · manque ${a.missing} vidéo(s)`:'')+(a.songs!=null?` · ${a.songs} morceau(x) disponible(s)`:''):'Désactivé : rien n\'est fabriqué tant que tu ne l\'actives pas.'})}
+function apset(){api('/api/autopilot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:$('#apon').checked,per_day:+$('#apday').value,days:+$('#apdays').value})}).then(a=>{if(a.error)alert(a.error);ap()})}
+['#apon','#apday','#apdays'].forEach(i=>$(i).onchange=apset);
 function poll(){api('/api/status?since='+since).then(s=>{
   since=s.last;const L=$('#log');s.logs.forEach(l=>track(l));
   if(s.logs.length){L.textContent+=s.logs.join('\n')+'\n';L.scrollTop=L.scrollHeight;const last=s.logs[s.logs.length-1];$('#now').textContent=(fmtLabel&&s.status==='running'?fmtLabel+' · ':'')+last.replace(/\s*\[(vertical|horizontal)\]\s*/,' ').trim()}
@@ -471,7 +485,7 @@ $('#go').onclick=()=>{
   api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked,synthesia:$('#synth').checked,song_id:songId,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#now').textContent=r.error;return}if(!timer)timer=setInterval(poll,1500);poll()})};
 api('/api/options').then(o=>{opts=o;$('#maxrec').value=o.max_record_seconds;YT_DAILY=o.youtube_daily||4;$('#lang').innerHTML=o.languages.map(l=>`<option value="${l.key}"${l.key===o.default_language?' selected':''}>${l.label}</option>`).join('');$('#tc').innerHTML=o.countries.map(c=>`<option value="${c.key}">${c.label}</option>`).join('');level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
-info();vids();songs();sched();inb();setInterval(info,20000);setInterval(sched,30000);setInterval(inb,10000);
+info();vids();songs();sched();inb();ap();setInterval(ap,15000);setInterval(info,20000);setInterval(sched,30000);setInterval(inb,10000);
 api('/api/status').then(s=>{if(s.status==='running'){$('#job').hidden=false;since=0;timer=setInterval(poll,1500);poll()}});
 </script></div></body></html>
 """

@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from app import config
 from app.director import progress
+from app.scheduler import autopilot
 from app.database import db
 from app.director import control, difficulty, pipeline, stock
 from app.music_discovery import importer, inbox, search as msearch, trends as mtrends
@@ -351,6 +352,34 @@ def schedule_view(s) -> dict:
     return {"items": squeue.listing(conn), "unscheduled": squeue.unscheduled(conn), "ready": len(rv), "ready_titles": [f"{v['title']} ({v['format'] or '?'})" for v in rv[:8]]}
 
 
+PILOT = autopilot.AutoPilot()
+
+
+def autopilot_tick(s, start=None):
+    """Un tour du pilote : fabrique ce qui manque dans l'agenda (jamais deux fabrications en même temps)."""
+    cn = db.connect(config.resolve(s, "database"))
+    idle = JOB.state["status"] != "running"
+    if PILOT.running and idle:                                   # la fabrication lancée par le pilote est terminée : on en tire les conséquences
+        planned = len(getattr(JOB, "_planned", []) or [])
+        PILOT.finished(planned, JOB.state["status"] == "failed")
+    miss = PILOT.decide(s, cn, idle and not PILOT.running, my_songs_waiting(s))
+    if not miss:
+        return False
+    try:
+        slots = squeue.slots_for_days(miss, autopilot.conf(s)["times"])[:30]
+    except Exception:
+        return False
+    if not slots:
+        return False
+    opt = options(s)
+    plan = {"slots": slots, "immediate": False, "times": squeue.parse_times(autopilot.conf(s)["times"]) or ["12:30", "19:00"]}
+    s2 = {**s, "style": s.get("style", "sketch") if s.get("style") == "synthesia" else "sketch"}
+    ok = (start or JOB.start)(s2, None, opt["default_formats"], False, len(slots), None, None, plan)
+    if ok:
+        PILOT.started()
+    return ok
+
+
 def due_runner(settings_loader, every=30, stop=None):
     """Tant que l'interface est ouverte : surveille ton dossier MIDI. L'app ne publie JAMAIS elle-même : c'est TikTok / YouTube qui publient à l'heure."""
     def loop():
@@ -360,6 +389,7 @@ def due_runner(settings_loader, every=30, stop=None):
                 inbox.LAST_CHECK["at"] = time.time()
                 if inbox.waiting(s) and inbox.rights_confirmed(s):          # nouveaux sons dans ton dossier : importés tout seuls
                     inbox.scan(s, import_upload)
+                autopilot_tick(s)
                 cn = db.connect(config.resolve(s, "database"))
                 if squeue.waiting_youtube(cn) and squeue.youtube_capacity(s, cn) > 0:       # la limite quotidienne de YouTube s'est libérée : on reprend
                     JOB.start_task("youtube-reprise", lambda: f"{squeue.resume_waiting(s, db.connect(config.resolve(s, 'database')), say=logging.getLogger('piano').info)} vidéo(s) envoyée(s) à YouTube")
@@ -550,6 +580,8 @@ def make_handler(settings_loader):
                 return self._json({**inbox.status(s), "to_make": my_songs_waiting(s)})
             if u.path == "/api/schedule":
                 return self._json(schedule_view(s))
+            if u.path == "/api/autopilot":
+                return self._json(PILOT.status(s, db.connect(config.resolve(s, "database")), my_songs_waiting(s)))
             if u.path == "/api/songs":
                 return self._json(songs(s))
             if u.path == "/api/videos":
@@ -564,7 +596,7 @@ def make_handler(settings_loader):
         def do_POST(self):
             path = urlparse(self.path).path
             if path not in ("/api/run", "/api/upload", "/api/songs/delete", "/api/stop", "/api/stop-recording", "/api/import-found",
-                        "/api/schedule/plan", "/api/schedule/cancel", "/api/publish-now", "/api/week", "/api/inbox", "/api/inbox/rights", "/api/inbox/scan", "/api/folder", "/api/setting", "/api/publish-ready"):
+                        "/api/schedule/plan", "/api/schedule/cancel", "/api/publish-now", "/api/week", "/api/inbox", "/api/inbox/rights", "/api/inbox/scan", "/api/folder", "/api/setting", "/api/publish-ready", "/api/autopilot"):
                 return self._send(404, b'{"error":"not found"}')
             origin = self.headers.get("Origin", "")
             if origin and not (origin.startswith("http://127.0.0.1") or origin.startswith("http://localhost")):
@@ -603,6 +635,21 @@ def make_handler(settings_loader):
                     config.save_local("synthesia", {"max_record_seconds": n})
                     return self._json({"max_record_seconds": n})
                 return self._json({"error": "réglage inconnu"}, 400)
+            if path == "/api/autopilot":
+                cur = autopilot.conf(settings_loader())
+                try:
+                    new = {"enabled": bool(body.get("enabled", cur["enabled"])), "per_day": int(body.get("per_day", cur["per_day"])), "days": int(body.get("days", cur["days"]))}
+                    if body.get("times"):
+                        if not squeue.parse_times(body["times"]):
+                            return self._json({"error": "heures invalides (ex. 12:30, 19:00)"}, 400)
+                        new["times"] = body["times"]
+                except (TypeError, ValueError):
+                    return self._json({"error": "réglage invalide"}, 400)
+                config.save_local("autopilot", new)
+                if new["enabled"]:
+                    PILOT.next_try, PILOT.fails = 0.0, 0
+                s2 = settings_loader()
+                return self._json(PILOT.status(s2, db.connect(config.resolve(s2, "database")), my_songs_waiting(s2)))
             if path == "/api/folder":
                 d = Path(str(body.get("path", "")).strip()).expanduser()
                 if not str(body.get("path", "")).strip() or not d.is_dir():

@@ -28,6 +28,11 @@ style: sketch          # sketch = rendu dessiné intégré (aucune app requise) 
 sketch:
   view: wide            # close = zoomé | medium | wide = vue d'ensemble de loin
   supersample: 2        # 2 = traits lisses (recommandé) | 1 = un peu plus rapide
+autopilot:
+  enabled: false      # pilote automatique : garde l'agenda rempli tout seul (activable depuis l'Accueil)
+  per_day: 2
+  days: 7
+  times: "12:30, 19:00"
 engine: auto            # auto = Synthesia si le Mac est prêt, sinon rendu intégré | synthesia | builtin
 synthesia:
   app_path: /Applications/Synthesia.app

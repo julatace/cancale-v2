@@ -1,5 +1,6 @@
 import argparse
 import sys
+from pathlib import Path
 
 from . import config, doctor
 from .database import db
@@ -332,6 +333,31 @@ def cmd_mac_install(s, a):
     return 0
 
 
+def cmd_autostart(s, a):
+    """Démarre l'agent tout seul à chaque ouverture de session (et le relance s'il plante). --off pour l'arrêter."""
+    import platform
+    import subprocess
+    from .scheduler import launchd
+    if platform.system() != "Darwin":
+        print("autostart : réservé au Mac.")
+        return 2
+    plist = Path.home() / "Library" / "LaunchAgents" / f"{launchd.AGENT_LABEL}.plist"
+    if a.off:
+        subprocess.run(["launchctl", "unload", "-w", str(plist)], capture_output=True)
+        plist.unlink(missing_ok=True)
+        print("✅ Démarrage automatique désactivé.")
+        return 0
+    p = launchd.install_agent(config.ROOT)
+    subprocess.run(["launchctl", "unload", str(p)], capture_output=True)
+    r = subprocess.run(["launchctl", "load", "-w", str(p)], capture_output=True, text=True)
+    if r.returncode:
+        print(f"❌ launchctl : {r.stderr.strip()}\nActive-le à la main : launchctl load -w {p}")
+        return 1
+    print("✅ L'agent démarrera tout seul à chaque ouverture de session (page : http://127.0.0.1:8765).")
+    print("Pour qu'il travaille Mac fermé ou en veille, branche-le sur secteur : réglage Batterie > Empêcher la mise en veille automatique.")
+    return 0
+
+
 def not_ready(name):
     def f(s, a):
         print(f"`piano {name}`: pas encore implémenté (voir phases du cahier des charges).")
@@ -350,6 +376,7 @@ def main(argv=None):
     cmds["fetch-midi"] = cmd_fetch_midi
     cmds["mac-rec-test"] = cmd_mac_rec_test
     cmds["ui"] = cmd_ui
+    cmds["autostart"] = cmd_autostart
     cmds["youtube-login"] = cmd_youtube_login
     cmds["publish-check"] = cmd_publish_check
     cmds["tiktok-login"] = cmd_tiktok_login
@@ -380,6 +407,8 @@ def main(argv=None):
             sp.add_argument("video_id", type=int)
         if n == "ui":
             sp.add_argument("--port", type=int, default=8765); sp.add_argument("--no-browser", action="store_true")
+        if n == "autostart":
+            sp.add_argument("--off", action="store_true")
         if n == "analyze":
             sp.add_argument("file"); sp.add_argument("--duration", type=float)
     a = p.parse_args(argv)
