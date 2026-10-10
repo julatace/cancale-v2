@@ -1,0 +1,119 @@
+mode: manual            # manual | auto
+videos_per_day: 2
+publish_times: ["09:00", "19:00"]
+duration_target: 62
+duration_range: [60, 75]
+styles_allowed: [viral, clean]
+languages: [fr, en]
+same_song_cooldown_days: 30
+qc:
+  publish_min: 90
+  autofix_min: 80
+paths:
+  synthesia_app: /Applications/Synthesia.app
+  obs_app: /Applications/OBS.app
+  data_dir: data
+  logs_dir: logs
+  database: data/piano.sqlite3
+allowed_sources: [user_owned, public_domain, licensed]
+score_weights:
+  trend: 0.30
+  piano: 0.20
+  short_video: 0.20
+  difficulty: 0.10
+  visual: 0.10
+  novelty: 0.10
+
+style: sketch          # sketch = rendu dessiné intégré (aucune app requise) | synthesia = app Synthesia = rendu dessiné à la main intégré (zoom/dézoom)
+sketch:
+  view: wide            # close = zoomé | medium | wide = vue d'ensemble de loin
+  supersample: 2        # 2 = traits lisses (recommandé) | 1 = un peu plus rapide
+autopilot:
+  enabled: false      # pilote automatique : garde l'agenda rempli tout seul (activable depuis l'Accueil)
+  per_day: 2
+  days: 7
+  times: "12:30, 19:00"
+engine: auto            # auto = Synthesia si le Mac est prêt, sinon rendu intégré | synthesia | builtin
+synthesia:
+  app_path: /Applications/Synthesia.app
+  calibrated: true      # Synthesia validé sur le Mac de l'utilisateur (clics, enregistrement, montage OK)
+  load_seconds: 6       # attente du chargement du MIDI
+  max_record_seconds: 90    # enregistrement d'écran : 1 min 30 au maximum, même si le morceau n'est pas fini
+  lead_in_seconds: 8    # délai (s) entre le début de la capture et la 1re note, à étalonner
+  tail_seconds: 2
+  start_mode: click      # click = bouton Continuer de l'écran « Regarder et écouter seulement » ; return = touche Entrée
+  # positions relevées sur vos captures (px d'une capture plein écran de 2000 px de large), converties selon votre écran
+  click_listen_card: false          # la carte est déjà sélectionnée par défaut ; ne cliquer que sur « Continuer »
+  listen_card_from_left_px: 165    # carte « Regarder et écouter seulement » (depuis le bord gauche de la fenêtre)
+  listen_card_from_top_px: 256
+  continue_from_right_px: 88       # bouton « Continuer »
+  continue_from_top_px: 71
+  titlebar_points: 24
+  capture_backend: auto            # auto = ffmpeg si ça marche (arrêt sans perte), sinon l'enregistreur de macOS (screencapture)
+  window_mode: maximized    # maximized = fenêtre sur tout l'écran puis zoom sur les touches jouées ; portrait = fenêtre verticale
+  portrait: true          # redimensionne la fenêtre Synthesia en vertical (gros plan)
+  window_top_points: 40     # sous la barre de menus
+  portrait_margin_points: 6
+  hide_dock: true           # masque le Dock pendant l'enregistrement (remis ensuite) -> fenêtre plus haute
+  capture_trim: 5.5
+  first_note_seconds: 2.5   # repli si la détection auto échoue : instant (dans la vidéo) de la 1re note
+  crop_toolbar_fraction: 0.12   # masque la barre d'outils de Synthesia     # secondes à couper au début de la capture (étalonner pour caler l'audio)
+keyboard:
+  keys: 36              # étendue jouée (3 octaves) : la musique est ramenée dans cette plage, l'image zoome dessus
+  adaptive: true        # la plage (début = un Do) est choisie selon le morceau
+  lowest_key: 48        # utilisé seulement si adaptive: false
+  margin_keys: 6        # touches voisines gardées visibles de chaque côté de l'étendue jouée (moins de zoom)
+  display_keys: 88      # clavier AFFICHÉ par Synthesia (réglage personnalisé de l'utilisateur)
+  display_lowest: 21    # première touche affichée (La0 pour un clavier de 88 touches)
+midi_sources:
+  mutopia: true         # recherche en ligne (domaine public / CC0 / CC-BY) ; repli local si hors-ligne
+difficulty:
+  mode: rotate              # rotate = alterne les niveaux ; ou un niveau fixe : debutant | facile | moyen | difficile | expert
+  rotation: [facile, moyen, difficile]
+  levels:                   # tempo cible (BPM) : plus c'est rapide, plus c'est dur ; max_density = notes/s acceptées
+    debutant:  {bpm: 60,  max_density: 2.5, label: Débutant}
+    facile:    {bpm: 80,  max_density: 4.0, label: Facile}
+    moyen:     {bpm: 100, max_density: 6.0, label: Moyen}
+    difficile: {bpm: 130, max_density: 9.0, label: Difficile}
+    expert:    {bpm: 160, max_density: 14.0, label: Expert}
+default_format: vertical
+formats:
+  vertical:                 # TikTok / YouTube Shorts / Reels : court, 9:16 (durée = duration_target)
+    label: "Vertical court (TikTok · YouTube Shorts · Reels)"
+    width: 1080
+    height: 1920
+    banner: 460               # titre sous la zone masquée par TikTok (haut 150 px) ; le bas (220 px) est laissé libre pour la légende
+    min_duration: 60          # morceaux plus courts écartés (la vidéo doit faire au moins 1 minute)
+    shorts: true
+  horizontal:               # YouTube long : 16:9, le morceau entier (plafonné)
+    label: "Horizontal long (YouTube)"
+    width: 1920
+    height: 1080
+    banner: 130
+    duration: full
+    min_duration: 60          # au moins 1 minute
+    max_duration: 150         # 2 min 30 maximum : pas trop long
+    shorts: false
+stock:
+  target: 3                 # morceaux gardés d'avance (téléchargés et vérifiés en arrière-plan)
+ui_default_formats: [vertical, horizontal]   # les deux formats sont créés d'office
+language: fr            # langue des textes de la vidéo et de la publication : fr | en | es
+tiktok:
+  web_publish: true      # mode web : true = clique aussi sur Publier (automatique) ; false = prépare tout et vous cliquez vous-même
+  chrome_profile: "angeled92"   # profil Chrome du compte TikTok (nom affiché, e-mail ou dossier ; voir  ./p.sh chrome-profiles ) ; vide = fenêtre Chrome au premier plan
+  mode: web              # web = pilote Safari déjà connecté (sans clé API, voir tiktok-web) ; draft = la vidéo arrive dans la boîte de réception TikTok (vous touchez « Publier ») ; direct = publication immédiate (privée tant que l'app n'est pas approuvée)
+youtube:
+  mode: web              # web = pilote YouTube Studio dans Chrome (aucune clé API, public tout de suite) ; api = API officielle (./p.sh youtube-login, privé tant que Google n'a pas validé le projet)
+  max_uploads_per_day: 4  # limite d'envois de YouTube par 24 h : au-delà, la vidéo attend (TikTok part quand même) et part toute seule dès que c'est de nouveau possible
+  shorts: true           # true = la vidéo verticale part aussi en YouTube Short ; false = YouTube ne reçoit que la vidéo horizontale (vidéo normale)
+  web_publish: true      # mode web : true = clique aussi sur Publier (automatique) ; false = prépare tout et vous cliquez vous-même
+  chrome_profile: "angeled92"   # profil Chrome de la chaîne YouTube (nom affiché, e-mail ou dossier ; ./p.sh chrome-profiles)
+  privacy: public        # mode api seulement
+  category: "10"
+songs:
+  only_mine: true       # true = l'agent ne prend QUE les morceaux de ton dossier MIDI (jamais de morceau de la réserve ni composé) ; false = il complète avec la réserve
+  prefer_mine: true     # les morceaux que tu fournis (boîte de réception, ajout dans la page) sont utilisés en premier, dans l'ordre d'arrivée
+inbox:
+  watch: ["~/Desktop/MIDI"]    # dossiers lus en plus de data/inbox : chaque MIDI est copié dans la bibliothèque, l'original ne bouge pas
+storage:
+  delete_after_publish: true   # une vidéo publiée partout où elle devait l'être est supprimée de l'ordinateur (fichier, miniature, copie de secours)
