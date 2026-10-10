@@ -41,7 +41,7 @@ def test_import_consumes_file_and_builds_content(env):
     s, conn, d = env
     f = d / "03_parcours_de_billes.mp4"
     _video(f)
-    (d / "03_parcours_de_billes.txt").write_text("Le parcours de billes ultime\nRegarde jusqu'au bout !", encoding="utf-8")
+    (d / "03_parcours_de_billes.txt").write_text("Le parcours de billes ultime\nRegarde jusqu'au bout !\n#billes #asmr #satisfying", encoding="utf-8")
     _age(f)
     out = clips.import_pending(s, conn)
     assert out[0]["status"] == "IMPORTED" and out[0]["title"] == "Le parcours de billes ultime"
@@ -49,7 +49,7 @@ def test_import_consumes_file_and_builds_content(env):
     r = conn.execute("SELECT * FROM videos").fetchone()
     meta = json.loads(r["meta"])
     assert r["style"] == "clips|vertical" and Path(r["output_path"]).exists()
-    assert meta["description"].startswith("Regarde jusqu'au bout !") and "#fyp" in meta["description"] and meta["shorts"] is True
+    assert meta["description"].startswith("Regarde jusqu'au bout !") and meta["hashtags"] == ["#billes", "#asmr", "#satisfying"] and "#fyp" not in meta["description"] and meta["shorts"] is True
     assert meta["tiktok_caption"].startswith("Le parcours de billes ultime")
 
 
@@ -146,3 +146,11 @@ def test_instance_plist_and_init(tmp_path, monkeypatch):
     cfg = json.loads((tmp_path / "data" / "instances" / "mesclips" / "local_settings.json").read_text())
     assert cfg["agent"]["kind"] == "clips" and cfg["tiktok"]["chrome_profile"] == "Autre" and cfg["youtube"]["chrome_profile"] == "Autre"
     assert cfg["inbox"]["watch"] == [] and cfg["ui"]["port"] >= 8766 and (tmp_path / "F").is_dir()
+
+
+def test_files_being_written_are_ignored(env):
+    s, conn, d = env
+    (d / "clip.mp4.part").write_bytes(b"x" * 100)
+    (d / ".cache.mp4").write_bytes(b"x" * 100)
+    _age(d / "clip.mp4.part"); _age(d / ".cache.mp4")
+    assert clips.pending(s) == [] and clips.import_pending(s, conn) == []

@@ -19,6 +19,14 @@ Dans Chrome, ouvre ce profil une fois et connecte-toi à TikTok et YouTube (puis
 - Description et hashtags par défaut : onglet « Mes vidéos ». Active le pilote automatique ou remplis l'agenda.
 - Un fichier est pris en charge (déplacé), publié, puis supprimé du Mac. Doublon (même contenu) = écarté dans `doublons/`. Fichier illisible = `ignorées/`.
 
+## Contrat pour un agent qui dépose ses vidéos (ex. fabrique de vidéos)
+- Dossier : `~/Desktop/Clips` (réglable dans l'onglet « Mes vidéos »).
+- Écrire d'abord sous un nom provisoire (`nom.mp4.part` ou `.nom.mp4`) puis RENOMMER en `nom.mp4` quand c'est fini : les fichiers `.part` et ceux qui commencent par un point sont ignorés. (De toute façon un fichier doit rester inchangé 4 s avant d'être pris.)
+- Format : `.mp4` / `.mov`, H.264 + AAC. Vertical (hauteur ≥ largeur, ≤ 180 s) = TikTok + YouTube Short ; horizontal = YouTube normal.
+- Fichier texte facultatif du même nom (`nom.txt`, UTF-8) : ligne 1 = titre (95 caractères max) ; une ligne ne contenant que des `#hashtags` = hashtags de cette vidéo (8 max) ; le reste = description.
+- Ne jamais redéposer le même contenu : un doublon est écarté (empreinte du fichier). Ne rien supprimer dans le dossier : l'agent le fait après publication.
+- Cadence : c'est l'agenda / le pilote automatique de l'agent clips qui décide quand publier (pas le déposant). Déposer plusieurs vidéos d'avance est sans risque.
+
 ## Séparation des comptes
 Chaque agent a son profil Chrome (`tiktok.chrome_profile`, `youtube.chrome_profile`), sa base, son agenda et sa page : rien n'est partagé.
 Un verrou commun (`data/.send.lock`) empêche deux agents de piloter Chrome en même temps (focus, clavier) : le 2e attend son tour.

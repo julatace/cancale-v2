@@ -42,14 +42,24 @@ def title_from_name(name: str) -> str:
 
 
 def sidecar(f: Path):
-    """Fichier texte du même nom : 1re ligne = titre, le reste = description."""
+    """Fichier texte du même nom : 1re ligne = titre ; une ligne qui ne contient que des #hashtags = hashtags de CETTE vidéo ; le reste = description.
+    Retourne (titre, description, hashtags)."""
     t = f.with_suffix(".txt")
     if not t.exists():
-        return None, None
+        return None, None, None
     lines = [x.rstrip() for x in t.read_text(encoding="utf-8", errors="ignore").splitlines()]
-    title = next((x for x in lines if x.strip()), "")
-    rest = "\n".join(lines[lines.index(title) + 1:]).strip() if title else ""
-    return (title.strip()[:95] or None), (rest or None)
+    nonempty = [x for x in lines if x.strip()]
+    if not nonempty:
+        return None, None, None
+    title, rest = nonempty[0].strip()[:95], []
+    tags = None
+    for x in lines[lines.index(nonempty[0]) + 1:]:
+        if x.strip() and all(w.startswith("#") for w in x.split()):
+            tags = [w for w in x.split()][:8]
+        else:
+            rest.append(x)
+    desc = "\n".join(rest).strip()
+    return title or None, desc or None, tags
 
 
 def probe(f: Path) -> dict:
@@ -89,9 +99,9 @@ def file_hash(f: Path) -> str:
     return h.hexdigest()
 
 
-def build_content(s, title: str, description: str | None, vertical: bool, duration: float) -> dict:
+def build_content(s, title: str, description: str | None, vertical: bool, duration: float, hashtags: list | None = None) -> dict:
     c = conf(s)
-    tags = [t for t in re.split(r"\s+", c["hashtags"].strip()) if t.startswith("#")][:8]
+    tags = hashtags or [t for t in re.split(r"\s+", c["hashtags"].strip()) if t.startswith("#")][:8]
     desc = (description or c["description"] or "").strip()
     body = (desc + "\n\n" if desc else "") + " ".join(tags)
     return {"title": title, "description": body.strip(), "hashtags": tags, "youtube_title": title,
@@ -121,10 +131,10 @@ def import_pending(s, conn) -> list[dict]:
             out.append({"file": f.name, "status": "DUPLICATE"})
             _quarantine(f, "doublons")
             continue
-        t_side, d_side = sidecar(f)
+        t_side, d_side, tags_side = sidecar(f)
         title = t_side or title_from_name(f.name)
         vertical = info["height"] >= info["width"]
-        content = build_content(s, title, d_side, vertical, info["duration"])
+        content = build_content(s, title, d_side, vertical, info["duration"], tags_side)
         dest = work / f"{h[:10]}{f.suffix.lower()}"
         (shutil.move if c["consume"] else shutil.copy2)(str(f), str(dest))
         if c["consume"]:
