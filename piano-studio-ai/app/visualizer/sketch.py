@@ -57,6 +57,7 @@ class Camera:
         self.c, self.w = c, min(max(hi - lo + 2, self.minw), self.maxw)
         if hi - lo > self.maxw:
             self.c = lo + self.maxw / 2
+        self.w = min(self.w * 1.45, 56.0)                       # départ très large puis dézoom → zoom sur la zone jouée (mise en scène du début)
 
     def target(self, t: float):
         """Fenêtre qui couvre les notes des 6 prochaines secondes (on ne bouge pas pour une note isolée)."""
@@ -77,7 +78,10 @@ class Camera:
         self.w += (self.tw - self.w) * k
         lo_lim, hi_lim = self.full
         half = self.w / 2
-        self.c = min(max(self.c, lo_lim + half), max(hi_lim - half, lo_lim + half))
+        if half * 2 >= hi_lim - lo_lim:
+            self.c = (lo_lim + hi_lim) / 2
+        else:
+            self.c = min(max(self.c, lo_lim + half), hi_lim - half)
         return self.c - half, self.c + half
 
 
