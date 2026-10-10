@@ -128,3 +128,29 @@ def test_purge_partial(tmp_path):
     (tmp_path / "rendered" / "a.part.mp4").write_bytes(b"x")
     (tmp_path / "rendered" / "ok.mp4").write_bytes(b"x")
     assert cleanup.purge_partial(s) == 1 and (tmp_path / "rendered" / "ok.mp4").exists()
+
+
+import pytest
+
+
+@pytest.mark.parametrize("name,spec", [
+    ("une_note", [(0, 1, 60)]),
+    ("grave", [(i * .4, i * .4 + .3, 21 + i % 9) for i in range(10)]),
+    ("aigu", [(i * .4, i * .4 + .3, 100 + i % 8) for i in range(10)]),
+    ("meme_touche", [(i * .1, i * .1 + .5, 60) for i in range(30)]),
+    ("silence_debut", [(3, 4, 60), (4, 5, 67)]),
+    ("hors_plage", [(0, 1, 5), (0, 1, 120), (1, 2, 60)]),
+])
+def test_sketch_edge_cases(tmp_path, name, spec):
+    from app.midi_analyzer.parser import Note
+    from app.visualizer import sketch
+    import numpy as np
+    notes = [Note(a, b, p, 80, 0) for a, b, p in spec]
+    out = sketch.render_video(notes, 0, 5.0, tmp_path / f"{name}.mp4", "Titre très long à couper", "Artiste", fps=8,
+                              layout=sketch.Layout(270, 480, 80, 90), audio=np.zeros((44100 * 5, 2), dtype="float32"))
+    assert out.exists()
+
+
+def test_clean_artist_strips_license():
+    from app.director import pipeline
+    assert pipeline.clean_artist("Mozart (public domain)") == "Mozart" and pipeline.clean_artist("Satie (Public Domain)") == "Satie"

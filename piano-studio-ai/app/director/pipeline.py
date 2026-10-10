@@ -105,10 +105,15 @@ def pick_song(conn, s, seed, exclude=()) -> tuple[int, Path, dict]:
     return pick_song(conn, s, seed + 1000003) if seed < 10_000_000 else (_ for _ in ()).throw(RuntimeError("aucun morceau disponible"))
 
 
+def clean_artist(a) -> str:
+    """Nom d'artiste sans mention de licence : « Beethoven (public domain) » -> « Beethoven »."""
+    import re
+    return re.sub(r"\s*\((public domain|domaine public|pd|cc[^)]*|libre[^)]*)\)", "", a or "", flags=re.I).strip(" -,")
+
+
 def _subtitle(meta, content) -> str:
     """Sous-titre de la vidéo : le compositeur seulement (ni niveau ni BPM à l'écran)."""
-    import re
-    a = re.sub(r"\s*\((public domain|domaine public|pd|cc[^)]*|libre[^)]*)\)", "", (meta.get("artist") or ""), flags=re.I).strip(" -,")
+    a = clean_artist(meta.get("artist"))
     return "" if a.lower() in ("", "unknown", "inconnu") else a
 
 
@@ -279,7 +284,7 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
             break
         log.info("↻ Morceau écarté (%s) : autre morceau",
                  f"trop court {ana['duration']:.0f}s" if too_short else f"trop dense {first_sec['density']:.1f} notes/s")
-    song = {"title": meta["title"], "artist": meta["artist"]}
+    song = {"title": meta["title"], "artist": clean_artist(meta["artist"])}
     used = {r[0] for r in conn.execute("SELECT title FROM videos WHERE title IS NOT NULL")}
     diff = lv["label"]
     reports, plans = [], []
