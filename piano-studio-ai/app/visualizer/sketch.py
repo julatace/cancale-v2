@@ -319,8 +319,8 @@ def render_video(notes, start: float, duration: float, out_path, title="", subti
         synth.write_wav(wav, audio if audio is not None else synth.render_audio(ns, start, duration))
         progress.report("Dessin des images", 20)
         cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
-               "-s", f"{layout.W}x{layout.H}", "-r", str(fps), "-i", "-", "-i", str(wav), "-c:v", "libx264", "-preset", "veryfast",
-               "-crf", "21", "-tune", "animation", "-pix_fmt", "yuv420p", "-af", "loudnorm=I=-14:TP=-1.5:LRA=9", "-ar", "44100", "-c:a", "aac", "-b:a", "192k", "-shortest",
+               "-s", f"{layout.W}x{layout.H}", "-r", str(fps), "-i", "-", "-i", str(wav), "-c:v", "libx264", "-preset", "fast",
+               "-crf", "16", "-tune", "animation", "-profile:v", "high", "-pix_fmt", "yuv420p", "-af", "loudnorm=I=-14:TP=-1.5:LRA=9", "-ar", "44100", "-c:a", "aac", "-b:a", "256k", "-shortest",
                "-movflags", "+faststart", str(out_path)]
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         limit = max(900.0, duration * 20)                           # garde-fou : un ffmpeg bloqué est arrêté au lieu de figer l'agent

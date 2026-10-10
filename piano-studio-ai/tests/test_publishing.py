@@ -583,3 +583,26 @@ def test_youtube_daily_limit_keeps_the_video_waiting_while_tiktok_goes_and_resum
     assert queue.resume_waiting(st, c, say=lambda m: None) == 2
     assert sent == [("youtube", "5"), ("youtube", "6")]                                      # reprise automatique : seulement YouTube, TikTok n'est pas refait
     assert queue.waiting_youtube(c) == []
+
+
+def test_published_video_is_removed_from_the_mac(tmp_path):
+    """Une fois la vidéo sur les plateformes (programmée / publiée / brouillon), fichier, miniature et copie de secours disparaissent du disque."""
+    from app import config
+    from app.database import db
+    from app.director import cleanup
+    s = config.load_settings()
+    s["paths"] = {**s["paths"], "data_dir": str(tmp_path)}
+    s["storage"] = {"delete_after_publish": True}
+    conn = db.connect(tmp_path / "t.db")
+    r = tmp_path / "rendered"
+    r.mkdir()
+    mp4, jpg = r / "v.mp4", r / "v.jpg"
+    mp4.write_bytes(b"x"); jpg.write_bytes(b"x")
+    box = tmp_path / "published" / "7"
+    box.mkdir(parents=True)
+    (box / "copie.mp4").write_bytes(b"x")
+    conn.execute("INSERT INTO videos(id,output_path,status,created_at) VALUES(7,?,?,?)", (str(mp4), "READY", "n"))
+    conn.commit()
+    done = [{"platform": "tiktok", "status": "SCHEDULED"}, {"platform": "youtube", "status": "SCHEDULED"}]
+    removed = cleanup.delete_after_publish(s, conn, 7, done)
+    assert not mp4.exists() and not jpg.exists() and not box.exists() and len(removed) == 3
