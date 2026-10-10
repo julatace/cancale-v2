@@ -107,7 +107,8 @@ def pick_song(conn, s, seed, exclude=()) -> tuple[int, Path, dict]:
 
 def _subtitle(meta, content) -> str:
     """Sous-titre de la vidéo : le compositeur seulement (ni niveau ni BPM à l'écran)."""
-    a = (meta.get("artist") or "").strip()
+    import re
+    a = re.sub(r"\s*\((public domain|domaine public|pd|cc[^)]*|libre[^)]*)\)", "", (meta.get("artist") or ""), flags=re.I).strip(" -,")
     return "" if a.lower() in ("", "unknown", "inconnu") else a
 
 

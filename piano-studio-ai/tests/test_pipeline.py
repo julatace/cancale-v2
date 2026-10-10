@@ -108,3 +108,10 @@ def test_easy_level_is_slower_than_hard(s):
     easy = pipeline.run_one(s, seed=21, dry_run=True, level="facile")
     hard = pipeline.run_one(s, seed=21, dry_run=True, level="difficile")
     assert easy["bpm"] < hard["bpm"] and easy["difficulty"] == "Facile"
+
+
+def test_subtitle_hides_license_tag():
+    from app.director import pipeline
+    assert pipeline._subtitle({"artist": "Beethoven (public domain)"}, {}) == "Beethoven"
+    assert pipeline._subtitle({"artist": "J. S. Bach"}, {}) == "J. S. Bach"
+    assert pipeline._subtitle({"artist": "Unknown"}, {}) == ""
