@@ -145,6 +145,7 @@ def test_instance_plist_and_init(tmp_path, monkeypatch):
     assert cli.cmd_instance_init({}, args) == 0
     cfg = json.loads((tmp_path / "data" / "instances" / "mesclips" / "local_settings.json").read_text())
     assert cfg["agent"]["kind"] == "clips" and cfg["tiktok"]["chrome_profile"] == "Autre" and cfg["youtube"]["chrome_profile"] == "Autre"
+    assert cfg["autopilot"]["enabled"] is True and cfg["autopilot"]["per_day"] == 2
     assert cfg["inbox"]["watch"] == [] and cfg["ui"]["port"] >= 8766 and (tmp_path / "F").is_dir()
 
 

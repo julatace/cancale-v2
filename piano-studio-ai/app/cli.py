@@ -226,7 +226,7 @@ def cmd_instance_init(s, a):
     port = a.port or 8766 + (sum(map(ord, name)) % 50)
     cur.update({"agent": {"kind": "clips"}, "clips": {**cur.get("clips", {}), "folder": folder},
                 "inbox": {"watch": []}, "ui": {"port": port}, "songs": {"only_mine": True},
-                "autopilot": {**cur.get("autopilot", {}), "enabled": False}})
+                "autopilot": {"enabled": True, "per_day": 2, "days": 7, **cur.get("autopilot", {})}})      # agent clips : actif d'office, sinon les vidéos déposées ne partent jamais
     if a.profile:
         cur["tiktok"] = {**cur.get("tiktok", {}), "chrome_profile": a.profile}
         cur["youtube"] = {**cur.get("youtube", {}), "chrome_profile": a.profile}
