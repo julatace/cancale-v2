@@ -125,7 +125,8 @@ def _render(s, notes, sec, out, meta, tempo, content=None, F=None) -> str:
         try:
             sketch.render_video(notes, sec["start"], sec["duration"], out, meta["title"], _subtitle(meta, content), fps=30,
                                 layout=sketch.HORIZONTAL if F["width"] > F["height"] else sketch.VERTICAL, result=res,
-                                view=s.get("sketch", {}).get("view", "wide"), supersample=s.get("sketch", {}).get("supersample", 2))
+                                view=s.get("sketch", {}).get("view", "wide"), supersample=s.get("sketch", {}).get("supersample", 2),
+                                hook=content.get("hook", ""), cta=content.get("cta", ""))
             if res.get("duration") and res["duration"] < sec["duration"] - 0.5:
                 sec["duration"], sec["stopped_early"] = round(res["duration"], 1), True
             return "sketch"

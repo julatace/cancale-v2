@@ -181,13 +181,30 @@ def render_frame(notes, t, cam_range, L: Layout, split=60, pressed=None):
     return img
 
 
-def _title(img, title, subtitle, L: Layout):
+def _title(img, title, subtitle, L: Layout, t: float = 0.0, duration: float = 1e9, hook: str = "", cta: str = ""):
+    """Titre (coupé proprement sur 2 lignes, jamais hors cadre), compositeur, puis accroche au début et appel à l'action à la fin."""
+    from app.renderer.compose import _wrap
     d = ImageDraw.Draw(img)
     wide = L.W > L.H
-    y = 54 if wide else int(L.TOP * 0.45)
-    d.text((L.W / 2, y), title, font=_font(46 if wide else 56), fill=INK, anchor="mm")
+    f, lines = _wrap(d, title, 46 if wide else 56, L.W - 90, 2)
+    top = 36 if wide else int(L.TOP * 0.18)
+    y = top + f.size * 0.6
+    for ln in lines:
+        d.text((L.W / 2, y), ln, font=f, fill=INK, anchor="mm")
+        y += f.size * 1.12
     if subtitle:
-        d.text((L.W / 2, y + (50 if wide else 66)), subtitle, font=_font(30 if wide else 36), fill=(110, 108, 114), anchor="mm")
+        d.text((L.W / 2, y + 6), subtitle, font=_font(30 if wide else 36), fill=(110, 108, 114), anchor="mm")
+        y += 44
+    msg = hook if t < 2.6 else (cta if duration - t < 3.2 else "")
+    if msg:
+        pf = _font(34 if wide else 42)
+        w = d.textlength(msg, font=pf)
+        if w > L.W - 80:
+            pf = _font(28 if wide else 34)
+            w = d.textlength(msg, font=pf)
+        py = min(y + 52, L.TOP - 34) if not wide else y + 40
+        d.rounded_rectangle([L.W / 2 - w / 2 - 28, py - 30, L.W / 2 + w / 2 + 28, py + 30], radius=30, fill=(248, 128, 90), outline=INK, width=4)
+        d.text((L.W / 2, py), msg, font=pf, fill=(255, 255, 255), anchor="mm")
 
 
 def clean_notes(notes):
@@ -237,7 +254,7 @@ def hand_split_for(notes, default=60) -> int:
 
 
 def render_video(notes, start: float, duration: float, out_path, title="", subtitle="", fps=30, hand_split=None, layout: Layout = VERTICAL,
-                 result: dict | None = None, audio: np.ndarray | None = None, view: str = "wide", supersample: int = 2):
+                 result: dict | None = None, audio: np.ndarray | None = None, view: str = "wide", supersample: int = 2, hook: str = "", cta: str = ""):
     ns = clean_notes([n for n in notes if n.end > start and n.start < start + duration])
     if not ns:
         raise ValueError("aucune note dans la section")
@@ -280,7 +297,7 @@ def render_video(notes, start: float, duration: float, out_path, title="", subti
                 img = render_frame(rel, t, cam.step(t, 1 / fps), big, hand_split)
                 if ss > 1:
                     img = img.reduce(2)
-                _title(img, title, subtitle, layout)
+                _title(img, title, subtitle, layout, t, duration, hook, cta)
                 edge = min(t, duration - t)
                 if edge < 0.5:                                                  # fondu d'entrée / sortie
                     img = Image.blend(Image.new("RGB", img.size, PAPER), img, max(edge / 0.5, 0.0))
