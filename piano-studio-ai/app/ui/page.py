@@ -203,6 +203,15 @@ body{font-feature-settings:"ss01","cv11";letter-spacing:-.005em}
 .nav button[aria-selected=true]{background:var(--grad);box-shadow:0 8px 18px -8px rgba(110,80,240,.7)}
 .pill{box-shadow:0 1px 2px rgba(15,18,38,.05)}
 @media(max-width:560px){.agenda{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:6px}.day{padding:10px 4px 8px}.day .d{font-size:16px}.day .c{gap:4px}.day .c button{width:26px;height:26px}.day .c b{font-size:20px;min-width:16px}.nav button{min-width:0;padding:11px 6px;font-size:13px;gap:4px}.nav{overflow:visible}.wrap{padding:14px 12px 90px}.card,#sched,.pilot{padding:18px 16px;border-radius:18px}.agenda{grid-template-columns:repeat(3,1fr)}.sw.big b{font-size:17px}}
+
+details.fold{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:2px 18px;margin:0 0 14px;box-shadow:0 1px 1px rgba(15,18,38,.03),0 10px 28px -14px rgba(40,30,120,.12)}
+details.fold>summary{padding:15px 0;list-style:none;display:flex;align-items:center;justify-content:space-between}
+details.fold>summary::after{content:"＋";font-size:20px;color:var(--brand);font-weight:800}
+details.fold[open]>summary::after{content:"－"}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>.card{box-shadow:none;border:0;padding:6px 0 16px;margin:0;background:none}
+.btn{background:var(--grad);box-shadow:0 8px 18px -10px rgba(110,80,240,.8)}.btn.alt{background:var(--brand-soft);box-shadow:none}
+.btn:hover:not(:disabled){filter:brightness(1.06)}
 </style></head><body><div class="wrap">
 
 <div class="topbar">
