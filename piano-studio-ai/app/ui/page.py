@@ -160,6 +160,49 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
 .fold{margin:0 0 14px;color:var(--ink)}.fold>summary{font-weight:700;font-size:16px;padding:12px 4px;color:var(--ink)}
 .fold>summary:hover{color:var(--brand)}
 #wgo{font-size:17px;padding:16px 26px}
+
+/* ===== habillage v2 : accueil épuré ===== */
+:root{--grad:linear-gradient(135deg,#5b4df5,#9a5cf0 60%,#ff7ab8)}
+body{font-feature-settings:"ss01","cv11";letter-spacing:-.005em}
+.topbar .logo>span{font-size:19px;font-weight:800}.topbar .logo .sub{font-size:13px;font-weight:500;color:var(--mute)}
+.card{border-radius:22px;border:1px solid color-mix(in srgb,var(--line) 70%,transparent);box-shadow:0 1px 1px rgba(15,18,38,.04),0 14px 40px -12px rgba(40,30,120,.14)}
+.pilot{padding:22px 24px;border:2px solid transparent;transition:border-color .2s,background .2s}
+.pilot.on{border-color:color-mix(in srgb,var(--ok) 55%,transparent);background:linear-gradient(180deg,color-mix(in srgb,var(--ok) 7%,var(--surface)),var(--surface))}
+.pilot-row{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.sw.big{gap:14px;align-items:center;color:var(--ink)}
+.sw.big input[type=checkbox]{width:58px;height:34px}
+.sw.big input[type=checkbox]::after{width:28px;height:28px;top:3px;left:3px}
+.sw.big input[type=checkbox]:checked{background:var(--ok)}.sw.big input[type=checkbox]:checked::after{left:27px}
+.sw.big span{display:flex;flex-direction:column;gap:2px}.sw.big b{font-size:19px}.sw.big small{color:var(--mute);font-size:14px;font-weight:500;max-width:46ch}
+.pilot-set{display:flex;gap:14px;flex-wrap:wrap}.pilot-set label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+.pilot-set .sel{width:92px;padding:9px 12px;font-size:16px;font-weight:700;text-transform:none;letter-spacing:0;color:var(--ink)}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:20px}
+@media(max-width:700px){.tiles{grid-template-columns:1fr}}
+.tile{background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:14px 16px;min-height:78px}
+.tile>small{display:block;color:var(--mute);font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.tile>div{font-size:17px;line-height:1.35}.tile small{font-size:13px;color:var(--mute);font-weight:500}
+.tile #tomake{font-size:28px;font-weight:800;letter-spacing:-.02em}
+.how2{margin-top:14px}.how2 summary{font-weight:600}.how2 ol{margin:8px 0 4px 20px;padding:0;color:var(--ink);line-height:1.7}.how2 p{margin:6px 0 0}
+#sched{padding:24px}#slist{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);font-size:15px;line-height:1.6}
+.agenda-head b{font-size:19px;letter-spacing:-.01em}
+.day{background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:12px 8px 10px;cursor:default}
+.day:hover{border-color:color-mix(in srgb,var(--brand) 45%,var(--line))}
+.day.on{background:var(--grad);border-color:transparent;color:#fff;box-shadow:0 10px 24px -10px rgba(110,80,240,.6)}
+.day.on small{color:rgba(255,255,255,.8)}.day.on .c button{background:rgba(255,255,255,.95);color:var(--brand)}
+.day .c button{width:32px;height:32px;background:var(--bg);transition:transform .08s,background .12s}.day .c button:active{transform:scale(.9)}
+.day .c b{font-size:24px}
+#wgo{width:100%;margin-top:6px;border-radius:16px;padding:18px;font-size:18px;font-weight:800;background:var(--grad);color:#fff;box-shadow:0 14px 30px -12px rgba(110,80,240,.7);transition:filter .12s,transform .08s}
+#wgo:hover:not(:disabled){filter:brightness(1.07)}#wgo:active:not(:disabled){transform:scale(.995)}#wgo:disabled{background:var(--line);color:var(--mute);box-shadow:none}
+#job{border:2px solid color-mix(in srgb,var(--brand) 50%,transparent);background:linear-gradient(180deg,color-mix(in srgb,var(--brand) 6%,var(--surface)),var(--surface))}
+#job .stepper{display:none}
+#job .now{font-size:20px;margin:10px 0 12px}
+#job .bar{height:12px;border-radius:99px}#job .bar i{background:var(--grad);border-radius:99px}
+#pct{font-size:14px;font-weight:600;margin-top:10px}
+.hist .v{padding:14px 0}
+.nav{border-radius:18px;padding:5px}.nav button{padding:12px 14px}
+.nav button[aria-selected=true]{background:var(--grad);box-shadow:0 8px 18px -8px rgba(110,80,240,.7)}
+.pill{box-shadow:0 1px 2px rgba(15,18,38,.05)}
+@media(max-width:560px){.agenda{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:6px}.day{padding:10px 4px 8px}.day .d{font-size:16px}.day .c{gap:4px}.day .c button{width:26px;height:26px}.day .c b{font-size:20px;min-width:16px}.nav button{min-width:0;padding:11px 6px;font-size:13px;gap:4px}.nav{overflow:visible}.wrap{padding:14px 12px 90px}.card,#sched,.pilot{padding:18px 16px;border-radius:18px}.agenda{grid-template-columns:repeat(3,1fr)}.sw.big b{font-size:17px}}
 </style></head><body><div class="wrap">
 
 <div class="topbar">
@@ -180,7 +223,7 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
 </nav>
 
 <section class="card" id="job" hidden style="margin-top:18px">
-  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><b>Création</b><span style="display:flex;gap:10px;align-items:center"><span class="chip" id="chip">En cours</span><button id="stoprec" class="stop">■ Arrêter l'enregistrement</button><button id="stop" class="stop ghost">Annuler</button></span></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><b>Création</b><span style="display:flex;gap:10px;align-items:center"><span class="chip" id="chip">En cours</span><button id="stoprec" class="stop">■ Arrêter l'enregistrement</button><button id="stop" class="stop ghost">Arrêter</button></span></div>
   <ol class="stepper" id="stepper"></ol>
   <div class="now" id="now">…</div>
   <div class="bar" id="bar"><i></i></div><div id="pct"></div>
@@ -225,23 +268,24 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
 
 </main>
 <main class="panel" id="tab-schedule" role="tabpanel" hidden>
-<section class="card hero">
-  <h2>Ton agent piano</h2>
-  <p>Choisis combien de vidéos par jour, appuie sur le bouton : l'agent fabrique tout, l'envoie à TikTok et YouTube et le programme à la bonne date. Tu peux ensuite éteindre le Mac.</p>
-  <ol class="how"><li><b>1.</b> Mets tes morceaux .mid dans le dossier <b>Bureau/MIDI</b> <span id="tomake"></span></li><li><b>2.</b> Choisis le nombre de vidéos par jour</li><li><b>3.</b> Clique sur <b>Fabriquer et programmer</b></li></ol>
-</section>
-<section class="card" id="auto">
-  <div class="step"><div><h2>🤖 Pilote automatique</h2><p>Activé, l'agent garde ton agenda plein tout seul : dès qu'il manque des vidéos, il les fabrique avec tes morceaux et les programme dans TikTok et YouTube. Laisse simplement cette page ouverte.</p></div></div>
-  <div class="row" style="margin-top:0;border:0;padding:0">
-    <label class="sw"><input type="checkbox" id="apon"> <b id="aplabel">Pilote automatique</b></label>
-    <label class="sw">Vidéos par jour <select id="apday" class="sel" style="width:80px;flex:none"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
-    <label class="sw">Jours d'avance <select id="apdays" class="sel" style="width:80px;flex:none"><option>3</option><option>5</option><option>7</option><option>9</option></select></label>
+<section class="card pilot" id="auto">
+  <div class="pilot-row">
+    <label class="sw big"><input type="checkbox" id="apon"><span><b id="aplabel">Pilote automatique</b><small id="apmsg">…</small></span></label>
+    <div class="pilot-set">
+      <label>Par jour <select id="apday" class="sel"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+      <label>Avance <select id="apdays" class="sel"><option value="3">3 j</option><option value="5">5 j</option><option value="7">7 j</option><option value="9">9 j</option></select></label>
+    </div>
   </div>
-  <p class="note" id="apmsg" style="margin:10px 0 0"></p>
+  <div class="tiles">
+    <div class="tile"><small>Dernières 24 h</small><div id="health">…</div></div>
+    <div class="tile"><small>Prochaine mise en ligne</small><div id="nextpub">Aucune publication programmée.</div></div>
+    <div class="tile"><small>Morceaux prêts</small><div><b id="tomake">–</b></div></div>
+  </div>
+  <details class="how2"><summary>Comment ça marche ?</summary>
+    <ol><li>Mets tes morceaux <b>.mid</b> dans le dossier <b>Bureau/MIDI</b>.</li><li>Active le <b>pilote automatique</b> : il garde l'agenda plein tout seul.</li><li>Ou choisis toi-même le nombre de vidéos par jour ci-dessous et clique sur <b>Fabriquer et programmer</b>.</li></ol>
+    <p>Chaque vidéo est envoyée à TikTok et YouTube puis programmée dans leurs plannings : tu peux éteindre le Mac.</p>
+  </details>
 </section>
-<div class="next" id="health" style="margin-bottom:14px">Bilan des dernières 24 h…</div>
-<div class="next" id="nextpub">Aucune publication programmée.</div>
-<div style="height:14px"></div>
 <section class="card" id="sched">
   <div class="agenda-head"><b>Combien de vidéos veux-tu publier chaque jour ?</b>
     <span class="quick"><button class="btn alt" data-quick="2">2 par jour (7 jours)</button><button class="btn alt" data-quick="1">1 par jour (7 jours)</button><button class="btn alt" data-quick="0">Tout effacer</button></span></div>
@@ -316,7 +360,7 @@ tab((location.hash||'').slice(1)||(()=>{try{return localStorage.getItem('tab')}c
 let songId=null,level=null,formats=new Set(),since=0,timer=null,opts=null,cur=-1,fmtLabel='';
 const api=(p,o)=>fetch(p,o).then(r=>r.json());
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let ONLY_MINE=false,PENDING_N=0,READY_N=0,READY_T=[],YT_DAILY=4;
+let ENGINE='',ONLY_MINE=false,PENDING_N=0,READY_N=0,READY_T=[],YT_DAILY=4;
 const STEPS=['Morceau','Passage','Fabrication','Qualité','Publication'];
 const dev=f=>f.width>f.height
   ?'<svg width="64" height="40" viewBox="0 0 64 40" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="58" height="34" rx="6"/><path d="M12 28h40" stroke-width="5" stroke-linecap="round" opacity=".35"/></svg>'
@@ -378,7 +422,7 @@ $('#tgo').onclick=()=>{$('#tgo').disabled=true;$('#tres').innerHTML='<p class="e
     $('#tres').innerHTML=r.items.length?r.items.map(i=>`<div class="tr"><span class="rk">${i.rank}</span><span class="n"><b>${esc(i.title)}</b><small>${esc(i.artist)}</small></span><button class="btn alt" data-q="${esc(i.title)}">MIDI libre</button><a class="btn alt" target="_blank" rel="noopener" href="${webUrl(i.title+' '+i.artist)}">🔎 Web</a></div>`).join(''):`<p class="note bad">${esc(r.message||'Aucune tendance disponible.')}</p>`
   }).catch(()=>{$('#tres').innerHTML='<p class="note bad">Impossible de charger les tendances.</p>'}).finally(()=>{$('#tgo').disabled=false})};
 $('#tres').onclick=e=>{const b=e.target.closest('[data-q]');if(b){$('#q').scrollIntoView({behavior:'smooth',block:'center'});runSearch(b.dataset.q)}};
-function info(){api('/api/info').then(i=>{if(ONLY_MINE!==!!i.only_mine){ONLY_MINE=!!i.only_mine;songs()}$('#pubtxt').innerHTML='Publier tout de suite après le montage (sinon : onglet Programmation) : '+[['YouTube',i.youtube],['TikTok',i.tiktok]].map(([n,ok])=>`${n} <b style="color:var(--${ok?'ok':'bad'})">${ok?'✓':'non connecté'}</b>`).join(' · ');$('#ver').innerHTML=`v <b>${esc(i.version||'?')}</b>`;if($('#tomake'))$('#tomake').textContent=i.to_make!=null?`— ${i.to_make} morceau(x) prêt(s) à fabriquer`:'';[['#pill-tt','TikTok',i.tiktok],['#pill-yt','YouTube',i.youtube]].forEach(([s,n,ok])=>{$(s).textContent=(ok?'✓ ':'✗ ')+n;$(s).className='pill '+(ok?'ok':'bad')});if(i.only_mine){$('#stock').textContent=`${i.to_make} à faire`;$('#sdot').className='dot'+(i.to_make>0?' on':'');$('#stock').parentElement.childNodes[1].textContent='Dossier MIDI : '}else{$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'')}
+function info(){api('/api/info').then(i=>{if(ONLY_MINE!==!!i.only_mine){ONLY_MINE=!!i.only_mine;songs()}$('#pubtxt').innerHTML='Publier tout de suite après le montage (sinon : onglet Programmation) : '+[['YouTube',i.youtube],['TikTok',i.tiktok]].map(([n,ok])=>`${n} <b style="color:var(--${ok?'ok':'bad'})">${ok?'✓':'non connecté'}</b>`).join(' · ');ENGINE=i.engine||'';$('#ver').innerHTML=`v <b>${esc(i.version||'?')}</b>`;if($('#tomake'))$('#tomake').textContent=i.to_make!=null?String(i.to_make):'–';[['#pill-tt','TikTok',i.tiktok],['#pill-yt','YouTube',i.youtube]].forEach(([s,n,ok])=>{$(s).textContent=(ok?'✓ ':'✗ ')+n;$(s).className='pill '+(ok?'ok':'bad')});if(i.only_mine){$('#stock').textContent=`${i.to_make} à faire`;$('#sdot').className='dot'+(i.to_make>0?' on':'');$('#stock').parentElement.childNodes[1].textContent='Dossier MIDI : '}else{$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'')}
   $('#engine').innerHTML=`Moteur : <b>${i.engine==='synthesia'?'Synthesia':i.engine?'rendu intégré':'vérification…'}</b>`;$('#engine').title=i.engine==='synthesia'?'Votre application Synthesia pilotée automatiquement':'Synthesia non prêt : rendu intégré utilisé'})}
 function vids(){api('/api/videos').then(v=>{if(!v.length)return;$('#vids').innerHTML=v.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${esc(x.level)} · ${esc(x.format)} · ${x.duration}s · qualité ${x.quality??'-'}/100 · ${esc(x.status)} · ${esc(x.at)}</small></div>${x.file?`<button data-f="${esc(x.file)}">Voir</button>`:''}</div>${x.file&&x.status!=='FAILED'?`<div class="pub"><button data-now="${x.id}">🚀 Publier maintenant</button><input type="datetime-local" data-when="${x.id}" class="sel" style="flex:none;padding:6px 8px"><button data-at="${x.id}">🗓 Programmer</button></div>`:''}${x.post&&x.file?pubBox(x.post):''}`).join('')})}
 $('#vids').onclick=e=>{const f=e.target.dataset.f;if(f){$('#player').innerHTML=`<video controls autoplay playsinline style="width:100%;max-height:70vh;border-radius:12px;background:#000;margin-top:12px" src="/files/${encodeURIComponent(f)}"></video>`;$('#player').scrollIntoView({behavior:'smooth',block:'center'})}};
@@ -400,7 +444,8 @@ const dfmt=iso=>new Date(iso).toLocaleString('fr-FR',{weekday:'short',day:'numer
 function sched(){api('/api/schedule').then(d=>{
   const nm={PENDING:'⏳ programmée',RUNNING:'⏫ envoi en cours',DONE:'✅ publiée',FAILED:'❌ échec',MISSED:'⚠ manquée'};
   const pend=d.items.filter(x=>x.status==='PENDING');PENDING_N=pend.length;$('#b-sch').textContent=pend.length||'';
-  $('#nextpub').innerHTML=pend.length?`⏭ Prochaine publication : <b>${esc(pend[0].title)}</b> · ${esc(dfmt(pend[0].run_at))} <span style="margin-left:auto">${pend.length} à publier par l\'app</span>`:'Aucune publication programmée. Choisis un nombre de vidéos par jour ci-dessous.';
+  const up=d.items.filter(x=>x.status==='DONE'&&new Date(x.run_at)>new Date()).sort((a,b)=>a.run_at<b.run_at?-1:1);
+  $('#nextpub').innerHTML=up.length?`<b>${esc(dfmt(up[0].run_at))}</b><br><small>${esc(up[0].title)} · ${up.length} programmée${up.length>1?'s':''}</small>`:'<small>Rien de programmé pour l\'instant</small>';
   const un=d.unscheduled.length?`<p class="note" style="margin:10px 0 4px"><b>${d.unscheduled.length}</b> vidéo(s) prête(s) pas encore programmée(s).</p>`:'';
   $('#slist').innerHTML=un+(pend.length?`<p style="margin:8px 0"><button class="btn alt" data-cancelall="1">Tout annuler (${pend.length} publications programmées dans l\'app)</button></p>`:'')+(d.items.length?d.items.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${x.format==='horizontal'?'YouTube long':'TikTok + YouTube Shorts'} · ${esc(dfmt(x.run_at))} · ${nm[x.status]||esc(x.status)}${x.detail?' · '+esc(x.detail):''}</small></div>${x.status==='PENDING'?`<button data-cancel="${x.id}">Annuler</button>`:''}</div>`).join(''):'<p class="empty">Rien de programmé.</p>')})}
 function inb(){api('/api/inbox').then(d=>{$('#ibpath').textContent=d.path;$('#ibwait').textContent=d.waiting;$('#ibdone').textContent=d.done;$('#b-lib').textContent=d.to_make||'';$('#b-lib').dataset.n=d.to_make||0;$('#ibrights').checked=d.rights;
@@ -459,16 +504,16 @@ function bar(s){const p=s.progress,i=$('#bar i');if(s.status==='done'){i.classNa
   const w=Math.max(3,Math.min(99,(p.done+p.pct/100)/p.count*100));i.className='det';i.style.width=w.toFixed(0)+'%';
   const age=p.t?Math.round(Date.now()/1000-p.t):0;$('#pct').textContent=`Vidéo ${Math.min(p.done+1,p.count)}/${p.count}`+(p.label?` · ${p.label}${p.pct?' '+Math.round(p.pct)+' %':''}`:'')+` · ${Math.round(w)} % du lot`}
 function hl(){api('/api/health').then(h=>{if(h.error)return;const e=$('#health');
-  e.innerHTML=`📊 24 h : <b style="color:var(--ok)">${h.published} envoyée(s)</b>`+(h.failed?` · <b style="color:var(--bad)">${h.failed} à vérifier</b>`:'')+` · disque ${h.disk_gb} Go libres`+(h.errors.length?`<br><small>Dernier souci : ${esc(h.errors[0].stage)} — ${esc(h.errors[0].message)}</small>`:'')})}
+  e.innerHTML=`<b style="color:var(--ok)">${h.published}</b> envoyée${h.published>1?'s':''}`+(h.failed?` · <b style="color:var(--bad)">${h.failed} à vérifier</b>`:'')+`<br><small>disque : ${h.disk_gb} Go libres</small>`+(h.errors.length?`<br><small style="color:var(--bad)">${esc(h.errors[0].stage)} : ${esc(h.errors[0].message)}</small>`:'')})}
 function ap(){api('/api/autopilot').then(a=>{if(a.error)return;$('#apon').checked=!!a.enabled;$('#apday').value=a.per_day;$('#apdays').value=a.days;
-  $('#aplabel').textContent=a.enabled?'Pilote automatique : activé':'Pilote automatique : désactivé';
-  $('#apmsg').textContent=a.enabled?(a.message||'Vérification…')+(a.missing?` · manque ${a.missing} vidéo(s)`:'')+(a.songs!=null?` · ${a.songs} morceau(x) disponible(s)`:''):'Désactivé : rien n\'est fabriqué tant que tu ne l\'actives pas.'})}
+  $('#aplabel').textContent=a.enabled?'Pilote automatique activé':'Pilote automatique';$('#auto').classList.toggle('on',!!a.enabled);
+  $('#apmsg').textContent=a.enabled?(a.message||'Vérification…'):'Désactivé : rien n\'est fabriqué tant que tu ne l\'actives pas.'})}
 function apset(){api('/api/autopilot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:$('#apon').checked,per_day:+$('#apday').value,days:+$('#apdays').value})}).then(a=>{if(a.error)alert(a.error);ap()})}
 ['#apon','#apday','#apdays'].forEach(i=>$(i).onchange=apset);
 function poll(){api('/api/status?since='+since).then(s=>{
   since=s.last;const L=$('#log');s.logs.forEach(l=>track(l));
   if(s.logs.length){L.textContent+=s.logs.join('\n')+'\n';L.scrollTop=L.scrollHeight;const last=s.logs[s.logs.length-1];$('#now').textContent=(fmtLabel&&s.status==='running'?fmtLabel+' · ':'')+last.replace(/\s*\[(vertical|horizontal)\]\s*/,' ').trim()}
-  stepper();const run=s.status==='running';bar(s);$('#bar').hidden=!run;$('#stop').hidden=!run;$('#stoprec').hidden=!run;if(run&&!$('#stoprec').dataset.busy){$('#stop').disabled=false;$('#stoprec').disabled=false};if(!run)delete $('#stoprec').dataset.busy;estimate();if(run){$('#go').disabled=true;$('#go').textContent='Création en cours…'}
+  stepper();const run=s.status==='running';bar(s);$('#bar').hidden=!run;$('#stop').hidden=!run;$('#stoprec').hidden=!run||ENGINE!=='synthesia';if(run&&!$('#stoprec').dataset.busy){$('#stop').disabled=false;$('#stoprec').disabled=false};if(!run)delete $('#stoprec').dataset.busy;estimate();if(run){$('#go').disabled=true;$('#go').textContent='Création en cours…'}
   $('#chip').textContent=run?'En cours':s.status==='done'?'Terminé':s.status==='cancelled'?'Arrêté':'Échec';$('#chip').className='chip '+(s.status==='done'?'ok':s.status==='failed'||s.status==='cancelled'?'bad':'');
   if(!run){clearInterval(timer);timer=null;vids();info();sched();cur=s.status==='done'?5:cur;stepper();
     if(s.status==='cancelled'){$('#now').textContent='Création arrêtée'}
