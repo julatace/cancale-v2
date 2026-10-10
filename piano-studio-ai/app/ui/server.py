@@ -780,7 +780,11 @@ def serve(port=8765, open_browser=True, settings_loader=config.load_settings):
         pass
     try:
         from app.director import cleanup
-        cleanup.purge_partial(settings_loader())          # rendus interrompus par un arrêt brutal
+        s1 = settings_loader()
+        cleanup.purge_partial(s1)                          # rendus interrompus par un arrêt brutal
+        cn1 = db.connect(config.resolve(s1, "database"))
+        cleanup.purge_published(s1, cn1)                   # vidéos déjà publiées restées sur le disque
+        cleanup.purge_orphans(s1, cn1)                     # restes d'essais ratés
     except Exception:
         pass
     due_runner(settings_loader)                          # surveillance du dossier MIDI

@@ -111,3 +111,22 @@ def test_blocked_files_explain_rights(tmp_path, monkeypatch):
     ap = autopilot.AutoPilot()
     ap.blocked_files = 4
     assert ap.decide(s, _conn(tmp_path), True, 0) is None and "droits" in ap.message
+
+
+def test_purge_orphans_keeps_pending_videos(tmp_path):
+    import os, time
+    from app.director import cleanup
+    s = config.load_settings()
+    s["paths"] = {**s["paths"], "data_dir": str(tmp_path)}
+    conn = _conn(tmp_path)
+    r = tmp_path / "rendered"
+    r.mkdir()
+    old = time.time() - 5 * 86400
+    for name in ("pending.mp4", "orphan.mp4", "orphan.jpg", "fresh.mp4"):
+        (r / name).write_bytes(b"x")
+        if name != "fresh.mp4":
+            os.utime(r / name, (old, old))
+    conn.execute("INSERT INTO videos(output_path,status,created_at) VALUES(?,?,?)", (str(r / "pending.mp4"), "READY", "n"))
+    conn.commit()
+    assert cleanup.purge_orphans(s, conn) == 2
+    assert sorted(p.name for p in r.iterdir()) == ["fresh.mp4", "pending.mp4"]

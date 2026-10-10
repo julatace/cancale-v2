@@ -67,3 +67,22 @@ def purge_partial(s) -> int:
         except OSError:
             pass
     return n
+
+
+def purge_orphans(s, conn, days: float = 3) -> int:
+    """Supprime les vidéos / miniatures du dossier de rendu qui n'appartiennent à aucune vidéo encore à envoyer (restes d'essais ratés),
+    seulement si elles ont plus de `days` jours : une vidéo qui attend un envoi n'est jamais touchée."""
+    import time
+    d = config.resolve(s, "data_dir") / "rendered"
+    if not d.exists():
+        return 0
+    keep = {Path(r["output_path"]).stem for r in conn.execute("SELECT output_path FROM videos WHERE status!='PUBLISHED' AND output_path!=''") if r["output_path"]}
+    n = 0
+    for f in d.iterdir():
+        if f.suffix.lower() in (".mp4", ".jpg") and f.stem not in keep and time.time() - f.stat().st_mtime > days * 86400:
+            try:
+                f.unlink()
+                n += 1
+            except OSError:
+                pass
+    return n
