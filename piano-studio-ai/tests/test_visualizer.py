@@ -183,3 +183,26 @@ def test_final_video_is_in_sync(tmp_path):
     out = sketch.render_video(notes, 0, 9.0, tmp_path / "s.mp4", "T", "", fps=10, layout=sketch.Layout(270, 480, 80, 90), result=res)
     lag, conf = sketch.measure_sync(out, notes, 0, 9.0)
     assert conf > 0.5 and abs(lag) < 0.02 and abs(res["sync_ms"]) < 20             # l'encodage (AAC, normalisation) n'ajoute aucun décalage
+
+
+def test_camera_is_fixed_when_piece_fits():
+    from app.midi_analyzer.parser import Note
+    from app.visualizer import sketch
+    notes = [Note(i * 0.5, i * 0.5 + 0.4, 48 + (i * 7) % 30, 80, 0) for i in range(60)]
+    cam = sketch.Camera(notes, 1080, 1920, "wide")
+    first = cam.step(0.0, 1 / 30)
+    assert all(cam.step(i / 30, 1 / 30) == first for i in range(1, 900))        # aucun mouvement sur 30 s
+
+
+def test_camera_stays_within_view_limits_when_piece_is_wider_than_view():
+    from app.midi_analyzer.parser import Note
+    from app.visualizer import sketch
+    notes = [Note(i * 0.5, i * 0.5 + 0.4, 24 if i < 40 else 100, 80, 0) for i in range(80)]
+    cam = sketch.Camera(notes, 1080, 1920, "close")
+    prev = None
+    for i in range(1200):
+        a, b = cam.step(i / 30, 1 / 30)
+        assert sketch.VIEWS["close"][0] - 0.01 <= b - a <= sketch.VIEWS["close"][1] + 0.01
+        if prev:
+            assert abs(a - prev) < 0.25                                           # glissement doux : jamais de saut d'une image à l'autre
+        prev = a

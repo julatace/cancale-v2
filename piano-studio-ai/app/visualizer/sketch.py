@@ -57,7 +57,10 @@ class Camera:
         self.c, self.w = c, min(max(hi - lo + 2, self.minw), self.maxw)
         if hi - lo > self.maxw:
             self.c = lo + self.maxw / 2
-        self.w = min(self.w * 1.45, 56.0)                       # départ très large puis dézoom → zoom sur la zone jouée (mise en scène du début)
+        span = hi - lo + 4
+        self.static = span <= self.maxw                          # tout le morceau tient à l'écran : caméra FIXE, aucun mouvement du début à la fin
+        if self.static:
+            self.c, self.w = (lo + hi) / 2, max(span, self.minw)
 
     def target(self, t: float):
         """Fenêtre qui couvre les notes des 6 prochaines secondes (on ne bouge pas pour une note isolée)."""
@@ -70,12 +73,15 @@ class Camera:
         return (lo + hi) / 2, w
 
     def step(self, t: float, dt: float):
+        if self.static:
+            return self.c - self.w / 2, self.c + self.w / 2
         if t >= getattr(self, "_next", 0.0):              # le plan de caméra change au plus toutes les 2,5 s : image stable, jamais nerveuse
             self.tc, self.tw = self.target(t)
             self._next = t + 2.5
         k = 1 - math.exp(-dt * 1.1)                       # glissement lent et continu
-        self.c += (self.tc - self.c) * k
-        self.w += (self.tw - self.w) * k
+        clamp = lambda x, lim: max(-lim, min(lim, x))
+        self.c += clamp((self.tc - self.c) * k, 5.0 * dt)       # vitesse plafonnée : jamais plus de 5 touches/s en déplacement, 2/s en zoom
+        self.w += clamp((self.tw - self.w) * k, 2.0 * dt)
         lo_lim, hi_lim = self.full
         half = self.w / 2
         if half * 2 >= hi_lim - lo_lim:
