@@ -91,3 +91,33 @@ def test_where_points_to_the_failing_line():
     except IndexError as e:
         w = progress.where(e)
         assert "IndexError" not in w and ":" in w and " dans " in w
+
+
+def _run_job(monkeypatch, runner, count=1):
+    import time
+    from datetime import datetime, timedelta
+    from app.ui import server
+    monkeypatch.setattr(server, "RUNNER", runner)
+    s = config.load_settings()
+    slot = (datetime.now().astimezone() + timedelta(days=1)).replace(hour=19, minute=0, second=0, microsecond=0)
+    job = server.Job()
+    assert job.start(s, None, ["vertical"], False, count, None, None, {"slots": [slot] * count, "immediate": False, "times": ["19:00"]})
+    for _ in range(100):
+        if job.state["status"] != "running":
+            break
+        time.sleep(0.1)
+    return job.snapshot()
+
+
+def test_no_song_gives_a_clear_message_not_index_error(monkeypatch):
+    def none(settings, **k):
+        raise RuntimeError("Plus aucun morceau (tous déjà utilisés)")
+    st = _run_job(monkeypatch, none)
+    assert st["status"] == "failed" and "Plus aucun morceau disponible" in st["error"] and "IndexError" not in st["error"]
+
+
+def test_failed_creation_reports_its_reason(monkeypatch):
+    def boom(settings, **k):
+        raise RuntimeError("quelque chose de précis a cassé")
+    st = _run_job(monkeypatch, boom)
+    assert st["status"] == "failed" and "quelque chose de précis a cassé" in st["error"]

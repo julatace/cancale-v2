@@ -26,6 +26,7 @@ def _default_runner(settings, **k):
     return (clips.run_one if clips.is_clips(settings) else pipeline.run_one)(settings, **k)
 
 
+NO_SONG_MSG = "Plus aucun morceau disponible. Ajoute des fichiers .mid dans le dossier Bureau/MIDI et coche la case « droits » dans « Mes morceaux »."
 RUNNER = _default_runner          # remplaçable dans les tests
 LEVELS_SHOWN = ["facile", "moyen", "difficile"]
 
@@ -120,7 +121,7 @@ class Job:
             if not plan:                                                  # création simple : ce sont ces vidéos-là, et elles seules, qui sont « les dernières »
                 squeue.set_last_batch([v["video_id"] for r in results for v in (r.get("videos") or [r]) if v.get("video_id")])
             with self.lock:
-                self.state.update(status="done", result=results[-1] if count == 1 else results,
+                self.state.update(status="done", result=results[-1] if (count == 1 and results) else results,
                                   planned=[{"title": p["title"], "run_at": p["run_at"], "format": p["format"]} for p in getattr(self, "_planned", [])],
                                   failures=list(getattr(self, "_fails", [])), waiting=list(getattr(self, "_waiting", [])))
         except control.Cancelled:
@@ -152,6 +153,7 @@ class Job:
         self._preflight()
         self._count, self._done = count, 0
         progress.reset()
+        self._last_err = ""
         if not plan:
             return [RUNNER(settings, level=level, formats=formats, publish=publish, song_id=song_id, lang=lang) for _ in range(count)]
         budget = float(plan.get("minutes") or 0) * 60                  # 0 = pas de limite (mode agenda)
@@ -178,7 +180,9 @@ class Job:
             except Exception as e:
                 logging.getLogger("piano").exception("création échouée")
                 self._add(f"✖ Cette création a échoué : {type(e).__name__}: {e} [{progress.where(e)}]")
+                self._last_err = str(e)
                 if "Plus aucun morceau" in str(e):                      # plus rien à fabriquer : inutile d'insister
+                    self._last_err = str(e) if clips.is_clips(settings) else NO_SONG_MSG
                     break
                 continue
             results.append(res)
@@ -186,6 +190,7 @@ class Job:
             if not ok_videos:
                 bad = next((v.get("error") for v in (res.get("videos") or [res]) if v.get("error")), "contrôle qualité refusé")
                 self._add(f"↻ Cette vidéo a échoué ({str(bad)[:120]}) : j'en refais une autre avec un autre morceau.")
+                self._last_err = str(bad)
                 continue
             good_ids += [v["video_id"] for v in ok_videos]
             squeue.set_last_batch(good_ids)
@@ -211,6 +216,8 @@ class Job:
                         self._fails.append(f"{x['platform']} — « {v.get('title', '')[:45]} » : {x['detail'][:260]}")
                 if slot and squeue.native_time(slot):
                     self._planned.append({"title": v.get("title", ""), "run_at": squeue.native_time(slot).isoformat(timespec="minutes"), "format": v.get("format", "")})
+        if not results:                                                     # rien de fabriqué : on dit POURQUOI, jamais une erreur technique obscure
+            raise RuntimeError(getattr(self, "_last_err", "") or "Aucune vidéo n'a pu être fabriquée : regarde le journal (Détails techniques).")
         planned = self._planned
         n_slots = len({p["run_at"] for p in planned})
         if planned:
