@@ -81,6 +81,26 @@ class Camera:
         return self.c - half, self.c + half
 
 
+@lru_cache(maxsize=4)
+def _paper(W: int, H: int) -> Image.Image:
+    """Fond « papier » : crème avec grain fin et légères taches douces (calculé une seule fois par taille)."""
+    rng = np.random.default_rng(7)
+    base = np.array(PAPER, dtype=np.float32)
+    blot = rng.normal(0, 1, (max(H // 64, 2), max(W // 64, 2))).astype(np.float32)
+    blot = np.asarray(Image.fromarray(((blot - blot.min()) / (np.ptp(blot) or 1) * 255).astype(np.uint8)).resize((W, H), Image.BICUBIC), dtype=np.float32) / 255 - 0.5
+    grain = rng.normal(0, 1, (H, W)).astype(np.float32)
+    arr = base[None, None, :] + (blot * 7 + grain * 2.2)[:, :, None]
+    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+
+
+def _sketch_line(d, x0, y0, x1, y1, seed, width, step=90, amp=2.2):
+    """Trait de crayon : segments légèrement décalés, toujours identiques pour une même touche (pas de scintillement)."""
+    rnd = random.Random(seed)
+    n = max(int(math.hypot(x1 - x0, y1 - y0) / step), 1)
+    pts = [(x0 + (x1 - x0) * k / n + (rnd.uniform(-amp, amp) if 0 < k < n else 0), y0 + (y1 - y0) * k / n + (rnd.uniform(-amp, amp) if 0 < k < n else 0)) for k in range(n + 1)]
+    d.line(pts, fill=INK, width=width, joint="curve")
+
+
 def _wobble(pts, rnd, amp):
     return [(x + rnd.uniform(-amp, amp), y + rnd.uniform(-amp, amp)) for x, y in pts]
 
@@ -117,7 +137,7 @@ def render_frame(notes, t, cam_range, L: Layout, split=60, pressed=None):
     W, H, TOP, KB_H = L.W, L.H, L.TOP, L.KB_H
     a, b = cam_range
     sx = W / (b - a)
-    img = Image.new("RGB", (W, H), PAPER)
+    img = _paper(W, H).copy()
     d = ImageDraw.Draw(img)
     fall_bot = H - KB_H
     lw = max(int(sx * 0.09), 4)
@@ -161,8 +181,8 @@ def render_frame(notes, t, cam_range, L: Layout, split=60, pressed=None):
             continue
         x0, x1 = (px - a) * sx, (px + pw - a) * sx
         col = on.get(p)
-        d.rectangle([x0, ky, x1, H], fill=col[0] if col else (255, 255, 255))
-        d.line([(x0 + 1, ky), (x0 + 1, H)], fill=INK, width=3)
+        d.rectangle([x0, ky, x1, H], fill=col[0] if col else (253, 252, 248))
+        _sketch_line(d, x0 + 1, ky, x0 + 1, H, p, max(int(sx * 0.06), 3), amp=1.6 * (W / 1080))
     for p in range(0, 128):
         px, pw, blk = xpos(p)
         if not blk or px + pw < a - 1 or px > b + 1:
@@ -170,9 +190,12 @@ def render_frame(notes, t, cam_range, L: Layout, split=60, pressed=None):
         x0, x1 = (px - a) * sx, (px + pw - a) * sx
         col = on.get(p)
         bh = KB_H * 0.62
-        d.rectangle([x0, ky, x1, ky + bh], fill=col[1] if col else (30, 30, 34), outline=INK, width=3)
-    d.line([(0, ky), (W, ky)], fill=INK, width=7)
-    d.line([(0, H - 3), (W, H - 3)], fill=INK, width=6)
+        rk = random.Random(p)
+        quad = _edges([(x0, ky), (x1, ky), (x1, ky + bh), (x0, ky + bh)], rk, 1.8 * (W / 1080), step=60)
+        d.polygon(quad, fill=col[1] if col else (34, 33, 38))
+        _stroke(d, quad, max(int(sx * 0.06), 3))
+    _sketch_line(d, 0, ky, W, ky, 9001, 8, step=120, amp=2.5 * (W / 1080))
+    _sketch_line(d, 0, H - 3, W, H - 3, 9002, 7, step=120, amp=2.0 * (W / 1080))
     for p in range(0, 128):                                                    # repères Do3 / Do4…
         if p % 12 == 0:
             px = xpos(p)[0]
