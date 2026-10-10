@@ -5,6 +5,7 @@ Safari > Réglages > Avancées > « Afficher les fonctionnalités pour les déve
 doit avoir l'accès Accessibilité. Le texte passe par le presse-papiers (aucun caractère tapé à la main).
 NON testé sur un vrai TikTok : l'interface web de TikTok change ; chaque étape dit ce qui bloque.
 """
+from app import config as _config
 import json
 import logging
 import re
@@ -258,7 +259,7 @@ def _real_click_upload(say, strict: bool = True) -> None:
 
 def _shot(name="tiktok_web_erreur.png"):
     try:
-        out = Path(__file__).resolve().parents[2] / "data" / "debug" / name
+        out = _config.data_root() / "debug" / name
         out.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["screencapture", "-x", str(out)], timeout=10)
         return str(out)
@@ -269,7 +270,7 @@ def _shot(name="tiktok_web_erreur.png"):
 def trace(site: str, label: str) -> None:
     """Capture d'écran de l'étape (data/debug/steps/) : pour voir exactement ce que l'agent voyait si quelque chose ne va pas. Les 40 dernières sont gardées."""
     try:
-        d = Path(__file__).resolve().parents[2] / "data" / "debug" / "steps"
+        d = _config.data_root() / "debug" / "steps"
         d.mkdir(parents=True, exist_ok=True)
         subprocess.run(["screencapture", "-x", "-t", "jpg", str(d / f"{time.strftime('%H%M%S')}_{site}_{label}.jpg")], timeout=10)
         for old in sorted(d.glob("*.jpg"))[:-40]:
@@ -287,7 +288,7 @@ DUMP_JS = ("(function(){var o=[];document.querySelectorAll('input,textarea,[role
 def save_dump(name: str) -> str:
     """Enregistre la liste des boutons / cases / champs visibles de la page (aide à comprendre pourquoi une étape a échoué)."""
     try:
-        out = Path(__file__).resolve().parents[2] / "data" / "debug" / f"{name}_page.txt"
+        out = _config.data_root() / "debug" / f"{name}_page.txt"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(_js(DUMP_JS) or "")
         return str(out)

@@ -153,7 +153,39 @@ def cmd_mac_setup(s, a):
 
 def cmd_ui(s, a):
     from .ui import server
-    server.serve(port=a.port, open_browser=not a.no_browser)
+    server.serve(port=a.port or int((s.get("ui") or {}).get("port", 8765)), open_browser=not a.no_browser)
+    return 0
+
+
+def cmd_ui_port(s, a):
+    print(int((s.get("ui") or {}).get("port", 8765)))
+    return 0
+
+
+def cmd_instance_init(s, a):
+    """Crée un autre agent (ex. « clips ») : ses propres données, son profil Chrome, son dossier de vidéos, sa page. L'agent piano n'est pas touché."""
+    import json
+    import re
+    name = re.sub(r"[^a-z0-9_-]", "", a.name.lower())
+    if not name:
+        print("❌ Nom invalide (lettres, chiffres, - et _).")
+        return 1
+    base = config.ROOT / "data" / "instances" / name
+    base.mkdir(parents=True, exist_ok=True)
+    f = base / "local_settings.json"
+    cur = json.loads(f.read_text()) if f.exists() else {}
+    folder = a.folder or f"~/Desktop/{name.capitalize()}"
+    Path(folder).expanduser().mkdir(parents=True, exist_ok=True)
+    port = a.port or 8766 + (sum(map(ord, name)) % 50)
+    cur.update({"agent": {"kind": "clips"}, "clips": {**cur.get("clips", {}), "folder": folder},
+                "inbox": {"watch": []}, "ui": {"port": port}, "songs": {"only_mine": True},
+                "autopilot": {**cur.get("autopilot", {}), "enabled": False}})
+    if a.profile:
+        cur["tiktok"] = {**cur.get("tiktok", {}), "chrome_profile": a.profile}
+        cur["youtube"] = {**cur.get("youtube", {}), "chrome_profile": a.profile}
+    f.write_text(json.dumps(cur, ensure_ascii=False, indent=1))
+    print(f"✅ Agent « {name} » prêt.\n   Dossier de vidéos : {Path(folder).expanduser()}\n   Profil Chrome : {a.profile or '(à choisir : ./p.sh chrome-profiles)'}\n   Page : http://127.0.0.1:{port}")
+    print(f"   Lancer : ./p.sh --instance {name} ui")
     return 0
 
 
@@ -341,13 +373,13 @@ def cmd_autostart(s, a):
     if platform.system() != "Darwin":
         print("autostart : réservé au Mac.")
         return 2
-    plist = Path.home() / "Library" / "LaunchAgents" / f"{launchd.AGENT_LABEL}.plist"
+    plist = Path.home() / "Library" / "LaunchAgents" / f"{launchd.agent_label(config.instance())}.plist"
     if a.off:
         subprocess.run(["launchctl", "unload", "-w", str(plist)], capture_output=True)
         plist.unlink(missing_ok=True)
         print("✅ Démarrage automatique désactivé.")
         return 0
-    p = launchd.install_agent(config.ROOT)
+    p = launchd.install_agent(config.ROOT, instance=config.instance())
     subprocess.run(["launchctl", "unload", str(p)], capture_output=True)
     r = subprocess.run(["launchctl", "load", "-w", str(p)], capture_output=True, text=True)
     if r.returncode:
@@ -376,6 +408,7 @@ def main(argv=None):
     cmds["fetch-midi"] = cmd_fetch_midi
     cmds["mac-rec-test"] = cmd_mac_rec_test
     cmds["ui"] = cmd_ui
+    cmds["ui-port"], cmds["instance-init"] = cmd_ui_port, cmd_instance_init
     cmds["autostart"] = cmd_autostart
     cmds["youtube-login"] = cmd_youtube_login
     cmds["publish-check"] = cmd_publish_check
@@ -406,7 +439,9 @@ def main(argv=None):
         if n == "publish-now":
             sp.add_argument("video_id", type=int)
         if n == "ui":
-            sp.add_argument("--port", type=int, default=8765); sp.add_argument("--no-browser", action="store_true")
+            sp.add_argument("--port", type=int, default=None); sp.add_argument("--no-browser", action="store_true")
+        if n == "instance-init":
+            sp.add_argument("name"); sp.add_argument("--profile", default=""); sp.add_argument("--folder", default=""); sp.add_argument("--port", type=int, default=0)
         if n == "autostart":
             sp.add_argument("--off", action="store_true")
         if n == "analyze":

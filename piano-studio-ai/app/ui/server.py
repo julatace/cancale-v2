@@ -14,13 +14,19 @@ from urllib.parse import parse_qs, unquote, urlparse
 from app import config, notify
 from app.director import progress
 from app.scheduler import autopilot
+from app import clips
 from app.database import db
 from app.director import control, difficulty, pipeline, stock
 from app.music_discovery import importer, inbox, search as msearch, trends as mtrends
 from app.scheduler import queue as squeue
 from .page import PAGE
 
-RUNNER = pipeline.run_one          # remplaçable dans les tests
+def _default_runner(settings, **k):
+    """Piano : fabrique une vidéo. Agent « clips » : fournit la prochaine vidéo déjà prête du dossier."""
+    return (clips.run_one if clips.is_clips(settings) else pipeline.run_one)(settings, **k)
+
+
+RUNNER = _default_runner          # remplaçable dans les tests
 LEVELS_SHOWN = ["facile", "moyen", "difficile"]
 
 
@@ -287,7 +293,7 @@ def info(s) -> dict:
     if time.time() - _ENGINE["at"] > 60 and not _ENGINE["busy"]:
         _ENGINE["busy"] = True
         threading.Thread(target=_probe_engine, args=(s,), daemon=True).start()
-    return {"stock": stock.count(s), "stock_target": s.get("stock", {}).get("target", 3), "engine": _ENGINE["value"], "version": VERSION, "only_mine": bool(s.get("songs", {}).get("only_mine", False)), "to_make": my_songs_waiting(s),
+    return {"kind": "clips" if clips.is_clips(s) else "piano", "instance": config.instance(), "stock": stock.count(s), "stock_target": s.get("stock", {}).get("target", 3), "engine": _ENGINE["value"], "version": VERSION, "only_mine": bool(s.get("songs", {}).get("only_mine", False)), "to_make": my_songs_waiting(s),
             "youtube": s.get("youtube", {}).get("mode") == "web" or all(os.environ.get(k) for k in ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN")),
             "tiktok": s.get("tiktok", {}).get("mode") == "web" or all(os.environ.get(k) for k in ("TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REFRESH_TOKEN"))}
 
@@ -342,8 +348,10 @@ def videos(s, limit=12) -> list[dict]:
 
 
 def my_songs_waiting(s) -> int:
-    """Morceaux fournis par l'utilisateur qui n'ont pas encore eu leur vidéo (hors délai de réutilisation)."""
+    """Morceaux fournis par l'utilisateur qui n'ont pas encore eu leur vidéo (hors délai de réutilisation). Agent clips : vidéos prêtes à publier."""
     conn = db.connect(config.resolve(s, "database"))
+    if clips.is_clips(s):
+        return clips.available(s, conn)
     rows = conn.execute("SELECT id, midi_path FROM songs WHERE license='LEGAL_CONFIRMED' AND source LIKE 'user_owned: Fourni%'").fetchall()
     return sum(1 for r in rows if r["midi_path"] and Path(r["midi_path"]).exists() and db.song_usable(conn, r["id"], s["same_song_cooldown_days"])[0])
 
@@ -353,6 +361,14 @@ def schedule_view(s) -> dict:
     squeue.drop_orphans(conn)                                        # anciennes lignes sans objet (vidéo publiée ou supprimée)
     rv = squeue.ready_videos(conn)
     return {"items": squeue.listing(conn), "unscheduled": squeue.unscheduled(conn), "ready": len(rv), "ready_titles": [f"{v['title']} ({v['format'] or '?'})" for v in rv[:8]]}
+
+
+def clips_status(s) -> dict:
+    c = clips.conf(s)
+    d = clips.folder(s)
+    cn = db.connect(config.resolve(s, "database"))
+    return {"kind": "clips" if clips.is_clips(s) else "piano", "folder": str(d), "exists": d.is_dir(), "waiting": len(clips.pending(s)),
+            "ready": len(clips.queue_ids(cn)), "description": c["description"], "hashtags": c["hashtags"], "consume": c["consume"]}
 
 
 def health(s) -> dict:
@@ -411,7 +427,9 @@ def due_runner(settings_loader, every=30, stop=None):
             try:
                 s = settings_loader()
                 inbox.LAST_CHECK["at"] = time.time()
-                if inbox.waiting(s) and inbox.rights_confirmed(s):          # nouveaux sons dans ton dossier : importés tout seuls
+                if clips.is_clips(s):
+                    clips.import_pending(s, db.connect(config.resolve(s, "database")))      # nouvelles vidéos du dossier : prises en charge toutes seules
+                elif inbox.waiting(s) and inbox.rights_confirmed(s):          # nouveaux sons dans ton dossier : importés tout seuls
                     inbox.scan(s, import_upload)
                 autopilot_tick(s)
                 cn = db.connect(config.resolve(s, "database"))
@@ -604,6 +622,8 @@ def make_handler(settings_loader):
                 return self._json({**inbox.status(s), "to_make": my_songs_waiting(s)})
             if u.path == "/api/schedule":
                 return self._json(schedule_view(s))
+            if u.path == "/api/clips":
+                return self._json(clips_status(s))
             if u.path == "/api/health":
                 return self._json(health(s))
             if u.path == "/api/autopilot":
@@ -622,7 +642,7 @@ def make_handler(settings_loader):
         def do_POST(self):
             path = urlparse(self.path).path
             if path not in ("/api/run", "/api/upload", "/api/songs/delete", "/api/stop", "/api/stop-recording", "/api/import-found",
-                        "/api/schedule/plan", "/api/schedule/cancel", "/api/publish-now", "/api/week", "/api/inbox", "/api/inbox/rights", "/api/inbox/scan", "/api/folder", "/api/setting", "/api/publish-ready", "/api/autopilot"):
+                        "/api/schedule/plan", "/api/schedule/cancel", "/api/publish-now", "/api/week", "/api/inbox", "/api/inbox/rights", "/api/inbox/scan", "/api/folder", "/api/setting", "/api/publish-ready", "/api/autopilot", "/api/clips"):
                 return self._send(404, b'{"error":"not found"}')
             origin = self.headers.get("Origin", "")
             if origin and not (origin.startswith("http://127.0.0.1") or origin.startswith("http://localhost")):
@@ -661,6 +681,16 @@ def make_handler(settings_loader):
                     config.save_local("synthesia", {"max_record_seconds": n})
                     return self._json({"max_record_seconds": n})
                 return self._json({"error": "réglage inconnu"}, 400)
+            if path == "/api/clips":
+                new = {}
+                if isinstance(body.get("folder"), str) and body["folder"].strip():
+                    new["folder"] = body["folder"].strip()
+                for k in ("description", "hashtags"):
+                    if isinstance(body.get(k), str):
+                        new[k] = body[k][:600]
+                if new:
+                    config.save_local("clips", new)
+                return self._json(clips_status(settings_loader()))
             if path == "/api/autopilot":
                 cur = autopilot.conf(settings_loader())
                 try:

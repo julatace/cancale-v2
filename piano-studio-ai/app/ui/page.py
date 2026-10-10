@@ -212,6 +212,7 @@ details.fold>summary::-webkit-details-marker{display:none}
 details.fold>.card{box-shadow:none;border:0;padding:6px 0 16px;margin:0;background:none}
 .btn{background:var(--grad);box-shadow:0 8px 18px -10px rgba(110,80,240,.8)}.btn.alt{background:var(--brand-soft);box-shadow:none}
 .btn:hover:not(:disabled){filter:brightness(1.06)}
+.clips-only{display:none}body.clips .clips-only{display:block}body.clips .piano-only{display:none!important}
 </style></head><body><div class="wrap">
 
 <div class="topbar">
@@ -242,7 +243,14 @@ details.fold>.card{box-shadow:none;border:0;padding:6px 0 16px;margin:0;backgrou
 </section>
 
 <main class="panel" id="tab-library" role="tabpanel" hidden>
-<section class="card" id="inbox">
+<section class="card clips-only" id="clipscard">
+  <div class="step"><div><h2>Mon dossier de vidéos</h2><p>Dépose ici les vidéos à publier (.mp4 / .mov). L'agent les prend en charge, les envoie à TikTok et YouTube aux dates de l'agenda, puis les <b>supprime de ton Mac</b>. Un fichier .txt du même nom donne le titre (1re ligne) et la description.</p></div></div>
+  <div class="sbox"><input type="text" id="cfolder" placeholder="/Users/toi/Desktop/Clips" aria-label="Dossier de vidéos"><button class="btn" id="cfsave">Enregistrer</button></div>
+  <p class="note" id="cfstat" style="margin:8px 0 12px">…</p>
+  <div class="fieldrow"><label class="k" for="cdesc">Description<small>Ajoutée sous chaque vidéo (si pas de fichier .txt)</small></label><input type="text" id="cdesc" class="sel" placeholder="Ex. Abonne-toi pour la suite !"></div>
+  <div class="fieldrow"><label class="k" for="ctags">Hashtags<small>8 maximum</small></label><input type="text" id="ctags" class="sel" placeholder="#fyp #pourtoi"></div>
+</section>
+<section class="card piano-only" id="inbox">
   <div class="step"><div><h2>Mon dossier MIDI</h2><p>L'agent lit les fichiers .mid / .midi / .kar de ce dossier de ton ordinateur et fabrique les vidéos avec. Tes fichiers ne sont ni déplacés ni modifiés.</p></div></div>
   <div class="sbox"><input type="text" id="fpath" placeholder="/Users/toi/Desktop/MIDI" aria-label="Dossier MIDI"><button class="btn alt" id="fsave">Utiliser ce dossier</button><button class="btn" id="fscan">📥 Importer maintenant</button></div>
   <p class="note" id="fstat" style="margin:8px 0 6px">…</p>
@@ -252,7 +260,7 @@ details.fold>.card{box-shadow:none;border:0;padding:6px 0 16px;margin:0;backgrou
 </section>
 
 
-<details class="fold"><summary>➕ Ajouter ou chercher des morceaux</summary>
+<details class="fold piano-only"><summary>➕ Ajouter ou chercher des morceaux</summary>
 <section class="card">
   <div class="step"><div><h2>Ajouter, chercher</h2><p>Un fichier MIDI à toi, une recherche sur Mutopia (libre de droits), ou une recherche sur internet.</p></div></div>
   <div class="sbox"><input type="search" id="q" placeholder="Rechercher un morceau (ex. Clair de Lune, Für Elise, Gymnopédie…)" aria-label="Rechercher un morceau"><button class="btn" id="qgo">Chercher</button><a class="btn alt" id="qweb" target="_blank" rel="noopener" title="Ouvre une recherche internet dans un nouvel onglet : vous téléchargez le fichier vous-même, puis vous le glissez ci-dessous">🔎 Sur le web</a></div>
@@ -267,7 +275,7 @@ details.fold>.card{box-shadow:none;border:0;padding:6px 0 16px;margin:0;backgrou
 
 </section>
 </details>
-<details class="fold"><summary>📈 Tendances du moment</summary>
+<details class="fold piano-only"><summary>📈 Tendances du moment</summary>
 <section class="card">
   <div class="step"><div><h2>Tendances du moment</h2><p>Classements musicaux par pays. Ces titres sont en général protégés : l'agent cherche une version libre de droits (surtout en classique).</p></div></div>
   <div class="filters"><select id="tc" class="sel"></select><select id="tg" class="sel"><option value="all">Tous styles</option><option value="classical">Classique</option></select><button class="btn alt" id="tgo">Afficher</button></div>
@@ -338,7 +346,7 @@ details.fold>.card{box-shadow:none;border:0;padding:6px 0 16px;margin:0;backgrou
 </section>
 </main>
 <main class="panel" id="tab-create" role="tabpanel">
-<details class="fold"><summary>🎬 Créer une seule vidéo à la main (facultatif)</summary>
+<details class="fold piano-only"><summary>🎬 Créer une seule vidéo à la main (facultatif)</summary>
 <section class="card">
   <div class="step"><span class="num">1</span><div><h2>Morceau</h2><p>Par défaut, l'agent prend le prochain morceau de ton dossier MIDI (Bureau). Tu peux aussi en choisir un précis.</p></div></div>
   <div class="songs" id="songs" role="radiogroup" aria-label="Morceau"></div>
@@ -431,7 +439,7 @@ $('#tgo').onclick=()=>{$('#tgo').disabled=true;$('#tres').innerHTML='<p class="e
     $('#tres').innerHTML=r.items.length?r.items.map(i=>`<div class="tr"><span class="rk">${i.rank}</span><span class="n"><b>${esc(i.title)}</b><small>${esc(i.artist)}</small></span><button class="btn alt" data-q="${esc(i.title)}">MIDI libre</button><a class="btn alt" target="_blank" rel="noopener" href="${webUrl(i.title+' '+i.artist)}">🔎 Web</a></div>`).join(''):`<p class="note bad">${esc(r.message||'Aucune tendance disponible.')}</p>`
   }).catch(()=>{$('#tres').innerHTML='<p class="note bad">Impossible de charger les tendances.</p>'}).finally(()=>{$('#tgo').disabled=false})};
 $('#tres').onclick=e=>{const b=e.target.closest('[data-q]');if(b){$('#q').scrollIntoView({behavior:'smooth',block:'center'});runSearch(b.dataset.q)}};
-function info(){api('/api/info').then(i=>{if(ONLY_MINE!==!!i.only_mine){ONLY_MINE=!!i.only_mine;songs()}$('#pubtxt').innerHTML='Publier tout de suite après le montage (sinon : onglet Programmation) : '+[['YouTube',i.youtube],['TikTok',i.tiktok]].map(([n,ok])=>`${n} <b style="color:var(--${ok?'ok':'bad'})">${ok?'✓':'non connecté'}</b>`).join(' · ');ENGINE=i.engine||'';$('#ver').innerHTML=`v <b>${esc(i.version||'?')}</b>`;if($('#tomake'))$('#tomake').textContent=i.to_make!=null?String(i.to_make):'–';[['#pill-tt','TikTok',i.tiktok],['#pill-yt','YouTube',i.youtube]].forEach(([s,n,ok])=>{$(s).textContent=(ok?'✓ ':'✗ ')+n;$(s).className='pill '+(ok?'ok':'bad')});if(i.only_mine){$('#stock').textContent=`${i.to_make} à faire`;$('#sdot').className='dot'+(i.to_make>0?' on':'');$('#stock').parentElement.childNodes[1].textContent='Dossier MIDI : '}else{$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'')}
+function info(){api('/api/info').then(i=>{if(ONLY_MINE!==!!i.only_mine){ONLY_MINE=!!i.only_mine;songs()}$('#pubtxt').innerHTML='Publier tout de suite après le montage (sinon : onglet Programmation) : '+[['YouTube',i.youtube],['TikTok',i.tiktok]].map(([n,ok])=>`${n} <b style="color:var(--${ok?'ok':'bad'})">${ok?'✓':'non connecté'}</b>`).join(' · ');ENGINE=i.engine||'';kindUI(i);$('#ver').innerHTML=`v <b>${esc(i.version||'?')}</b>`;if($('#tomake'))$('#tomake').textContent=i.to_make!=null?String(i.to_make):'–';[['#pill-tt','TikTok',i.tiktok],['#pill-yt','YouTube',i.youtube]].forEach(([s,n,ok])=>{$(s).textContent=(ok?'✓ ':'✗ ')+n;$(s).className='pill '+(ok?'ok':'bad')});if(i.only_mine){$('#stock').textContent=`${i.to_make} à faire`;$('#sdot').className='dot'+(i.to_make>0?' on':'');$('#stock').parentElement.childNodes[1].textContent='Dossier MIDI : '}else{$('#stock').textContent=`${i.stock} morceau${i.stock>1?'x':''} d'avance`;$('#sdot').className='dot'+(i.stock>0?' on':'')}
   $('#engine').innerHTML=`Moteur : <b>${i.engine==='synthesia'?'Synthesia':i.engine?'rendu intégré':'vérification…'}</b>`;$('#engine').title=i.engine==='synthesia'?'Votre application Synthesia pilotée automatiquement':'Synthesia non prêt : rendu intégré utilisé'})}
 function vids(){api('/api/videos').then(v=>{if(!v.length)return;$('#vids').innerHTML=v.map(x=>`<div class="v"><div><b>${esc(x.title)}</b><br><small>${esc(x.level)} · ${esc(x.format)} · ${x.duration}s · qualité ${x.quality??'-'}/100 · ${esc(x.status)} · ${esc(x.at)}</small></div>${x.file?`<button data-f="${esc(x.file)}">Voir</button>`:''}</div>${x.file&&x.status!=='FAILED'?`<div class="pub"><button data-now="${x.id}">🚀 Publier maintenant</button><input type="datetime-local" data-when="${x.id}" class="sel" style="flex:none;padding:6px 8px"><button data-at="${x.id}">🗓 Programmer</button></div>`:''}${x.post&&x.file?pubBox(x.post):''}`).join('')})}
 $('#vids').onclick=e=>{const f=e.target.dataset.f;if(f){$('#player').innerHTML=`<video controls autoplay playsinline style="width:100%;max-height:70vh;border-radius:12px;background:#000;margin-top:12px" src="/files/${encodeURIComponent(f)}"></video>`;$('#player').scrollIntoView({behavior:'smooth',block:'center'})}};
@@ -512,6 +520,17 @@ function bar(s){const p=s.progress,i=$('#bar i');if(s.status==='done'){i.classNa
   if(!p||!p.count||s.status!=='running'){i.className='';i.style.width='';$('#pct').textContent='';return}
   const w=Math.max(3,Math.min(99,(p.done+p.pct/100)/p.count*100));i.className='det';i.style.width=w.toFixed(0)+'%';
   const age=p.t?Math.round(Date.now()/1000-p.t):0;$('#pct').textContent=`Vidéo ${Math.min(p.done+1,p.count)}/${p.count}`+(p.label?` · ${p.label}${p.pct?' '+Math.round(p.pct)+' %':''}`:'')+` · ${Math.round(w)} % du lot`}
+function kindUI(i){const c=i.kind==='clips';document.body.classList.toggle('clips',c);
+  if(c){document.title=(i.instance?i.instance.charAt(0).toUpperCase()+i.instance.slice(1):'Clips')+' · Piano Studio';
+    document.querySelector('.topbar .logo>span').firstChild.textContent=(i.instance?i.instance.charAt(0).toUpperCase()+i.instance.slice(1):'Clips');
+    document.querySelector('.topbar .sub').textContent='Tes vidéos : publiées et programmées automatiquement';
+    document.querySelector('[data-tab="library"]').firstChild.textContent='🎬 Mes vidéos ';
+    const t=document.querySelector('#tomake');if(t)t.parentElement.previousElementSibling&&(t.closest('.tile').querySelector('small').textContent='Vidéos prêtes')}}
+function clipsLoad(){api('/api/clips').then(c=>{if(c.kind!=='clips')return;$('#cfolder').value=c.folder;
+  $('#cfstat').textContent=(c.exists?'':'⚠ Dossier introuvable. ')+`${c.waiting} vidéo(s) attendent dans le dossier · ${c.ready} prête(s) à publier`;
+  if(document.activeElement!==$('#cdesc'))$('#cdesc').value=c.description;if(document.activeElement!==$('#ctags'))$('#ctags').value=c.hashtags}).catch(()=>{})}
+function clipsSave(){api('/api/clips',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({folder:$('#cfolder').value,description:$('#cdesc').value,hashtags:$('#ctags').value})}).then(()=>clipsLoad())}
+$('#cfsave').onclick=clipsSave;$('#cdesc').onchange=clipsSave;$('#ctags').onchange=clipsSave;
 function hl(){api('/api/health').then(h=>{if(h.error)return;const e=$('#health');
   e.innerHTML=`<b style="color:var(--ok)">${h.published}</b> envoyée${h.published>1?'s':''}`+(h.failed?` · <b style="color:var(--bad)">${h.failed} à vérifier</b>`:'')+`<br><small>disque : ${h.disk_gb} Go libres</small>`+(h.errors.length?`<br><small style="color:var(--bad)">${esc(h.errors[0].stage)} : ${esc(h.errors[0].message)}</small>`:'')})}
 function ap(){api('/api/autopilot').then(a=>{if(a.error)return;$('#apon').checked=!!a.enabled;$('#apday').value=a.per_day;$('#apdays').value=a.days;
@@ -542,7 +561,7 @@ $('#go').onclick=()=>{
   api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked,synthesia:$('#synth').checked,song_id:songId,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#now').textContent=r.error;return}if(!timer)timer=setInterval(poll,1500);poll()})};
 api('/api/options').then(o=>{opts=o;$('#maxrec').value=o.max_record_seconds;YT_DAILY=o.youtube_daily||4;$('#lang').innerHTML=o.languages.map(l=>`<option value="${l.key}"${l.key===o.default_language?' selected':''}>${l.label}</option>`).join('');$('#tc').innerHTML=o.countries.map(c=>`<option value="${c.key}">${c.label}</option>`).join('');level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
-info();vids();songs();sched();inb();ap();setInterval(ap,15000);hl();setInterval(hl,30000);setInterval(info,20000);setInterval(sched,30000);setInterval(inb,10000);
+info();vids();songs();sched();inb();ap();setInterval(ap,15000);clipsLoad();setInterval(clipsLoad,10000);hl();setInterval(hl,30000);setInterval(info,20000);setInterval(sched,30000);setInterval(inb,10000);
 api('/api/status').then(s=>{if(s.status==='running'){$('#job').hidden=false;since=0;timer=setInterval(poll,1500);poll()}});
 </script></div></body></html>
 """

@@ -59,7 +59,7 @@ def ensure_stock(s, target: int | None = None, fetch=None, rnd=None) -> dict:
 
 
 def refill_in_background(s) -> threading.Thread:
-    if s.get("songs", {}).get("only_mine", False):             # on ne télécharge rien : seuls tes morceaux servent
+    if s.get("songs", {}).get("only_mine", False) or (s.get("agent") or {}).get("kind") == "clips":    # on ne télécharge rien : seuls tes morceaux / tes vidéos servent
         t = threading.Thread(target=lambda: None, daemon=True); t.start(); return t
     t = threading.Thread(target=lambda: ensure_stock(s), daemon=True, name="stock-refill")
     t.start()

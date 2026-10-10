@@ -14,6 +14,41 @@ from app.database import db
 
 log = logging.getLogger("piano.queue")
 SEND_LOCK = threading.Lock()                                      # un seul envoi à la fois dans toute l'app (jamais deux envois en parallèle)
+_PROC_LOCK = {"fh": None}
+
+
+def _proc_lock_acquire(max_wait: float = 3600.0, poll: float = 3.0, path=None) -> bool:
+    """Verrou entre PLUSIEURS agents (processus) : un seul pilote Chrome à la fois sur le Mac (focus, clavier, fenêtres). Attend son tour."""
+    import fcntl
+    import time
+    f = path or config.ROOT / "data" / ".send.lock"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(f, "w")
+    t0 = time.time()
+    while True:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _PROC_LOCK["fh"] = fh
+            return True
+        except OSError:
+            if time.time() - t0 > max_wait:
+                fh.close()
+                return False
+            time.sleep(poll)
+
+
+def _proc_lock_release():
+    fh = _PROC_LOCK.get("fh")
+    if fh:
+        try:
+            import fcntl
+            fcntl.flock(fh, fcntl.LOCK_UN)
+            fh.close()
+        except Exception:
+            pass
+        _PROC_LOCK["fh"] = None
+
+
 AMBIGUOUS = ("n'a pas confirmé", "interrompu")                    # échec APRÈS le dernier clic : la vidéo est peut-être déjà en ligne
 
 
@@ -167,7 +202,7 @@ def cancel(conn, schedule_id: int) -> bool:
     return cur.rowcount > 0
 
 
-BATCH_FILE = config.ROOT / "data" / "last_batch.json"        # vidéos de la DERNIÈRE fabrication (les seules que les boutons « envoyer les vidéos prêtes » touchent)
+BATCH_FILE = config.data_root() / "last_batch.json"        # vidéos de la DERNIÈRE fabrication (les seules que les boutons « envoyer les vidéos prêtes » touchent)
 
 
 def set_last_batch(ids) -> None:
@@ -313,6 +348,9 @@ def publish_video(s, conn, video_id: int, publish_at=None) -> list[dict]:
     done = {r["platform"]: r["status"] for r in conn.execute("SELECT platform, status FROM publications WHERE video_id=?", (video_id,))}
     if not SEND_LOCK.acquire(blocking=False):
         return [{"platform": "app", "status": "FAILED", "detail": "un autre envoi est déjà en cours : rien n'a été renvoyé"}]
+    if not _proc_lock_acquire():
+        SEND_LOCK.release()
+        return [{"platform": "app", "status": "FAILED", "detail": "un autre agent utilise Chrome depuis trop longtemps : rien n'a été renvoyé"}]
     try:
         out = []
         for ad in adapters(s2, fmt=fmt):
@@ -350,6 +388,7 @@ def publish_video(s, conn, video_id: int, publish_at=None) -> list[dict]:
             log.info("📤 %s : %s %s", r.platform, r.status, (r.detail or "")[:100])
             out.append({"platform": r.platform, "status": r.status, "detail": r.detail})
     finally:
+        _proc_lock_release()
         SEND_LOCK.release()
     if any(x["status"] in GOOD for x in out):
         conn.execute("UPDATE videos SET status='PUBLISHED' WHERE id=?", (video_id,))
