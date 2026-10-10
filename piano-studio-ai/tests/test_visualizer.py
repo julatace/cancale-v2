@@ -154,3 +154,32 @@ def test_sketch_edge_cases(tmp_path, name, spec):
 def test_clean_artist_strips_license():
     from app.director import pipeline
     assert pipeline.clean_artist("Mozart (public domain)") == "Mozart" and pipeline.clean_artist("Satie (Public Domain)") == "Satie"
+
+
+def _notes_sync():
+    from app.midi_analyzer.parser import Note
+    return [Note(0.5 + i * 0.5, 0.5 + i * 0.5 + 0.4, [60, 64, 67, 72][i % 4], 90, 0) for i in range(16)]
+
+
+def test_audio_alignment_recovers_offset():
+    import numpy as np
+    from app.visualizer import synth
+    notes = _notes_sync()
+    a = synth.render_audio(notes, 0, 9.0)
+    assert abs(synth.onset_lag(a, notes, 0, 9.0)[0]) < 0.02                       # le piano de secours est calé sur les notes
+    for off in (0.13, -0.09):
+        k = int(abs(off) * synth.SR)
+        late = np.concatenate([np.zeros((k, 2), np.float32), a])[:len(a)] if off > 0 else np.concatenate([a[k:], np.zeros((k, 2), np.float32)])
+        lag, conf = synth.onset_lag(late, notes, 0, 9.0)
+        assert conf > 0.5 and abs(lag - (off if off > 0 else -abs(off))) < 0.015
+        fixed = synth.align_audio(late, notes, 0, 9.0)
+        assert abs(synth.onset_lag(fixed, notes, 0, 9.0)[0]) < 0.015
+
+
+def test_final_video_is_in_sync(tmp_path):
+    from app.visualizer import sketch
+    notes = _notes_sync()
+    res = {}
+    out = sketch.render_video(notes, 0, 9.0, tmp_path / "s.mp4", "T", "", fps=10, layout=sketch.Layout(270, 480, 80, 90), result=res)
+    lag, conf = sketch.measure_sync(out, notes, 0, 9.0)
+    assert conf > 0.5 and abs(lag) < 0.02 and abs(res["sync_ms"]) < 20             # l'encodage (AAC, normalisation) n'ajoute aucun décalage

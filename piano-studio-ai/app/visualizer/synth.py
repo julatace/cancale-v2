@@ -144,10 +144,51 @@ def _with_pedal(midi: bytes, ev) -> bytes:
     return b"MThd" + struct.pack(">IHHH", 6, 0, 1, ppq) + b"MTrk" + struct.pack(">I", len(body)) + body
 
 
+def onset_lag(audio: np.ndarray, notes, start: float, duration: float, max_lag: float = 0.6, hop: int = 220):
+    """Décalage mesuré entre le son et les notes (en secondes, > 0 = son en retard) et confiance (0-1).
+    Compare les attaques détectées dans l'audio aux débuts de notes attendus : corrélation sur ±max_lag."""
+    mono = audio.mean(axis=1) if audio.ndim == 2 else audio
+    n = len(mono) // hop
+    if n < 20:
+        return 0.0, 0.0
+    e = np.sqrt((mono[:n * hop].reshape(n, hop).astype(np.float64) ** 2).mean(axis=1))
+    flux = np.maximum(np.diff(e, prepend=e[0]), 0)
+    exp = np.zeros(n)
+    for nt in notes:
+        k = int((nt.start - start) * SR / hop)
+        if 0 <= k < n:
+            exp[k] += nt.velocity / 127
+    if flux.sum() <= 1e-9 or exp.sum() <= 0:
+        return 0.0, 0.0
+    sm = np.array([0.25, 0.5, 0.25])
+    flux, exp = np.convolve(flux, sm, "same"), np.convolve(exp, sm, "same")
+    lags = range(-int(max_lag * SR / hop), int(max_lag * SR / hop) + 1)
+    corr = np.array([float((exp[max(0, -L):n - max(L, 0)] * flux[max(L, 0):n + min(L, 0)]).sum()) for L in lags])
+    best = int(corr.argmax())
+    conf = float((corr[best] - np.median(corr)) / (corr[best] + 1e-12))
+    return list(lags)[best] * hop / SR, conf
+
+
+def align_audio(audio: np.ndarray, notes, start: float, duration: float, log=None) -> np.ndarray:
+    """Recale le son sur les notes quand le synthétiseur du système introduit un décalage (silence de départ, latence) : image et son restent synchrones."""
+    lag, conf = onset_lag(audio, notes, start, duration)
+    if conf < 0.35 or abs(lag) < 0.012:
+        return audio
+    k = int(round(abs(lag) * SR))
+    if log:
+        log(f"Son recalé de {lag * 1000:+.0f} ms pour rester synchrone avec les notes")
+    if lag > 0:
+        return np.concatenate([audio[k:], np.zeros((k,) + audio.shape[1:], dtype=audio.dtype)])
+    return np.concatenate([np.zeros((k,) + audio.shape[1:], dtype=audio.dtype), audio])[:len(audio)]
+
+
 def render_audio(notes, start: float, duration: float) -> np.ndarray:
     """Retourne un tableau (N, 2) stéréo flottant dans [-1, 1] : piano du système sur Mac, sinon piano numpy."""
     n_out = int(duration * SR)
     sysaud = render_system(notes, start, duration)
+    if sysaud is not None:
+        import logging
+        sysaud = align_audio(sysaud, notes, start, duration, logging.getLogger(__name__).info)
     if sysaud is not None:
         buf = sysaud[:n_out]
         if len(buf) < n_out:

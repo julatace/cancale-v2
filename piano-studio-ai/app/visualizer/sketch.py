@@ -156,7 +156,7 @@ def render_frame(notes, t, cam_range, L: Layout, split=60, pressed=None):
         x0, x1 = (px - a) * sx + sx * 0.04, (px + pw - a) * sx - sx * 0.04
         if x1 < 0 or x0 > W:
             continue
-        y1 = fall_bot - (n.start - t) / LOOKAHEAD * (fall_bot - TOP) - 4
+        y1 = fall_bot - (n.start - t) / LOOKAHEAD * (fall_bot - TOP)             # le bas de la barre touche le clavier EXACTEMENT au début de la note
         y0 = fall_bot - (n.end - t) / LOOKAHEAD * (fall_bot - TOP)
         y0, y1 = max(y0, TOP), min(y1, fall_bot)
         if y1 - y0 < 6:
@@ -269,6 +269,20 @@ def verify_video(path, expected: float):
         raise RuntimeError(f"durée incohérente ({dur:.1f}s au lieu de {expected:.1f}s)")
 
 
+def measure_sync(path, notes, start: float, duration: float):
+    """Décalage son/notes mesuré sur le fichier FINAL (après encodage) : (secondes, confiance). Sert de contrôle de bout en bout."""
+    import tempfile
+    import wave
+    with tempfile.TemporaryDirectory() as td:
+        wav = Path(td) / "a.wav"
+        r = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(path), "-vn", "-ac", "2", "-ar", str(synth.SR), str(wav)], capture_output=True)
+        if r.returncode or not wav.exists():
+            return 0.0, 0.0
+        with wave.open(str(wav), "rb") as w:
+            a = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype(np.float32).reshape(-1, 2) / 32768
+    return synth.onset_lag(a, notes, start, duration)
+
+
 def hand_split_for(notes, default=60) -> int:
     """Point de partage main gauche / droite : suit le morceau (médiane des hauteurs) au lieu d'un Do central fixe."""
     ps = sorted(n.pitch for n in notes)
@@ -338,6 +352,14 @@ def render_video(notes, start: float, duration: float, out_path, title="", subti
             if p.wait() != 0:
                 raise RuntimeError(f"ffmpeg: {err}")
             verify_video(out_path, written / fps)
+            try:
+                lag, conf = measure_sync(out_path, rel, 0.0, written / fps)
+                if result is not None:
+                    result["sync_ms"] = round(lag * 1000)
+                if conf > 0.5 and abs(lag) > 0.04:
+                    log.warning("⚠ Son décalé de %+d ms par rapport aux notes (contrôle final)", round(lag * 1000))
+            except Exception:
+                pass
             os.replace(out_path, final)
         except Exception:
             out_path.unlink(missing_ok=True)
