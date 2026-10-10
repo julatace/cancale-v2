@@ -200,3 +200,9 @@ def test_status_has_progress():
     from app.ui import server
     snap = server.JOB.snapshot()
     assert set(snap["progress"]) >= {"label", "pct", "done", "count"}
+
+
+def test_health_summary(srv):
+    base, _ = srv
+    h = get(base + "/api/health")
+    assert set(h) >= {"published", "failed", "errors", "disk_gb", "level"} and h["level"] in ("ok", "bad")

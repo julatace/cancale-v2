@@ -239,6 +239,7 @@ body{background:radial-gradient(1200px 500px at 10% -10%,color-mix(in srgb,var(-
   </div>
   <p class="note" id="apmsg" style="margin:10px 0 0"></p>
 </section>
+<div class="next" id="health" style="margin-bottom:14px">Bilan des dernières 24 h…</div>
 <div class="next" id="nextpub">Aucune publication programmée.</div>
 <div style="height:14px"></div>
 <section class="card" id="sched">
@@ -457,6 +458,8 @@ function bar(s){const p=s.progress,i=$('#bar i');if(s.status==='done'){i.classNa
   if(!p||!p.count||s.status!=='running'){i.className='';i.style.width='';$('#pct').textContent='';return}
   const w=Math.max(3,Math.min(99,(p.done+p.pct/100)/p.count*100));i.className='det';i.style.width=w.toFixed(0)+'%';
   const age=p.t?Math.round(Date.now()/1000-p.t):0;$('#pct').textContent=`Vidéo ${Math.min(p.done+1,p.count)}/${p.count}`+(p.label?` · ${p.label}${p.pct?' '+Math.round(p.pct)+' %':''}`:'')+` · ${Math.round(w)} % du lot`}
+function hl(){api('/api/health').then(h=>{if(h.error)return;const e=$('#health');
+  e.innerHTML=`📊 24 h : <b style="color:var(--ok)">${h.published} envoyée(s)</b>`+(h.failed?` · <b style="color:var(--bad)">${h.failed} à vérifier</b>`:'')+` · disque ${h.disk_gb} Go libres`+(h.errors.length?`<br><small>Dernier souci : ${esc(h.errors[0].stage)} — ${esc(h.errors[0].message)}</small>`:'')})}
 function ap(){api('/api/autopilot').then(a=>{if(a.error)return;$('#apon').checked=!!a.enabled;$('#apday').value=a.per_day;$('#apdays').value=a.days;
   $('#aplabel').textContent=a.enabled?'Pilote automatique : activé':'Pilote automatique : désactivé';
   $('#apmsg').textContent=a.enabled?(a.message||'Vérification…')+(a.missing?` · manque ${a.missing} vidéo(s)`:'')+(a.songs!=null?` · ${a.songs} morceau(x) disponible(s)`:''):'Désactivé : rien n\'est fabriqué tant que tu ne l\'actives pas.'})}
@@ -485,7 +488,7 @@ $('#go').onclick=()=>{
   api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked,synthesia:$('#synth').checked,song_id:songId,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#now').textContent=r.error;return}if(!timer)timer=setInterval(poll,1500);poll()})};
 api('/api/options').then(o=>{opts=o;$('#maxrec').value=o.max_record_seconds;YT_DAILY=o.youtube_daily||4;$('#lang').innerHTML=o.languages.map(l=>`<option value="${l.key}"${l.key===o.default_language?' selected':''}>${l.label}</option>`).join('');$('#tc').innerHTML=o.countries.map(c=>`<option value="${c.key}">${c.label}</option>`).join('');level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
-info();vids();songs();sched();inb();ap();setInterval(ap,15000);setInterval(info,20000);setInterval(sched,30000);setInterval(inb,10000);
+info();vids();songs();sched();inb();ap();setInterval(ap,15000);hl();setInterval(hl,30000);setInterval(info,20000);setInterval(sched,30000);setInterval(inb,10000);
 api('/api/status').then(s=>{if(s.status==='running'){$('#job').hidden=false;since=0;timer=setInterval(poll,1500);poll()}});
 </script></div></body></html>
 """

@@ -355,6 +355,24 @@ def schedule_view(s) -> dict:
     return {"items": squeue.listing(conn), "unscheduled": squeue.unscheduled(conn), "ready": len(rv), "ready_titles": [f"{v['title']} ({v['format'] or '?'})" for v in rv[:8]]}
 
 
+def health(s) -> dict:
+    """Bilan des dernières 24 h : ce qui est parti, ce qui a échoué, état du disque. Pour voir d'un coup d'œil que tout tourne."""
+    import shutil
+    cn = db.connect(config.resolve(s, "database"))
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    pubs = {}
+    for r in cn.execute("SELECT platform, status, COUNT(*) n FROM publications WHERE published_at>=? GROUP BY platform, status", (since,)):
+        pubs.setdefault(r["platform"], {})[r["status"]] = r["n"]
+    errs = [{"stage": r["stage"], "message": (r["message"] or "")[:160], "at": r["timestamp"]}
+            for r in cn.execute("SELECT stage, message, timestamp FROM errors WHERE timestamp>=? ORDER BY id DESC LIMIT 5", (since,))]
+    nxt = cn.execute("SELECT MIN(run_at) m FROM schedule WHERE status='DONE' AND run_at>?", (squeue._utc(datetime.now(timezone.utc)),)).fetchone()["m"]
+    free = shutil.disk_usage(config.ROOT).free / 1e9
+    ok = sum(n for d in pubs.values() for st, n in d.items() if st in squeue.GOOD)
+    bad = sum(n for d in pubs.values() for st, n in d.items() if st not in squeue.GOOD)
+    return {"published": ok, "failed": bad, "platforms": pubs, "errors": errs, "next": nxt, "disk_gb": round(free, 1),
+            "level": "bad" if bad or free < 3 else "ok"}
+
+
 PILOT = autopilot.AutoPilot()
 
 
@@ -586,6 +604,8 @@ def make_handler(settings_loader):
                 return self._json({**inbox.status(s), "to_make": my_songs_waiting(s)})
             if u.path == "/api/schedule":
                 return self._json(schedule_view(s))
+            if u.path == "/api/health":
+                return self._json(health(s))
             if u.path == "/api/autopilot":
                 return self._json(PILOT.status(s, db.connect(config.resolve(s, "database")), my_songs_waiting(s)))
             if u.path == "/api/songs":
