@@ -115,3 +115,13 @@ def test_subtitle_hides_license_tag():
     assert pipeline._subtitle({"artist": "Beethoven (public domain)"}, {}) == "Beethoven"
     assert pipeline._subtitle({"artist": "J. S. Bach"}, {}) == "J. S. Bach"
     assert pipeline._subtitle({"artist": "Unknown"}, {}) == ""
+
+
+def test_trim_lead_removes_long_leading_silence():
+    from app.director import pipeline
+    from app.midi_analyzer.parser import Note
+    late = [Note(100, 101, 60, 80, 0), Note(101, 102, 64, 80, 0)]
+    out = pipeline.trim_lead(late)
+    assert out[0].start == 0.5 and out[1].start == 1.5 and out[0].end - out[0].start == 1
+    early = [Note(0.4, 1, 60, 80, 0)]
+    assert pipeline.trim_lead(early) == early and pipeline.trim_lead([]) == []

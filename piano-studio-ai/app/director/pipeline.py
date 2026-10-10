@@ -105,6 +105,18 @@ def pick_song(conn, s, seed, exclude=()) -> tuple[int, Path, dict]:
     return pick_song(conn, s, seed + 1000003) if seed < 10_000_000 else (_ for _ in ()).throw(RuntimeError("aucun morceau disponible"))
 
 
+def trim_lead(notes, keep: float = 0.5, threshold: float = 1.5):
+    """Supprime un long silence au début du fichier (certains MIDI commencent par plusieurs dizaines de secondes de vide) : sinon la vidéo
+    commence par une image figée. On garde `keep` seconde avant la première note."""
+    if not notes:
+        return notes
+    first = min(n.start for n in notes)
+    if first <= threshold:
+        return notes
+    d = first - keep
+    return [type(n)(n.start - d, n.end - d, n.pitch, n.velocity, n.track, n.channel) for n in notes]
+
+
 def clean_artist(a) -> str:
     """Nom d'artiste sans mention de licence : « Beethoven (public domain) » -> « Beethoven »."""
     import re
@@ -238,6 +250,7 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
         tried.add(sid)
         log.info("♪ Morceau choisi : %s - %s", meta["title"], meta["artist"])
         notes, tempo = parse_midi(midi)
+        notes = trim_lead(notes)
         try:
             n_tracks = len({n.track for n in notes})
             notes = arrange_for_piano(notes, parse_midi_info(midi))       # fichier de groupe (karaoké...) -> arrangement de piano
