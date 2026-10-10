@@ -154,3 +154,34 @@ def test_files_being_written_are_ignored(env):
     (d / ".cache.mp4").write_bytes(b"x" * 100)
     _age(d / "clip.mp4.part"); _age(d / ".cache.mp4")
     assert clips.pending(s) == [] and clips.import_pending(s, conn) == []
+
+
+def test_import_file_and_no_double_send(env, tmp_path):
+    s, conn, d = env
+    f = tmp_path / "ext.mp4"
+    _video(f)
+    vid = clips.import_file(s, conn, f, title="Mon titre", hashtags=["#a", "#b"])
+    assert f.exists()                                                       # l'original n'est pas touché
+    assert clips.import_file(s, conn, f) == vid                              # même contenu : même vidéo, jamais un doublon
+    assert json.loads(conn.execute("SELECT meta FROM videos WHERE id=?", (vid,)).fetchone()["meta"])["hashtags"] == ["#a", "#b"]
+    conn.execute("INSERT INTO publications(video_id,platform,status,published_at) VALUES(?,?,?,?)", (vid, "youtube", "SCHEDULED", "n"))
+    conn.commit()
+    with pytest.raises(ValueError):
+        clips.import_file(s, conn, f)
+    with pytest.raises(ValueError):
+        clips.import_file(s, conn, tmp_path / "nope.mp4")
+
+
+def test_post_command_requires_when_and_publishes(env, tmp_path, monkeypatch):
+    from app import cli
+    from app.scheduler import queue as q
+    s, conn, d = env
+    f = tmp_path / "v.mp4"
+    _video(f)
+    A = lambda **k: type("A", (), {"video": str(f), "title": "T", "description": "", "hashtags": "#x", "at": "", "now": False, **k})()
+    assert cli.cmd_post(s, A()) == 1                                         # ni --at ni --now : on refuse, rien ne part
+    calls = []
+    monkeypatch.setattr(q, "publish_video", lambda s_, c_, vid, publish_at=None: calls.append(publish_at) or [{"platform": "tiktok", "status": "SCHEDULED"}, {"platform": "youtube", "status": "SCHEDULED"}])
+    assert cli.cmd_post(s, A(at="2030-01-02 19:00")) == 0 and calls[0].year == 2030
+    monkeypatch.setattr(q, "publish_video", lambda *a, **k: [{"platform": "tiktok", "status": "FAILED", "detail": "x"}])
+    assert cli.cmd_post(s, A(now=True)) == 1

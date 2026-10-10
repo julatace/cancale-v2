@@ -157,6 +157,36 @@ def cmd_ui(s, a):
     return 0
 
 
+def cmd_post(s, a):
+    """Poste UNE vidéo sur TikTok puis YouTube, programmée dans leurs plannings si --at est donné (sinon publication immédiate seulement avec --now)."""
+    from datetime import datetime
+    from . import clips
+    from .scheduler import queue as squeue
+    when = None
+    if a.at:
+        try:
+            when = datetime.fromisoformat(a.at.replace("T", " ")).astimezone()
+        except ValueError:
+            print("❌ Date invalide. Exemple : --at \"2026-10-12 19:00\"")
+            return 1
+    elif not a.now:
+        print("❌ Indique QUAND : --at \"2026-10-12 19:00\" (programmé dans TikTok et YouTube) ou --now (tout de suite).")
+        return 1
+    conn = db.connect(config.resolve(s, "database"))
+    try:
+        vid = clips.import_file(s, conn, a.video, a.title, a.description, [t for t in (a.hashtags or "").split() if t.startswith("#")] or None)
+    except ValueError as e:
+        print(f"❌ {e}")
+        return 1
+    res = squeue.publish_video(s, conn, vid, publish_at=when)
+    ok = True
+    for r in res:
+        good = r["status"] in squeue.GOOD
+        ok = ok and good
+        print(f"{'✓' if good else '✖'} {r['platform']} : {r['status']}" + (f" — {r['detail'][:160]}" if r.get("detail") and not good else ""))
+    return 0 if ok else 1
+
+
 def cmd_ui_port(s, a):
     print(int((s.get("ui") or {}).get("port", 8765)))
     return 0
@@ -408,7 +438,7 @@ def main(argv=None):
     cmds["fetch-midi"] = cmd_fetch_midi
     cmds["mac-rec-test"] = cmd_mac_rec_test
     cmds["ui"] = cmd_ui
-    cmds["ui-port"], cmds["instance-init"] = cmd_ui_port, cmd_instance_init
+    cmds["ui-port"], cmds["instance-init"], cmds["post"] = cmd_ui_port, cmd_instance_init, cmd_post
     cmds["autostart"] = cmd_autostart
     cmds["youtube-login"] = cmd_youtube_login
     cmds["publish-check"] = cmd_publish_check
@@ -440,6 +470,9 @@ def main(argv=None):
             sp.add_argument("video_id", type=int)
         if n == "ui":
             sp.add_argument("--port", type=int, default=None); sp.add_argument("--no-browser", action="store_true")
+        if n == "post":
+            sp.add_argument("video"); sp.add_argument("--title", default=""); sp.add_argument("--description", default=""); sp.add_argument("--hashtags", default="")
+            sp.add_argument("--at", default="", help="date et heure de mise en ligne, ex. \"2026-10-12 19:00\""); sp.add_argument("--now", action="store_true", help="publier tout de suite")
         if n == "instance-init":
             sp.add_argument("name"); sp.add_argument("--profile", default=""); sp.add_argument("--folder", default=""); sp.add_argument("--port", type=int, default=0)
         if n == "autostart":

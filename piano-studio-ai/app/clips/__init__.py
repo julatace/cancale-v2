@@ -148,6 +148,36 @@ def import_pending(s, conn) -> list[dict]:
     return out
 
 
+def import_file(s, conn, f, title=None, description=None, hashtags=None) -> int:
+    """Prend en charge UN fichier précis (commande `post`). Copié dans l'espace de travail : l'original n'est pas touché.
+    Même contenu déjà pris en charge : on réutilise cette vidéo (jamais de doublon) ; déjà publiée : erreur claire."""
+    f = Path(f).expanduser()
+    if not f.is_file() or f.suffix.lower() not in EXT:
+        raise ValueError(f"fichier vidéo introuvable ou format non géré (.mp4 / .mov) : {f}")
+    info = probe(f)
+    h = file_hash(f)
+    row = conn.execute("SELECT id FROM videos WHERE video_hash=?", (h,)).fetchone()
+    if row:
+        st = {x["status"] for x in conn.execute("SELECT status FROM publications WHERE video_id=?", (row["id"],))}
+        if st & set(GOOD):
+            raise ValueError("cette vidéo a déjà été envoyée (même contenu) : rien n'est renvoyé")
+        if st & set(BLOCKING):
+            raise ValueError("un envoi de cette vidéo est peut-être déjà parti : vérifie dans TikTok / YouTube avant de recommencer")
+        return row["id"]
+    t_side, d_side, tags_side = sidecar(f)
+    title = (title or t_side or title_from_name(f.name))[:95]
+    vertical = info["height"] >= info["width"]
+    content = build_content(s, title, description or d_side, vertical, info["duration"], hashtags or tags_side)
+    work = config.resolve(s, "data_dir") / "rendered"
+    work.mkdir(parents=True, exist_ok=True)
+    dest = work / f"{h[:10]}{f.suffix.lower()}"
+    shutil.copy2(str(f), str(dest))
+    cur = conn.execute("INSERT INTO videos(style,duration,output_path,quality_score,status,video_hash,title,meta,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                       (f"clips|{content['format']}", info["duration"], str(dest), 100, "READY", h, title, json.dumps(content, ensure_ascii=False), db.now()))
+    conn.commit()
+    return cur.lastrowid
+
+
 def _quarantine(f: Path, sub: str = "ignorées"):
     d = f.parent / sub
     d.mkdir(exist_ok=True)

@@ -36,3 +36,12 @@ Un verrou commun (`data/.send.lock`) empêche deux agents de piloter Chrome en m
 - YouTube : limite de 4 envois par jour (le surplus attend), programmation « Programmer », confirmation d'envoi lente gérée.
 - TikTok : « Planifier » (jusqu'à 10 jours), brouillon en secours. Jamais de renvoi automatique après un envoi incertain.
 - Captures de chaque étape : `data/instances/<nom>/debug/steps/`.
+
+## Poster UNE vidéo directement (sans dossier ni page)
+```
+./p.sh --instance clips post /chemin/video.mp4 --title "Mon titre" --hashtags "#fruits #asmr" --description "Texte" --at "2026-10-12 19:00"
+```
+- `--at "AAAA-MM-JJ HH:MM"` : la vidéo est envoyée à TikTok puis YouTube et **programmée dans leurs plannings** à cette date (≥ 20 min d'avance, ≤ 10 jours).
+- `--now` : publication immédiate (à utiliser seulement sur demande). Sans `--at` ni `--now`, rien ne part.
+- Même contenu déjà envoyé = refusé ; envoi incertain = refusé (vérifier TikTok / YouTube d'abord). Le fichier d'origine n'est pas touché ; la copie de travail est supprimée après envoi.
+- Code retour 0 si les deux plateformes sont OK (programmé / publié / brouillon), 1 sinon : un autre programme peut s'en servir.

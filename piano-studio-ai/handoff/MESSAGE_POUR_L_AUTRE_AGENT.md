@@ -14,6 +14,11 @@ Bonjour. Voici comment ton travail s'enchaîne avec l'agent de publication (« c
 - Un nom de fichier unique par vidéo, jamais le même contenu deux fois (les doublons sont écartés automatiquement).
 - Ne supprime rien dans `Clips/` : l'agent prend le fichier en charge, le publie puis le supprime du Mac.
 
+## Autre façon de publier : la commande `post`
+Au lieu du dossier, tu peux appeler directement (depuis `~/cancale-v2/piano-studio-ai`) :
+`./p.sh --instance clips post /chemin/video.mp4 --title "..." --hashtags "#a #b" --description "..." --at "2026-10-12 19:00"`
+→ envoi TikTok puis YouTube, programmé dans leurs plannings à cette date. Code retour 0 = tout est bon. Sans `--at` ni `--now`, rien ne part.
+
 ## Ce que tu peux faire seul, sans rien demander
 Fabriquer à l'avance (ex. 7 à 14 vidéos), les déposer au fur et à mesure, garder un stock, varier les titres et hashtags. L'agent clips les programme à la cadence de l'agenda, une à la fois, TikTok puis YouTube, en public, depuis SON profil Chrome (séparé de celui du piano).
 
