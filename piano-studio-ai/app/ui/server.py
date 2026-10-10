@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from app import config
+from app import config, notify
 from app.director import progress
 from app.scheduler import autopilot
 from app.database import db
@@ -207,10 +207,13 @@ class Job:
         n_slots = len({p["run_at"] for p in planned})
         if planned:
             self._add(f"🗓 {n_slots} vidéo(s) programmée(s) DANS TikTok et YouTube : du {planned[0]['run_at'].replace('T', ' ')} au {planned[-1]['run_at'].replace('T', ' ')}.")
+            notify.send("Piano Studio", f"{n_slots} vidéo(s) programmée(s) dans TikTok et YouTube.", key=f"planned-{planned[-1]['run_at']}")
         elif done_groups:
             self._add(f"🚀 {len(done_groups)} vidéo(s) envoyée(s) aux réseaux.")
         else:
             self._add("Aucune vidéo réussie.")
+        if self._fails:
+            notify.send("Piano Studio", f"{len(self._fails)} envoi(s) à vérifier : ouvre la page de l'agent.", key=f"fails-{len(self._fails)}-{len(good_ids)}")
         if len(good_ids) < count:
             self._add(f"⚠ {len(good_ids)} vidéo(s) réussie(s) sur {count} demandée(s) : relance « Fabriquer et programmer l'agenda » pour compléter.")
         return results

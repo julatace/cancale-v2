@@ -4,6 +4,7 @@ comme d'habitude) puis programmé nativement. Jamais de publication immédiate, 
 import time
 from datetime import datetime, timedelta, timezone
 
+from app import notify
 from . import queue as squeue
 
 BACKOFF_MIN = 30
@@ -78,6 +79,7 @@ class AutoPilot:
             return None
         if songs_waiting <= 0:
             self.message = "En attente de nouveaux morceaux dans ton dossier MIDI."
+            notify.send("Piano Studio", "Plus de morceaux disponibles : ajoute des fichiers MIDI dans Bureau/MIDI pour garder l'agenda plein.", key="no-songs")
             return None
         self.message = f"Il manque {sum(m['count'] for m in miss)} vidéo(s) : fabrication en cours…"
         return miss
@@ -96,3 +98,4 @@ class AutoPilot:
         wait = min(BACKOFF_MIN * 60 * 2 ** (self.fails - 1), BACKOFF_MAX_H * 3600)
         self.next_try = self.clock() + wait
         self.message = "Souci pendant la fabrication : pause avant le prochain essai."
+        notify.send("Piano Studio", f"La fabrication a échoué ({self.fails} fois de suite). Nouvel essai automatique plus tard : regarde la page de l'agent.", key="autopilot-fail")

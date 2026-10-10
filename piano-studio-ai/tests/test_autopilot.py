@@ -80,3 +80,25 @@ def test_autopilot_tick_starts_one_job(tmp_path, monkeypatch):
     assert calls[0][3] is False and plan["immediate"] is False and plan["slots"]
     assert not server.autopilot_tick(s, start=lambda *a: calls.append(a) or True)    # déjà lancé : pas de seconde fabrication
     assert len(calls) == 1
+
+
+def test_notify_dedup_and_osascript(monkeypatch):
+    import platform
+    from app import notify
+    notify._SENT.clear()
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    calls = []
+    t = [100.0]
+    run = lambda cmd, **k: calls.append(cmd)
+    assert notify.send("T", 'dit "bonjour"', key="a", run=run, now=lambda: t[0])
+    assert not notify.send("T", "x", key="a", run=run, now=lambda: t[0] + 60)        # répétition évitée
+    assert notify.send("T", "x", key="a", run=run, now=lambda: t[0] + 7 * 3600)
+    assert len(calls) == 2 and '\\"bonjour\\"' in calls[0][-1]
+
+
+def test_notify_silent_off_mac(monkeypatch):
+    import platform
+    from app import notify
+    notify._SENT.clear()
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    assert not notify.send("T", "x", key="b", run=lambda *a, **k: 1 / 0)
