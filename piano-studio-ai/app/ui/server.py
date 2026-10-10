@@ -365,7 +365,10 @@ def autopilot_tick(s, start=None):
     if PILOT.running and idle:                                   # la fabrication lancée par le pilote est terminée : on en tire les conséquences
         planned = len(getattr(JOB, "_planned", []) or [])
         PILOT.finished(planned, JOB.state["status"] == "failed")
-    miss = PILOT.decide(s, cn, idle and not PILOT.running, my_songs_waiting(s))
+    files = inbox.waiting(s)
+    rights = inbox.rights_confirmed(s)
+    PILOT.blocked_files = 0 if rights else files
+    miss = PILOT.decide(s, cn, idle and not PILOT.running, my_songs_waiting(s) + (files if rights else 0))
     if not miss:
         return False
     try:

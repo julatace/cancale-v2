@@ -102,3 +102,12 @@ def test_notify_silent_off_mac(monkeypatch):
     notify._SENT.clear()
     monkeypatch.setattr(platform, "system", lambda: "Linux")
     assert not notify.send("T", "x", key="b", run=lambda *a, **k: 1 / 0)
+
+
+def test_blocked_files_explain_rights(tmp_path, monkeypatch):
+    from app import notify
+    monkeypatch.setattr(notify, "send", lambda *a, **k: True)
+    s = {**config.load_settings(), "autopilot": {"enabled": True, "per_day": 1, "days": 3, "times": "23:50"}}
+    ap = autopilot.AutoPilot()
+    ap.blocked_files = 4
+    assert ap.decide(s, _conn(tmp_path), True, 0) is None and "droits" in ap.message

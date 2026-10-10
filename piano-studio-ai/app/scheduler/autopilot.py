@@ -55,6 +55,7 @@ class AutoPilot:
         self.running = False
         self.message = ""
         self.last_run = None
+        self.blocked_files = 0                      # fichiers présents dans le dossier MIDI mais pas encore autorisés (case « droits » non cochée)
 
     def status(self, s, conn, songs_waiting: int) -> dict:
         c = conf(s)
@@ -78,8 +79,12 @@ class AutoPilot:
             self.message = f"✓ Agenda complet sur {c['days']} jours ({c['per_day']}/jour). Je surveille."
             return None
         if songs_waiting <= 0:
-            self.message = "En attente de nouveaux morceaux dans ton dossier MIDI."
-            notify.send("Piano Studio", "Plus de morceaux disponibles : ajoute des fichiers MIDI dans Bureau/MIDI pour garder l'agenda plein.", key="no-songs")
+            if self.blocked_files:
+                self.message = f"{self.blocked_files} nouveau(x) fichier(s) attendent ton accord : coche la case des droits dans « Mes morceaux »."
+                notify.send("Piano Studio", f"{self.blocked_files} fichier(s) MIDI attendent ton accord (case des droits dans « Mes morceaux »).", key="rights-needed")
+            else:
+                self.message = "En attente de nouveaux morceaux dans ton dossier MIDI."
+                notify.send("Piano Studio", "Plus de morceaux disponibles : ajoute des fichiers MIDI dans Bureau/MIDI pour garder l'agenda plein.", key="no-songs")
             return None
         self.message = f"Il manque {sum(m['count'] for m in miss)} vidéo(s) : fabrication en cours…"
         return miss
