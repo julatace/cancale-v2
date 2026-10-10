@@ -187,6 +187,23 @@ def cmd_post(s, a):
     return 0 if ok else 1
 
 
+def cmd_shortcuts(s, a):
+    """Crée sur le Bureau des boutons à double-cliquer : « Lancer Piano » (et « Lancer Clips » si cet agent existe)."""
+    desk = Path.home() / "Desktop"
+    desk.mkdir(exist_ok=True)
+    made = []
+    for label, inst in (("Lancer Piano", ""), ("Lancer Clips", "clips")):
+        if inst and not (config.ROOT / "data" / "instances" / inst).is_dir():
+            continue
+        f = desk / f"{label}.command"
+        f.write_text('#!/bin/bash\ncd "%s" || { echo "Dossier introuvable"; read -n 1 -s -r; exit 1; }\n./p.sh %sui\necho; read -n 1 -s -r -p "L\'agent s\'est arrêté. Appuie sur une touche pour fermer."\n'
+                     % (config.ROOT, f"--instance {inst} " if inst else ""))
+        f.chmod(0o755)
+        made.append(f.name)
+    print("✅ Boutons créés sur le Bureau : " + ", ".join(made) + "\n   Premier lancement : clic droit → Ouvrir (macOS demande une confirmation une seule fois).")
+    return 0
+
+
 def cmd_ui_port(s, a):
     print(int((s.get("ui") or {}).get("port", 8765)))
     return 0
@@ -438,7 +455,7 @@ def main(argv=None):
     cmds["fetch-midi"] = cmd_fetch_midi
     cmds["mac-rec-test"] = cmd_mac_rec_test
     cmds["ui"] = cmd_ui
-    cmds["ui-port"], cmds["instance-init"], cmds["post"] = cmd_ui_port, cmd_instance_init, cmd_post
+    cmds["ui-port"], cmds["instance-init"], cmds["post"], cmds["shortcuts"] = cmd_ui_port, cmd_instance_init, cmd_post, cmd_shortcuts
     cmds["autostart"] = cmd_autostart
     cmds["youtube-login"] = cmd_youtube_login
     cmds["publish-check"] = cmd_publish_check

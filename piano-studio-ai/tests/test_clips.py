@@ -185,3 +185,15 @@ def test_post_command_requires_when_and_publishes(env, tmp_path, monkeypatch):
     assert cli.cmd_post(s, A(at="2030-01-02 19:00")) == 0 and calls[0].year == 2030
     monkeypatch.setattr(q, "publish_video", lambda *a, **k: [{"platform": "tiktok", "status": "FAILED", "detail": "x"}])
     assert cli.cmd_post(s, A(now=True)) == 1
+
+
+def test_shortcuts_are_executable_and_launch_the_right_agent(tmp_path, monkeypatch):
+    from app import cli
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(config, "ROOT", tmp_path / "proj")
+    (tmp_path / "proj" / "data" / "instances" / "clips").mkdir(parents=True)
+    assert cli.cmd_shortcuts({}, None) == 0
+    piano, clip = tmp_path / "Desktop" / "Lancer Piano.command", tmp_path / "Desktop" / "Lancer Clips.command"
+    assert os.access(piano, os.X_OK) and os.access(clip, os.X_OK)
+    assert "./p.sh ui" in piano.read_text() and "--instance clips ui" in clip.read_text()
+    assert subprocess.run(["bash", "-n", str(piano)]).returncode == 0 and subprocess.run(["bash", "-n", str(clip)]).returncode == 0
