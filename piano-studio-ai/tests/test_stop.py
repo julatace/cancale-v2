@@ -81,3 +81,13 @@ def test_uncertain_listing_and_resolution(tmp_path):
     assert not mp4.exists() and conn.execute("SELECT status FROM videos WHERE id=5").fetchone()["status"] == "PUBLISHED"
     with pytest.raises(ValueError):
         q.resolve_uncertain(s, conn, 5, "youtube", "online")
+
+
+def test_where_points_to_the_failing_line():
+    from app.director import progress
+    try:
+        from app.director import difficulty
+        difficulty.stretch_notes([], 1.0)[3]
+    except IndexError as e:
+        w = progress.where(e)
+        assert "IndexError" not in w and ":" in w and " dans " in w

@@ -18,3 +18,14 @@ def reset():
 def get() -> dict:
     with _lock:
         return dict(_state)
+
+
+def where(e: BaseException) -> str:
+    """Endroit du code où l'erreur s'est produite (« fichier.py:ligne dans fonction ») : permet de corriger sans deviner."""
+    import traceback
+    tb = traceback.extract_tb(e.__traceback__)
+    mine = [f for f in tb if "/app/" in f.filename.replace("\\", "/")] or tb
+    if not mine:
+        return ""
+    f = mine[-1]
+    return f"{f.filename.replace(chr(92), '/').split('/app/')[-1]}:{f.lineno} dans {f.name}"

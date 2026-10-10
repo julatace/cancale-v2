@@ -128,9 +128,10 @@ class Job:
             with self.lock:
                 self.state.update(status="cancelled", error=None)
         except Exception as e:  # jamais de plantage silencieux
-            self._add(f"✖ ERREUR : {type(e).__name__}: {e}")
+            logging.getLogger("piano").exception("erreur de fabrication")
+            self._add(f"✖ ERREUR : {type(e).__name__}: {e} [{progress.where(e)}]")
             with self.lock:
-                self.state.update(status="failed", error=f"{type(e).__name__}: {e}")
+                self.state.update(status="failed", error=f"{type(e).__name__}: {e} [{progress.where(e)}]")
         finally:
             lg.removeHandler(h)
             stock.refill_in_background(settings)          # prépare déjà le(s) prochain(s) morceau(x)
@@ -175,7 +176,8 @@ class Job:
             except control.Cancelled:
                 raise
             except Exception as e:
-                self._add(f"✖ Cette création a échoué : {type(e).__name__}: {e}")
+                logging.getLogger("piano").exception("création échouée")
+                self._add(f"✖ Cette création a échoué : {type(e).__name__}: {e} [{progress.where(e)}]")
                 if "Plus aucun morceau" in str(e):                      # plus rien à fabriquer : inutile d'insister
                     break
                 continue
