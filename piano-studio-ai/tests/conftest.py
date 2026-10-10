@@ -20,3 +20,10 @@ def _isolated_last_batch(monkeypatch, tmp_path_factory):
     """La trace de la « dernière fabrication » ne doit jamais fuiter entre les tests (ni toucher aux vrais fichiers)."""
     from app.scheduler import queue
     monkeypatch.setattr(queue, "BATCH_FILE", tmp_path_factory.mktemp("batch") / "last_batch.json")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_send_lock(monkeypatch, tmp_path_factory):
+    """Le verrou d'envoi (partagé entre agents sur le disque) ne doit jamais bloquer les tests ni être tenu par un autre processus."""
+    from app.scheduler import queue
+    monkeypatch.setattr(queue, "LOCK_FILE", tmp_path_factory.mktemp("lock") / ".send.lock")

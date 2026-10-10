@@ -6,6 +6,7 @@ doit avoir l'accès Accessibilité. Le texte passe par le presse-papiers (aucun 
 NON testé sur un vrai TikTok : l'interface web de TikTok change ; chaque étape dit ce qui bloque.
 """
 from app import config as _config
+from app.director import control
 import json
 import logging
 import re
@@ -92,7 +93,7 @@ def _wait(cond_js: str, what: str, timeout: int = 90) -> None:
             last = str(e)
             if "JavaScript" in last or "allow" in last.lower() or "autoris" in last.lower():
                 raise                                              # réglage Safari manquant : inutile d'attendre 90 s
-        time.sleep(2)
+        nap(2)
     try:
         info = _js('document.location.href + " | " + document.title + " | fichiers:" + document.querySelectorAll("input[type=file]").length')
     except RuntimeError as e:
@@ -161,7 +162,7 @@ def _tt_fields() -> list[dict]:
 
 def _open_field(i: int) -> None:
     _js(f"(function(){{var e=window.__ttf&&window.__ttf[{i}];if(e){{e.scrollIntoView({{block:'center'}});e.focus&&e.focus();e.click()}}return 'ok'}})()")
-    time.sleep(0.8)
+    nap(0.8)
 
 
 def _pick_text(text: str) -> bool:
@@ -180,12 +181,12 @@ def set_public_tiktok(say) -> None:
     """Règle « Qui peut voir cette vidéo » sur « Tout le monde » (public). S'arrête si TikTok reste en privé : jamais de vidéo privée par erreur."""
     say("🌍 Visibilité TikTok : Tout le monde…")
     _js("(function(){var l=[...document.querySelectorAll('div,span,label')].find(e=>/^(qui peut (voir|regarder)|who can (view|watch))/i.test((e.innerText||'').trim())&&e.getBoundingClientRect().height<80);if(l)l.scrollIntoView({block:'center'});return 'ok'})()")
-    time.sleep(0.5)
+    nap(0.5)
     if _js(_click_text_js(PUBLIC_RE)) != "true":                              # liste fermée : on ouvre le menu qui affiche la valeur actuelle, puis on choisit
         if _js(_click_text_js(PRIVATE_RE + r"$")) == "true":
-            time.sleep(0.8)
+            nap(0.8)
             _js(_click_text_js(PUBLIC_RE))
-    time.sleep(0.6)
+    nap(0.6)
     seen = _js("(function(){var l=[...document.querySelectorAll('div,span,label')].find(e=>/^(qui peut (voir|regarder)|who can (view|watch))/i.test((e.innerText||'').trim()));"
                "if(!l)return '';var c=l;for(var i=0;i<4&&c.parentElement;i++){c=c.parentElement;if((c.innerText||'').length>25)break}return (c.innerText||'').replace(/\\s+/g,' ').slice(0,200)})()")
     if seen and re.search(PRIVATE_RE, seen, re.I) and not re.search(r"(tout le monde|everyone|public)", seen, re.I):
@@ -197,9 +198,9 @@ def save_draft_tiktok(say) -> bool:
     say("📝 Programmation impossible : j'enregistre la vidéo en brouillon dans TikTok…")
     if _js(_click_text_js(r"(enregistrer (le |en )?brouillon|save (as |to )?draft|^brouillon$|^draft$)")) != "true":
         return False
-    time.sleep(3)
+    nap(3)
     _js(_click_text_js(r"^(confirmer|confirm|ok|enregistrer|save)$"))
-    time.sleep(2)
+    nap(2)
     return True
 
 
@@ -208,7 +209,7 @@ def schedule_tiktok(when, say) -> None:
     say(f"🗓 Programmation sur TikTok : {when:%d/%m/%Y %H:%M}…")
     if _js(_click_text_js(r"^(planifier|programmer|schedule)")) != "true":
         raise RuntimeError("option « Planifier » introuvable dans TikTok Studio")
-    time.sleep(1.2)
+    nap(1.2)
     fields = _tt_fields()
     date_f = next((f for f in fields if f["kind"] == "date"), None)
     time_f = next((f for f in fields if f["kind"] == "time"), None)
@@ -222,12 +223,12 @@ def schedule_tiktok(when, say) -> None:
             break
         if not _pick_text(str(when.day)):
             _js(_click_text_js(r"^(›|>|»|next|suivant)$"))
-            time.sleep(0.6)
+            nap(0.6)
             _pick_text(str(when.day))
     _open_field(time_f["i"])                                              # heure : liste des heures puis des minutes (pas de 5)
     hh, mm = f"{when.hour:02d}", f"{(when.minute // 5) * 5:02d}"
-    _pick_text(hh); time.sleep(0.4); _pick_text(mm)
-    _js("document.body.click()"); time.sleep(0.6)
+    _pick_text(hh); nap(0.4); _pick_text(mm)
+    _js("document.body.click()"); nap(0.6)
     seen = " ".join(f["value"] for f in _tt_fields())
     if f"{hh}:{mm}" not in seen.replace(" ", "") and f"{int(hh)}:{mm}" not in seen:
         raise RuntimeError(f"l'heure choisie ({hh}:{mm}) n'apparaît pas dans TikTok (valeurs lues : {seen[:80]})")
@@ -247,7 +248,7 @@ def _real_click_upload(say, strict: bool = True) -> None:
         say(f"🖱 Clic sur le bouton d'envoi ({x},{y})")
         subprocess.run(["cliclick", f"m:{x},{y}", "w:300", f"c:{x},{y}"], check=True)
         for _ in range(12):                                   # jusqu'à 6 s pour voir la fenêtre « Ouvrir »
-            time.sleep(0.5)
+            nap(0.5)
             if _sheet_open():
                 return
     if not strict:                                           # détection impossible : le bouton a bien été cliqué, on continue (la suite vérifie le résultat)
@@ -265,6 +266,20 @@ def _shot(name="tiktok_web_erreur.png"):
         return str(out)
     except Exception:
         return ""
+
+
+CLICKED = {"v": False}                 # vrai dès que le dernier clic (Publier / Planifier) est fait : un arrêt après ça est « incertain », pas « échoué »
+
+
+def nap(sec: float):
+    """Pause qui réagit au bouton « Arrêter » (toutes les 0,25 s) au lieu de bloquer jusqu'à la fin de l'attente."""
+    end = time.monotonic() + sec
+    while True:
+        control.check()
+        left = end - time.monotonic()
+        if left <= 0:
+            return
+        time.sleep(min(0.25, left))
 
 
 def trace(site: str, label: str) -> None:
@@ -342,7 +357,7 @@ def open_url(url: str, say, label: str, site: str = "web") -> None:
             pass
         _osa(f'tell application "{BROWSER}" to set URL of {TARGET} to "{url}"')
         _focus_tab(TARGET)
-        time.sleep(2)
+        nap(2)
         _wait("String(document.readyState==='complete')", f"la page {label} ne se charge pas", 45)
         return
     TARGET = "active tab of front window"
@@ -354,7 +369,7 @@ def open_url(url: str, say, label: str, site: str = "web") -> None:
         d = resolve_profile(PROFILE)
         say(f"👤 Profil Chrome utilisé : {d}")
         subprocess.run(["open", "-na", BROWSER, "--args", f"--profile-directory={d}", url], check=True)   # -n : sinon Chrome déjà lancé ignore le profil demandé
-        time.sleep(3)
+        nap(3)
         _osa(f'tell application "{BROWSER}" to activate')
     else:
         try:
@@ -403,7 +418,7 @@ def _dialog_pick(path, say) -> None:
     """Plan B : vrai clic sur le bouton, puis fenêtre « Ouvrir » de macOS (⇧⌘G -> chemin collé -> Entrée)."""
     say("📁 Sélection du fichier avec la fenêtre « Ouvrir »…")
     _real_click_upload(say, strict=False)
-    time.sleep(0.8)
+    nap(0.8)
     _clip(str(path))
     _keys('keystroke "g" using {command down, shift down}', "delay 1", 'keystroke "v" using command down', "delay 1",
           "key code 36", "delay 1.5", "key code 36")
@@ -426,7 +441,7 @@ def choose_file(path, say, verify: str | None = None, wait: int = 30) -> None:
                 return
         except RuntimeError:
             pass
-        time.sleep(2)
+        nap(2)
     say("↪ La page n'a pas réagi à l'envoi direct : j'essaie avec la fenêtre « Ouvrir »…")
     _dialog_pick(path, say)
 
@@ -442,17 +457,17 @@ def _post(video, caption, publish, say, publish_at=None):
     choose_file(video, say, verify='String(!!document.querySelector("[contenteditable=true]"))')
     say("⏫ Envoi de la vidéo vers TikTok…")
     _wait('String(!!document.querySelector("[contenteditable=true]"))', "la vidéo n'a pas fini de charger", 180)
-    time.sleep(3)
+    nap(3)
     say("✍️ Légende et hashtags…")
     _js('var e=document.querySelector("[contenteditable=true]"); e.focus(); document.execCommand("selectAll"); "ok"')
     body, tags = split_caption(caption)
     _clip(body)
     _keys('keystroke "v" using command down')
-    time.sleep(1)
+    nap(1)
     for tag in tags:                                   # chaque hashtag est TAPÉ puis validé par un espace : TikTok le transforme en vrai hashtag
         _keys('keystroke " "', f'keystroke "{tag}"', "delay 1.2", 'keystroke " "', "delay 0.4")
     _keys("delay 0.5", "key code 53")                  # Échap : ferme la liste de suggestions encore ouverte
-    time.sleep(1.5)
+    nap(1.5)
     typed = _js('var e=document.querySelector("[contenteditable=true]");e?(e.innerText||e.textContent||"").trim():""')
     if len(typed) < min(len(body), 8):                                       # légende vide ou perdue : on s'arrête au lieu de publier sans texte
         raise RuntimeError(f"la légende n'a pas été écrite dans TikTok (lu : « {typed[:40]} »)")
@@ -475,12 +490,13 @@ def _post(video, caption, publish, say, publish_at=None):
         say("✋ Tout est prêt dans le navigateur : vérifie puis clique sur « Publier » toi-même.")
         return "prêt (non publié)"
     say("🚀 Clic sur « Planifier »…" if when else "🚀 Clic sur « Publier »…")
+    CLICKED["v"] = True
     pat = "planifier|programmer|schedule" if when else "publier|post"
     ok = _js('var b=[...document.querySelectorAll("button")].find(x=>/^(' + pat + ')$/i.test(x.innerText.trim())&&!x.disabled);'
              'if(b){b.click();"true"}else{"false"}')
     if ok != "true":
         raise RuntimeError("bouton « Publier » introuvable ou grisé (vidéo encore en traitement ?)")
-    time.sleep(4)
+    nap(4)
     _js('var b=[...document.querySelectorAll("button")].find(x=>/^(publier maintenant|post now|confirmer|confirm|planifier|schedule)$/i.test(x.innerText.trim())&&!x.disabled&&x.getBoundingClientRect().width>0&&document.querySelectorAll("[role=dialog],.TUXModal,.modal").length>0); if(b)b.click(); "ok"')
     end = time.monotonic() + 40                                              # TikTok doit CONFIRMER : on ne dit « publié » que si c'est vrai
     done = False
@@ -489,7 +505,7 @@ def _post(video, caption, publish, say, publish_at=None):
                ' && !document.querySelector("input[type=file]:not([hidden])") || !/upload/.test(location.pathname))') == "true":
             done = True
             break
-        time.sleep(2)
+        nap(2)
     trace("tiktok", "3_apres_publication")
     if not done:
         raise RuntimeError("TikTok n'a pas confirmé la publication (la page est restée sur l'envoi)")
@@ -511,8 +527,13 @@ class TikTokWeb:
         global PROFILE
         PROFILE = self.profile
         pa = meta.get("publish_at")
+        CLICKED["v"] = False
         try:
             st = post(video, cap, self.go or bool(pa), publish_at=pa)
+        except control.Cancelled:
+            if CLICKED["v"]:                                     # arrêté APRÈS le dernier clic : peut-être déjà en ligne
+                return Result(self.platform, "UNCERTAIN", "", "arrêté après l'envoi : regarde TikTok Studio > Publications avant de réessayer")
+            return Result(self.platform, "FAILED", "", "arrêté par toi avant la fin : rien n'a été publié")
         except Exception as e:
             return Result(self.platform, "FAILED", "", f"{e}")
         if st.startswith("brouillon"):

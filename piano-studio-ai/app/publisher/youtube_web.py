@@ -45,9 +45,9 @@ def _paste_into(selector: str, text: str) -> None:
     for attempt in range(5):
         got = tw._js(_insert_js(selector, text))
         if got == "absent":
-            time.sleep(1.5)
+            tw.nap(1.5)
             continue
-        time.sleep(1.6)                                              # laisse YouTube finir de « s'installer » avant de vérifier
+        tw.nap(1.6)                                              # laisse YouTube finir de « s'installer » avant de vérifier
         if _same(_read(selector), text):
             return
         log.warning("texte écrasé par YouTube (%s…), nouvel essai %d/5", (_read(selector) or "")[:30], attempt + 1)
@@ -56,7 +56,7 @@ def _paste_into(selector: str, text: str) -> None:
         raise RuntimeError(f"zone de texte YouTube introuvable ({selector})")
     tw._clip(text)
     tw._keys('keystroke "v" using command down')
-    time.sleep(1.2)
+    tw.nap(1.2)
     got = _read(selector)
     if not _same(got, text):
         raise RuntimeError(f"le texte n'a pas été écrit dans YouTube ({selector}) : « {(got or '')[:40]} »")
@@ -77,7 +77,7 @@ def _wait_progress(cond_js: str, what: str, timeout: int, say) -> None:
             prog = tw._js('var p=document.querySelector("ytcp-video-upload-progress");(p?p.innerText:"").replace(/\\s+/g," ").slice(0,90)')
             if prog:
                 say(f"   YouTube : {prog}")
-        time.sleep(3)
+        tw.nap(3)
     raise RuntimeError(f"{what} (délai dépassé)")
 
 
@@ -85,7 +85,7 @@ def _visibility(publish_at, say) -> None:
     """Dernière étape de YouTube Studio : toujours « Public » ; avec une date, « Programmer » (YouTube met la vidéo en ligne lui-même à l'heure choisie)."""
     if not _click('tp-yt-paper-radio-button[name="PUBLIC"]'):
         raise RuntimeError("choix « Public » introuvable")
-    time.sleep(0.6)
+    tw.nap(0.6)
     if tw._js('var r=document.querySelector(\'tp-yt-paper-radio-button[name="PUBLIC"]\');r?String(r.getAttribute("aria-checked")==="true"||r.hasAttribute("checked")):"false"') != "true":
         raise RuntimeError("la vidéo est restée privée : le choix « Public » n'a pas été pris en compte")
     if not publish_at:
@@ -107,10 +107,10 @@ def _visibility(publish_at, say) -> None:
         if got == "absent":
             raise RuntimeError(f"champ de programmation YouTube introuvable ({sel})")
         tw._keys("key code 36", "delay 0.5")                                      # Entrée : valide la date / l'heure saisie
-        time.sleep(0.6)
+        tw.nap(0.6)
         if sel.startswith("#time"):
             tw._js(f"(function(){{var e=document.querySelector({json.dumps(sel)});e&&e.click();return 'ok'}})()")
-    time.sleep(0.6)
+    tw.nap(0.6)
     shown = tw._js('(function(){var d=document.querySelector("#datepicker-trigger"),t=document.querySelector("#time-of-day-container input");'
                    'return (d?d.innerText:"")+" | "+(t?t.value:"")})()')
     day_ok = str(when.day) in re.findall(r"\d+", shown.split("|")[0])
@@ -124,9 +124,9 @@ def _save_draft(say) -> bool:
     say("📝 Programmation impossible : la vidéo reste en brouillon dans YouTube Studio…")
     if tw._js('var b=document.querySelector("ytcp-uploads-dialog #close-button button, ytcp-uploads-dialog #close-button, #close-button");if(b){b.click();"true"}else{"false"}') != "true":
         return False
-    time.sleep(2)
+    tw.nap(2)
     tw._js(tw._click_text_js(r"^(fermer|close|enregistrer|save|oui|yes)$"))
-    time.sleep(1.5)
+    tw.nap(1.5)
     return True
 
 
@@ -156,7 +156,7 @@ def _post(video, title, description, publish, say, publish_at=None) -> str:
     UPLOAD_STARTED = True
     say("⏫ Envoi de la vidéo vers YouTube…")
     tw._wait('String(!!document.querySelector("#title-textarea #textbox"))', "le formulaire de la vidéo n'apparaît pas", 180)
-    time.sleep(2)
+    tw.nap(2)
     say("✍️ Titre et description…")
     _paste_into("#title-textarea #textbox", title[:100])
     _paste_into("#description-textarea #textbox", description[:4900])
@@ -164,10 +164,10 @@ def _post(video, title, description, publish, say, publish_at=None) -> str:
     if not _click('tp-yt-paper-radio-button[name="VIDEO_MADE_FOR_KIDS_NOT_MFK"]'):
         raise RuntimeError("choix « pas conçue pour les enfants » introuvable")
     for step in ("Détails", "Éléments de la vidéo", "Vérifications"):          # Suivant ×3 jusqu'à la visibilité
-        time.sleep(1.5)
+        tw.nap(1.5)
         if not _click("#next-button"):
             raise RuntimeError(f"bouton « Suivant » introuvable (étape {step})")
-    time.sleep(1.5)
+    tw.nap(1.5)
     tw.trace("youtube", "1_texte")
     try:
         _visibility(publish_at, say)
@@ -181,7 +181,8 @@ def _post(video, title, description, publish, say, publish_at=None) -> str:
         say("✋ Tout est prêt dans YouTube Studio : vérifie puis clique sur « Publier » toi-même.")
         return "prêt (non publié)"
     say("🚀 Clic sur « Publier »…")
-    time.sleep(1)
+    tw.CLICKED["v"] = True
+    tw.nap(1)
     budget = int(min(2400, 240 + video.stat().st_size / 1e6 * 60))             # connexion lente : l'envoi peut durer plusieurs minutes (YouTube ne finalise qu'à la fin)
     say(f"⏳ Attente de la fin de l'envoi vers YouTube (jusqu'à {budget // 60} min)…")
     _wait_progress('String(!!document.querySelector("#done-button:not([disabled])") && document.querySelector("#done-button").getAttribute("aria-disabled")!=="true")',
@@ -199,7 +200,7 @@ def _post(video, title, description, publish, say, publish_at=None) -> str:
         if tw._js('String(!!document.querySelector("ytcp-video-share-dialog, #share-url, .video-url-fadeable") || !document.querySelector("ytcp-uploads-dialog"))') == "true":
             done = True
             break
-        time.sleep(2)
+        tw.nap(2)
     tw.trace("youtube", "3_apres_publication")
     if not done:
         raise RuntimeError("YouTube n'a pas confirmé la publication (la fenêtre d'envoi est restée ouverte)")
@@ -226,8 +227,13 @@ class YouTubeWeb:
         sn = YouTube.build_snippet({**meta, "title": meta.get("youtube_title") or meta.get("title") or "Piano"}, "public", "10")["snippet"]
         tw.PROFILE = self.profile
         pa = meta.get("publish_at")
+        tw.CLICKED["v"] = False
         try:
             st = post(video, sn["title"], sn["description"], self.go or bool(pa), publish_at=pa)
+        except tw.control.Cancelled:
+            if tw.CLICKED["v"]:                                  # arrêté APRÈS le dernier clic : peut-être déjà en ligne -> jamais renvoyé tout seul
+                return Result(self.platform, "UNCERTAIN", "", "arrêté après l'envoi : regarde YouTube Studio > Contenu avant de réessayer")
+            return Result(self.platform, "FAILED", "", "arrêté par toi avant la fin : un brouillon peut rester dans YouTube Studio (à supprimer)")
         except Exception as e:
             if UPLOAD_STARTED:                                    # la vidéo est peut-être déjà dans YouTube Studio (brouillon) : pas de renvoi automatique
                 return Result(self.platform, "UNCERTAIN", "", f"{e} — interrompu après l'envoi : regarde YouTube Studio > Contenu avant de réessayer")

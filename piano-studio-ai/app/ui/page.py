@@ -285,6 +285,10 @@ details.fold>.card{box-shadow:none;border:0;padding:6px 0 16px;margin:0;backgrou
 
 </main>
 <main class="panel" id="tab-schedule" role="tabpanel" hidden>
+<section class="card" id="uncertain" hidden style="border:2px solid var(--bad)">
+  <div class="step"><div><h2>⚠ À vérifier avant de continuer</h2><p>Un envoi a été arrêté ou n'a pas été confirmé. Regarde dans TikTok / YouTube si la vidéo y est, puis réponds : l'agent ne renvoie jamais seul (risque de doublon).</p></div></div>
+  <div id="unclist"></div>
+</section>
 <section class="card pilot" id="auto">
   <div class="pilot-row">
     <label class="sw big"><input type="checkbox" id="apon"><span><b id="aplabel">Pilote automatique</b><small id="apmsg">…</small></span></label>
@@ -531,6 +535,10 @@ function clipsLoad(){api('/api/clips').then(c=>{if(c.kind!=='clips')return;$('#c
   if(document.activeElement!==$('#cdesc'))$('#cdesc').value=c.description;if(document.activeElement!==$('#ctags'))$('#ctags').value=c.hashtags}).catch(()=>{})}
 function clipsSave(){api('/api/clips',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({folder:$('#cfolder').value,description:$('#cdesc').value,hashtags:$('#ctags').value})}).then(()=>clipsLoad())}
 $('#cfsave').onclick=clipsSave;$('#cdesc').onchange=clipsSave;$('#ctags').onchange=clipsSave;
+const SITES={youtube:['YouTube Studio','https://studio.youtube.com'],tiktok:['TikTok Studio','https://www.tiktok.com/tiktokstudio/content']};
+function unc(){api('/api/uncertain').then(l=>{const c=$('#uncertain');if(!Array.isArray(l)||!l.length){c.hidden=true;return}c.hidden=false;
+  $('#unclist').innerHTML=l.map(x=>{const[n,u]=SITES[x.platform]||[x.platform,'#'];return `<div class="v" style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 0;border-top:1px solid var(--line)"><div><b>${esc(x.title||'Vidéo')}</b><br><small>${esc(n)} · <a href="${u}" target="_blank" rel="noopener">ouvrir ${esc(n)}</a></small></div><span><button class="btn" data-uv="${x.video_id}" data-up="${esc(x.platform)}" data-uo="online">✅ Elle est en ligne</button> <button class="btn alt" data-uv="${x.video_id}" data-up="${esc(x.platform)}" data-uo="retry">🔁 Pas en ligne : réessayer</button></span></div>`}).join('')})}
+$('#unclist').onclick=e=>{const b=e.target.closest('[data-uv]');if(!b)return;b.disabled=true;api('/api/uncertain/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_id:+b.dataset.uv,platform:b.dataset.up,outcome:b.dataset.uo})}).then(r=>{if(r.error)alert(r.error);unc();hl()})};
 function hl(){api('/api/health').then(h=>{if(h.error)return;const e=$('#health');
   e.innerHTML=`<b style="color:var(--ok)">${h.published}</b> envoyée${h.published>1?'s':''}`+(h.failed?` · <b style="color:var(--bad)">${h.failed} à vérifier</b>`:'')+`<br><small>disque : ${h.disk_gb} Go libres</small>`+(h.errors.length?`<br><small style="color:var(--bad)">${esc(h.errors[0].stage)} : ${esc(h.errors[0].message)}</small>`:'')})}
 function ap(){api('/api/autopilot').then(a=>{if(a.error)return;$('#apon').checked=!!a.enabled;$('#apday').value=a.per_day;$('#apdays').value=a.days;
@@ -554,14 +562,14 @@ function poll(){api('/api/status?since='+since).then(s=>{
 })}
 $('#maxrec').onchange=()=>api('/api/setting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:'max_record_seconds',value:+$('#maxrec').value})}).then(r=>{if(r.error){alert(r.error);api('/api/options').then(o=>$('#maxrec').value=o.max_record_seconds)}else{$('#maxrec').value=r.max_record_seconds;estimate()}});
 $('#stoprec').onclick=()=>{$('#stoprec').disabled=true;$('#stoprec').dataset.busy=1;$('#now').textContent='Arrêt de l\'enregistrement… la vidéo sera montée avec ce qui est enregistré';api('/api/stop-recording',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(()=>setTimeout(()=>{delete $('#stoprec').dataset.busy},4000))};
-$('#stop').onclick=()=>{if(!confirm('Annuler la création ? Rien ne sera gardé.'))return;$('#stop').disabled=true;$('#now').textContent='Annulation… (Synthesia va se fermer)';api('/api/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})};
+$('#stop').onclick=()=>{if(!confirm('Arrêter maintenant ? Ce qui est en cours sera interrompu.'))return;$('#stop').disabled=true;$('#now').textContent='Arrêt en cours… (quelques secondes)';api('/api/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})};
 $('#go').onclick=()=>{
   $('#job').hidden=false;$('#log').textContent='';$('#res').innerHTML='';$('#err').hidden=true;since=0;cur=-1;fmtLabel='';stepper();$('#now').textContent='Démarrage…';
   $('#job').scrollIntoView({behavior:'smooth',block:'start'});
   api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked,synthesia:$('#synth').checked,song_id:songId,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#now').textContent=r.error;return}if(!timer)timer=setInterval(poll,1500);poll()})};
 api('/api/options').then(o=>{opts=o;$('#maxrec').value=o.max_record_seconds;YT_DAILY=o.youtube_daily||4;$('#lang').innerHTML=o.languages.map(l=>`<option value="${l.key}"${l.key===o.default_language?' selected':''}>${l.label}</option>`).join('');$('#tc').innerHTML=o.countries.map(c=>`<option value="${c.key}">${c.label}</option>`).join('');level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
-info();vids();songs();sched();inb();ap();setInterval(ap,15000);clipsLoad();setInterval(clipsLoad,10000);hl();setInterval(hl,30000);setInterval(info,20000);setInterval(sched,30000);setInterval(inb,10000);
+info();vids();songs();sched();inb();ap();setInterval(ap,15000);clipsLoad();setInterval(clipsLoad,10000);hl();setInterval(hl,30000);unc();setInterval(unc,10000);setInterval(info,20000);setInterval(sched,30000);setInterval(inb,10000);
 api('/api/status').then(s=>{if(s.status==='running'){$('#job').hidden=false;since=0;timer=setInterval(poll,1500);poll()}});
 </script></div></body></html>
 """

@@ -11,17 +11,19 @@ from pathlib import Path
 
 from app import config
 from app.database import db
+from app.director import control
 
 log = logging.getLogger("piano.queue")
 SEND_LOCK = threading.Lock()                                      # un seul envoi à la fois dans toute l'app (jamais deux envois en parallèle)
 _PROC_LOCK = {"fh": None}
+LOCK_FILE = config.ROOT / "data" / ".send.lock"          # commun à tous les agents (même Mac) ; les tests le déplacent
 
 
 def _proc_lock_acquire(max_wait: float = 3600.0, poll: float = 3.0, path=None) -> bool:
     """Verrou entre PLUSIEURS agents (processus) : un seul pilote Chrome à la fois sur le Mac (focus, clavier, fenêtres). Attend son tour."""
     import fcntl
     import time
-    f = path or config.ROOT / "data" / ".send.lock"
+    f = path or LOCK_FILE
     f.parent.mkdir(parents=True, exist_ok=True)
     fh = open(f, "w")
     t0 = time.time()
@@ -289,6 +291,35 @@ def waiting_youtube(conn) -> list[dict]:
     return [{"video_id": r["video_id"], "slot": r["post_id"] or None} for r in rows]
 
 
+def uncertain(conn) -> list[dict]:
+    """Envois dont on ne sait pas s'ils sont partis (arrêt, coupure, absence de confirmation) : à vérifier par l'utilisateur, jamais renvoyés seuls."""
+    rows = conn.execute("SELECT p.video_id, p.platform, p.status, v.title FROM publications p JOIN videos v ON v.id=p.video_id "
+                        "WHERE p.status IN ('SENDING','UNCERTAIN') ORDER BY p.id DESC").fetchall()
+    return [{"video_id": r["video_id"], "platform": r["platform"], "status": r["status"], "title": r["title"] or ""} for r in rows]
+
+
+def resolve_uncertain(s, conn, video_id: int, platform: str, outcome: str) -> str:
+    """L'utilisateur a regardé : `online` = la vidéo est bien en ligne / programmée (on la compte, on libère le disque) ;
+    `retry` = elle n'y est pas, on autorise un nouvel envoi de CETTE plateforme."""
+    row = conn.execute("SELECT id FROM publications WHERE video_id=? AND platform=? AND status IN ('SENDING','UNCERTAIN')", (int(video_id), platform)).fetchone()
+    if row is None:
+        raise ValueError("rien à vérifier pour cette vidéo")
+    if outcome == "online":
+        conn.execute("UPDATE publications SET status='SCHEDULED', published_at=? WHERE id=?", (db.now(), row["id"]))
+        conn.execute("UPDATE videos SET status='PUBLISHED' WHERE id=?", (int(video_id),))
+        conn.commit()
+        res = [{"platform": r["platform"], "status": r["status"]} for r in conn.execute("SELECT platform, status FROM publications WHERE video_id=?", (int(video_id),))]
+        from app.director import cleanup
+        cleanup.delete_after_publish(s, conn, video_id, res)
+        return "online"
+    if outcome == "retry":
+        conn.execute("DELETE FROM publications WHERE id=?", (row["id"],))
+        conn.execute("UPDATE videos SET status='READY' WHERE id=? AND status!='PUBLISHED'", (int(video_id),))
+        conn.commit()
+        return "retry"
+    raise ValueError("choix inconnu")
+
+
 def resume_waiting(s, conn, say=log.info) -> int:
     """Envoie à YouTube, dès que sa limite quotidienne le permet, les vidéos qui attendaient (TikTok est déjà fait). Garde la date de mise en ligne prévue."""
     n = 0
@@ -387,6 +418,8 @@ def publish_video(s, conn, video_id: int, publish_at=None) -> list[dict]:
             conn.commit()
             log.info("📤 %s : %s %s", r.platform, r.status, (r.detail or "")[:100])
             out.append({"platform": r.platform, "status": r.status, "detail": r.detail})
+            if control.CANCEL.is_set():                           # « Arrêter » : on n'enchaîne pas sur l'autre plateforme
+                break
     finally:
         _proc_lock_release()
         SEND_LOCK.release()

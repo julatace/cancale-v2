@@ -124,7 +124,7 @@ class Job:
                                   planned=[{"title": p["title"], "run_at": p["run_at"], "format": p["format"]} for p in getattr(self, "_planned", [])],
                                   failures=list(getattr(self, "_fails", [])), waiting=list(getattr(self, "_waiting", [])))
         except control.Cancelled:
-            self._add("■ Création arrêtée. Synthesia est fermé et l'enregistrement coupé.")
+            self._add("■ Création arrêtée. Ce qui était en cours a été interrompu.")
             with self.lock:
                 self.state.update(status="cancelled", error=None)
         except Exception as e:  # jamais de plantage silencieux
@@ -622,6 +622,8 @@ def make_handler(settings_loader):
                 return self._json({**inbox.status(s), "to_make": my_songs_waiting(s)})
             if u.path == "/api/schedule":
                 return self._json(schedule_view(s))
+            if u.path == "/api/uncertain":
+                return self._json(squeue.uncertain(db.connect(config.resolve(s, "database"))))
             if u.path == "/api/clips":
                 return self._json(clips_status(s))
             if u.path == "/api/health":
@@ -642,7 +644,7 @@ def make_handler(settings_loader):
         def do_POST(self):
             path = urlparse(self.path).path
             if path not in ("/api/run", "/api/upload", "/api/songs/delete", "/api/stop", "/api/stop-recording", "/api/import-found",
-                        "/api/schedule/plan", "/api/schedule/cancel", "/api/publish-now", "/api/week", "/api/inbox", "/api/inbox/rights", "/api/inbox/scan", "/api/folder", "/api/setting", "/api/publish-ready", "/api/autopilot", "/api/clips"):
+                        "/api/schedule/plan", "/api/schedule/cancel", "/api/publish-now", "/api/week", "/api/inbox", "/api/inbox/rights", "/api/inbox/scan", "/api/folder", "/api/setting", "/api/publish-ready", "/api/autopilot", "/api/clips", "/api/uncertain/resolve"):
                 return self._send(404, b'{"error":"not found"}')
             origin = self.headers.get("Origin", "")
             if origin and not (origin.startswith("http://127.0.0.1") or origin.startswith("http://localhost")):
@@ -681,6 +683,13 @@ def make_handler(settings_loader):
                     config.save_local("synthesia", {"max_record_seconds": n})
                     return self._json({"max_record_seconds": n})
                 return self._json({"error": "réglage inconnu"}, 400)
+            if path == "/api/uncertain/resolve":
+                s3 = settings_loader()
+                try:
+                    out = squeue.resolve_uncertain(s3, db.connect(config.resolve(s3, "database")), int(body.get("video_id")), str(body.get("platform")), str(body.get("outcome")))
+                except (ValueError, TypeError) as e:
+                    return self._json({"error": str(e)}, 400)
+                return self._json({"ok": True, "outcome": out})
             if path == "/api/clips":
                 new = {}
                 if isinstance(body.get("folder"), str) and body["folder"].strip():
