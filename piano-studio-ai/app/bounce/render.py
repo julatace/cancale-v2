@@ -41,7 +41,7 @@ def _bg(W, H):
     arr += beam[:, :, None] * np.array([34, 28, 14], np.float32)[None, None, :]
     vig = 1 - 0.30 * (((xx - 0.5) / 0.75) ** 2 + ((yy - 0.5) / 0.85) ** 2)
     arr *= np.clip(vig, 0.55, 1)[:, :, None]
-    arr += rng.normal(0, 1.4, (H, W, 1)).astype(np.float32)
+    arr += rng.normal(0, 0.7, (H, W, 1)).astype(np.float32)
     return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8)).convert("RGBA")
 
 
@@ -376,7 +376,7 @@ def render_video(all_notes, onsets, out_path, label, subtitle="", start=0.0, dur
         progress.report("Dessin des images", 20)
         ss = 2 if (supersample or 1) >= 2 else 1
         cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{layout.W}x{layout.H}",
-               "-r", str(fps), "-i", "-", "-i", str(wav), "-c:v", "libx264", "-preset", "fast", "-crf", "16", "-tune", "animation",
+               "-r", str(fps), "-i", "-", "-i", str(wav), "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-tune", "animation",
                "-profile:v", "high", "-pix_fmt", "yuv420p", "-af", "loudnorm=I=-14:TP=-1.5:LRA=9", "-ar", "44100", "-c:a", "aac", "-b:a", "256k",
                "-shortest", "-movflags", "+faststart", str(part)]
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
