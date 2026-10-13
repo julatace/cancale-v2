@@ -482,7 +482,7 @@ def test_same_tab_is_reused_for_every_video_of_a_site(monkeypatch):
     monkeypatch.setattr(tw, "_js", lambda c: "true")
     monkeypatch.setattr(tw.time, "sleep", lambda s: None)
     tw.open_url("https://tiktok/upload", lambda m: None, "TikTok Studio", site="tiktok")           # 1re vidéo : ouverture dans le profil
-    assert tw.TABS["tiktok"] == "tab id 42 of window id 7" and tw.TARGET == "tab id 42 of window id 7"
+    assert tw.TABS["angeled92|tiktok"] == "tab id 42 of window id 7" and tw.TARGET == "tab id 42 of window id 7"
     n_open = sum(1 for k, _ in calls if k == "open")
     tw.open_url("https://tiktok/upload", lambda m: None, "TikTok Studio", site="tiktok")           # vidéos suivantes : même onglet, aucune nouvelle fenêtre
     assert sum(1 for k, _ in calls if k == "open") == n_open
