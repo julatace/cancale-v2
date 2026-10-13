@@ -12,76 +12,119 @@ const INIT_SAL = [{"id":"s0001","productId":"Casquette roger","buyPrice":14.5,"s
 const API_URL = "https://script.google.com/macros/s/AKfycbzikf-ffjXqkTOhft6kU0jOVskaf92M3IGba3hYySw6ZRyviYazmWjjhMJtaDnFJqV4Dw/exec";
 
 // Cache local + synchro Google Sheets
-const load = (k,d) => { try { const v=localStorage.getItem(k); return v?JSON.parse(v):d; } catch { return d; } };
-// Cache des dernières données pour synchro
-let _syncTimer = null;
-let _pendingSync = { catalog: null, sales: null, garageGrid: null };
+const isArr = v => Array.isArray(v);
+const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+// Lit le cache local ; renvoie le défaut si absent, illisible ou du mauvais type
+const load = (k,d) => {
+  try {
+    const raw=localStorage.getItem(k);
+    if(!raw) return d;
+    const v=JSON.parse(raw);
+    if(isArr(d) ? !isArr(v) : (isObj(d) ? !isObj(v) : false)) return d;
+    return v;
+  } catch { return d; }
+};
 
-const save = (k,v) => {
-  try { localStorage.setItem(k,JSON.stringify(v)); } catch {}
-  // Programmer une synchro vers Google Sheets (avec debounce 2s)
-  if (k === 'vinted_catalog') _pendingSync.catalog = v;
-  if (k === 'vinted_sales') _pendingSync.sales = v;
-  if (k === 'vinted_garage_grid') _pendingSync.garageGrid = v;
-  if (_pendingSync.catalog || _pendingSync.sales || _pendingSync.garageGrid) {
-    if (_syncTimer) clearTimeout(_syncTimer);
-    _syncTimer = setTimeout(() => {
-      const payload = {};
-      if (_pendingSync.catalog !== null) payload.catalog = _pendingSync.catalog;
-      if (_pendingSync.sales !== null) payload.sales = _pendingSync.sales;
-      if (_pendingSync.garageGrid !== null) payload.garageGrid = _pendingSync.garageGrid;
-      fetch(API_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
-      }).catch(err => console.error('Sync error:', err));
-      _pendingSync = { catalog: null, sales: null, garageGrid: null };
-      // Indicateur visuel
-      const el = document.getElementById('sync-indicator');
-      if (el) {
-        el.textContent = '✓ Synchronisé';
-        el.style.color = '#00e5a0';
-        setTimeout(() => { if(el) el.textContent = ''; }, 2000);
-      }
-    }, 2000);
-    // Indicateur "en cours"
-    const el = document.getElementById('sync-indicator');
-    if (el) {
-      el.textContent = '⏳ Synchro...';
-      el.style.color = '#ffb830';
+const SYNC_KEYS = { vinted_catalog:'catalog', vinted_sales:'sales', vinted_garage_grid:'garageGrid' };
+const SYNC_DELAY = 2000;
+const SYNC_MAX_RETRIES = 5;
+let _syncTimer = null;
+let _syncing = false;
+let _retries = 0;
+let _pendingSync = {};   // modifications locales pas encore confirmées envoyées
+
+const setIndicator = (text, color) => {
+  const el = document.getElementById('sync-indicator');
+  if (!el) return;
+  el.textContent = text;
+  if (color) el.style.color = color;
+};
+
+const postToSheets = (payload, keepalive=false) => fetch(API_URL, {
+  method: 'POST',
+  mode: 'no-cors',
+  headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+  body: JSON.stringify(payload),
+  keepalive,
+});
+
+const flushSync = async () => {
+  if (_syncTimer) { clearTimeout(_syncTimer); _syncTimer = null; }
+  if (_syncing || Object.keys(_pendingSync).length === 0) return;
+  _syncing = true;
+  const payload = _pendingSync;
+  _pendingSync = {};
+  try {
+    await postToSheets(payload);
+    _retries = 0;
+    setIndicator('✓ Envoyé', '#00e5a0');
+    setTimeout(() => setIndicator(''), 2000);
+  } catch (err) {
+    console.error('Sync error:', err);
+    // On remet en file sans écraser une version plus récente saisie entre-temps
+    _pendingSync = { ...payload, ..._pendingSync };
+    if (_retries < SYNC_MAX_RETRIES) {
+      _retries++;
+      setIndicator('⚠ Hors ligne, nouvel essai...', '#ffb830');
+      _syncTimer = setTimeout(flushSync, Math.min(30000, SYNC_DELAY * 2 ** _retries));
+    } else {
+      setIndicator('⚠ Synchro échouée (données gardées en local)', '#ff4d6d');
+    }
+  } finally {
+    _syncing = false;
+    // Des modifications sont arrivées pendant l'envoi
+    if (!_syncTimer && Object.keys(_pendingSync).length > 0 && _retries === 0) {
+      _syncTimer = setTimeout(flushSync, SYNC_DELAY);
     }
   }
 };
 
-// Synchro avec Google Sheets
+const save = (k,v) => {
+  try { localStorage.setItem(k,JSON.stringify(v)); }
+  catch (err) { console.error('Local save failed:', err); setIndicator('⚠ Sauvegarde locale impossible', '#ff4d6d'); }
+  const field = SYNC_KEYS[k];
+  if (!field) return;
+  _pendingSync[field] = v;
+  _retries = 0;
+  if (_syncTimer) clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(flushSync, SYNC_DELAY);
+  setIndicator('⏳ Synchro...', '#ffb830');
+};
+
+// Envoi de secours quand l'onglet est fermé ou passe en arrière-plan
+if (typeof window !== 'undefined') {
+  const flushOnLeave = () => {
+    if (Object.keys(_pendingSync).length === 0) return;
+    const payload = _pendingSync;
+    _pendingSync = {};
+    postToSheets(payload, true).catch(() => { _pendingSync = { ...payload, ..._pendingSync }; });
+  };
+  window.addEventListener('pagehide', flushOnLeave);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushOnLeave(); });
+  window.addEventListener('online', () => { _retries = 0; flushSync(); });
+}
+
+// Récupère les données Google Sheets (lecture seule : n'écrit jamais en retour vers Sheets)
 async function syncFromSheets() {
   try {
     const r = await fetch(API_URL);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
-    if (data.error) { console.error('Sync error:', data.error); return null; }
-    if (data.catalog && data.catalog.length > 0) save('vinted_catalog', data.catalog);
-    if (data.sales && data.sales.length > 0) save('vinted_sales', data.sales);
-    if (data.garageGrid && Object.keys(data.garageGrid).length > 0) save('vinted_garage_grid', data.garageGrid);
-    return data;
+    if (!isObj(data) || data.error) { console.error('Sync error:', data && data.error); return null; }
+    const out = {};
+    // Les modifications locales en attente sont plus récentes que Sheets : on ne les écrase pas
+    if (isArr(data.catalog) && data.catalog.length > 0 && !('catalog' in _pendingSync)) out.catalog = data.catalog;
+    if (isArr(data.sales) && data.sales.length > 0 && !('sales' in _pendingSync)) out.sales = data.sales;
+    if (isObj(data.garageGrid) && Object.keys(data.garageGrid).length > 0 && !('garageGrid' in _pendingSync)) out.garageGrid = data.garageGrid;
+    try {
+      if (out.catalog) localStorage.setItem('vinted_catalog', JSON.stringify(out.catalog));
+      if (out.sales) localStorage.setItem('vinted_sales', JSON.stringify(out.sales));
+      if (out.garageGrid) localStorage.setItem('vinted_garage_grid', JSON.stringify(out.garageGrid));
+    } catch {}
+    return out;
   } catch (err) {
     console.error('Sync failed:', err);
     return null;
-  }
-}
-
-async function syncToSheets(catalog, sales, garageGrid) {
-  try {
-    const r = await fetch(API_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ catalog, sales, garageGrid })
-    });
-    return true;
-  } catch (err) {
-    console.error('Sync up failed:', err);
-    return false;
   }
 }
 const fmt  = n => isNaN(+n)?'—':Number(n).toFixed(2).replace('.',',')+' €';
@@ -1216,8 +1259,13 @@ function BackupModal({catalog,sales,garageGrid,blockedCells,onClose,onImport}) {
     reader.onload=(ev)=>{
       try{
         const data=JSON.parse(ev.target.result);
-        if(!data.catalog&&!data.sales){
+        const okCat=data&&Array.isArray(data.catalog), okSal=data&&Array.isArray(data.sales);
+        if(!okCat&&!okSal){
           alert('❌ Fichier invalide : pas de données détectées');
+          return;
+        }
+        if((data.catalog!==undefined&&!okCat)||(data.sales!==undefined&&!okSal)){
+          alert('❌ Fichier invalide : catalogue ou ventes corrompus');
           return;
         }
         if(window.confirm(`Importer cette sauvegarde ?\n\nCatalogue: ${data.catalog?.length||0} paires\nVentes: ${data.sales?.length||0} ventes\n\n⚠️ Tes données actuelles seront remplacées.`)){
@@ -1281,14 +1329,12 @@ function BackupModal({catalog,sales,garageGrid,blockedCells,onClose,onImport}) {
 export default function App() {
   const [tab,setTab]=useState('dashboard');
   const [catalog,setCatalog]=useState(()=>{
-    const s=load('vinted_catalog',null);
-    if(!s||s.length===0){return INIT_CAT;}
-    return s;
+    const s=load('vinted_catalog',[]);
+    return s.length===0?INIT_CAT:s;
   });
   const [sales,setSales]=useState(()=>{
-    const s=load('vinted_sales',null);
-    if(!s||s.length===0){save('vinted_sales',INIT_SAL);return INIT_SAL;}
-    return s;
+    const s=load('vinted_sales',[]);
+    return s.length===0?INIT_SAL:s;
   });
   const [garageGrid,setGarageGrid]=useState(()=>load('vinted_garage_grid',{}));
   const [blockedCells,setBlockedCells]=useState(()=>load('vinted_blocked',{}));
@@ -1299,14 +1345,15 @@ export default function App() {
   
   // Au démarrage : charger les données depuis Google Sheets
   useEffect(() => {
+    let cancelled = false;
     syncFromSheets().then(data => {
-      if (data) {
-        if (data.catalog && data.catalog.length > 0) setCatalog(data.catalog);
-        if (data.sales && data.sales.length > 0) setSales(data.sales);
-        if (data.garageGrid && Object.keys(data.garageGrid).length > 0) setGarageGrid(data.garageGrid);
-        setSynced(true);
-      }
+      if (cancelled || !data) return;
+      if (data.catalog) setCatalog(data.catalog);
+      if (data.sales) setSales(data.sales);
+      if (data.garageGrid) setGarageGrid(data.garageGrid);
+      setSynced(true);
     });
+    return () => { cancelled = true; };
   }, []);
 
   return (
@@ -1365,10 +1412,10 @@ export default function App() {
         catalog={catalog} sales={sales} garageGrid={garageGrid} blockedCells={blockedCells}
         onClose={()=>setShowBackup(false)}
         onImport={(data)=>{
-          if(data.catalog){setCatalog(data.catalog);save('vinted_catalog',data.catalog);}
-          if(data.sales){setSales(data.sales);save('vinted_sales',data.sales);}
-          if(data.garageGrid){setGarageGrid(data.garageGrid);save('vinted_garage_grid',data.garageGrid);}
-          if(data.blockedCells){setBlockedCells(data.blockedCells);save('vinted_blocked',data.blockedCells);}
+          if(Array.isArray(data.catalog)){setCatalog(data.catalog);save('vinted_catalog',data.catalog);}
+          if(Array.isArray(data.sales)){setSales(data.sales);save('vinted_sales',data.sales);}
+          if(data.garageGrid&&typeof data.garageGrid==='object'&&!Array.isArray(data.garageGrid)){setGarageGrid(data.garageGrid);save('vinted_garage_grid',data.garageGrid);}
+          if(data.blockedCells&&typeof data.blockedCells==='object'&&!Array.isArray(data.blockedCells)){setBlockedCells(data.blockedCells);save('vinted_blocked',data.blockedCells);}
           setShowBackup(false);
           alert('✓ Restauration réussie !');
         }}
