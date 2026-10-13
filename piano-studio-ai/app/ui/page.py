@@ -213,6 +213,15 @@ details.fold>.card{box-shadow:none;border:0;padding:6px 0 16px;margin:0;backgrou
 .btn{background:var(--grad);box-shadow:0 8px 18px -10px rgba(110,80,240,.8)}.btn.alt{background:var(--brand-soft);box-shadow:none}
 .btn:hover:not(:disabled){filter:brightness(1.06)}
 .clips-only{display:none}body.clips .clips-only{display:block}body.clips .piano-only{display:none!important}
+
+.choices{display:grid;gap:10px;margin:0 0 18px;padding:14px 16px;background:var(--bg);border:1px solid var(--line);border-radius:16px}
+.ch-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ch-k{min-width:112px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
+.chip3{position:relative;cursor:pointer}.chip3 input{position:absolute;opacity:0;inset:0;cursor:pointer}
+.chip3 span{display:inline-flex;align-items:center;gap:6px;padding:10px 18px;border-radius:99px;border:2px solid var(--line);background:var(--surface);font-weight:700;font-size:15px;transition:.12s;user-select:none}
+.chip3:hover span{border-color:var(--brand)}
+.chip3 input:checked+span{background:var(--grad);border-color:transparent;color:#fff;box-shadow:0 8px 18px -10px rgba(110,80,240,.8)}
+.chip3 input:checked+span::before{content:"✓";font-weight:900}
+.chip3 input:focus-visible+span{outline:3px solid var(--brand);outline-offset:2px}
 </style></head><body><div class="wrap">
 
 <div class="topbar">
@@ -308,6 +317,11 @@ details.fold>.card{box-shadow:none;border:0;padding:6px 0 16px;margin:0;backgrou
   </details>
 </section>
 <section class="card" id="sched">
+  <div class="choices">
+    <div class="ch-row"><span class="ch-k">Je fabrique</span><label class="chip3"><input type="checkbox" id="pp"><span>🎹 Piano</span></label><label class="chip3"><input type="checkbox" id="pb"><span>🔵 Billes</span></label></div>
+    <div class="ch-row"><span class="ch-k">Je publie sur</span><label class="chip3"><input type="checkbox" id="ptt"><span>TikTok</span></label><label class="chip3"><input type="checkbox" id="pyt"><span>YouTube</span></label></div>
+    <p class="note" id="chnote" style="margin:6px 0 0"></p>
+  </div>
   <div class="agenda-head"><b>Combien de vidéos veux-tu publier chaque jour ?</b>
     <span class="quick"><button class="btn alt" data-quick="2">2 par jour (7 jours)</button><button class="btn alt" data-quick="1">1 par jour (7 jours)</button><button class="btn alt" data-quick="0">Tout effacer</button></span></div>
   <div class="agenda" id="agenda" role="group" aria-label="Agenda des prochains jours"></div>
@@ -341,10 +355,7 @@ details.fold>.card{box-shadow:none;border:0;padding:6px 0 16px;margin:0;backgrou
     <li>Ne touche pas à la souris ni au clavier pendant un envoi.</li></ol></div>
 </section>
 <section class="card">
-  <div class="step"><div><h2>Vidéos</h2></div></div>
-  <div class="fieldrow"><label class="k">Quoi fabriquer<small>Pour chaque morceau (même son pour les deux). Au moins un.</small></label><span style="display:flex;gap:18px;flex-wrap:wrap"><label class="sw"><input type="checkbox" id="pp"> 🎹 Piano</label><label class="sw"><input type="checkbox" id="pb"> 🔵 Billes</label></span></div>
-  <div class="fieldrow"><label class="k">Où publier<small>Les vidéos partent seulement sur ce que tu coches. Au moins un.</small></label><span style="display:flex;gap:18px;flex-wrap:wrap"><label class="sw"><input type="checkbox" id="ptt"> TikTok</label><label class="sw"><input type="checkbox" id="pyt"> YouTube</label></span></div>
-  <div class="step" style="margin-top:14px"><div><h2>Textes des vidéos</h2></div></div>
+  <div class="step"><div><h2>Textes des vidéos</h2></div></div>
   <div class="fieldrow"><label class="k" for="lang">Langue des textes<small>Titres, descriptions, hashtags</small></label><select id="lang" class="sel" style="max-width:220px"></select></div>
   <details><summary>Avancé</summary>
   <div class="fieldrow"><label class="k" for="maxrec">Enregistrement maximum<small>L'enregistrement d'écran s'arrête là, même si le morceau n'est pas fini</small></label><span><input type="number" id="maxrec" min="30" max="300" step="10" class="sel" style="width:100px;flex:none"> secondes</span></div>
@@ -563,9 +574,10 @@ function poll(){api('/api/status?since='+since).then(s=>{
     else if(s.result&&s.result.task){$('#now').textContent='Terminé : '+s.result.summary}
     else if(s.result){$('#now').textContent='Terminé';results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result)}}
 })}
+function chNote(){const p=$('#pp').checked,b=$('#pb').checked;$('#chnote').textContent=(p&&b?'Chaque morceau donne 2 vidéos (piano + billes, même son) : elles prennent 2 créneaux de l\'agenda.':p?'Une vidéo de piano par morceau.':'Une vidéo de billes par morceau.')}
 function saveOpt(key,names,ids){const val={};names.forEach((n,i)=>val[n]=$('#'+ids[i]).checked);
   api('/api/setting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,value:val})}).then(r=>{if(r.error){alert(r.error);api('/api/options').then(o=>{$('#pp').checked=!!o.produce_piano;$('#pb').checked=!!o.produce_bounce;$('#ptt').checked=!!o.publish_tiktok;$('#pyt').checked=!!o.publish_youtube})}})}
-['pp','pb'].forEach(i=>$('#'+i).onchange=()=>saveOpt('produce',['piano','bounce'],['pp','pb']));
+['pp','pb'].forEach(i=>$('#'+i).onchange=()=>{saveOpt('produce',['piano','bounce'],['pp','pb']);chNote()});
 ['ptt','pyt'].forEach(i=>$('#'+i).onchange=()=>saveOpt('publish_to',['tiktok','youtube'],['ptt','pyt']));
 $('#maxrec').onchange=()=>api('/api/setting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:'max_record_seconds',value:+$('#maxrec').value})}).then(r=>{if(r.error){alert(r.error);api('/api/options').then(o=>$('#maxrec').value=o.max_record_seconds)}else{$('#maxrec').value=r.max_record_seconds;estimate()}});
 $('#stoprec').onclick=()=>{$('#stoprec').disabled=true;$('#stoprec').dataset.busy=1;$('#now').textContent='Arrêt de l\'enregistrement… la vidéo sera montée avec ce qui est enregistré';api('/api/stop-recording',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(()=>setTimeout(()=>{delete $('#stoprec').dataset.busy},4000))};
@@ -575,7 +587,7 @@ $('#go').onclick=()=>{
   $('#job').scrollIntoView({behavior:'smooth',block:'start'});
   api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked,synthesia:$('#synth').checked,song_id:songId,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#now').textContent=r.error;return}if(!timer)timer=setInterval(poll,1500);poll()})};
-api('/api/options').then(o=>{opts=o;$('#pp').checked=!!o.produce_piano;$('#pb').checked=!!o.produce_bounce;$('#ptt').checked=!!o.publish_tiktok;$('#pyt').checked=!!o.publish_youtube;$('#maxrec').value=o.max_record_seconds;YT_DAILY=o.youtube_daily||4;$('#lang').innerHTML=o.languages.map(l=>`<option value="${l.key}"${l.key===o.default_language?' selected':''}>${l.label}</option>`).join('');$('#tc').innerHTML=o.countries.map(c=>`<option value="${c.key}">${c.label}</option>`).join('');level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
+api('/api/options').then(o=>{opts=o;$('#pp').checked=!!o.produce_piano;$('#pb').checked=!!o.produce_bounce;$('#ptt').checked=!!o.publish_tiktok;$('#pyt').checked=!!o.publish_youtube;chNote();$('#maxrec').value=o.max_record_seconds;YT_DAILY=o.youtube_daily||4;$('#lang').innerHTML=o.languages.map(l=>`<option value="${l.key}"${l.key===o.default_language?' selected':''}>${l.label}</option>`).join('');$('#tc').innerHTML=o.countries.map(c=>`<option value="${c.key}">${c.label}</option>`).join('');level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
 info();vids();songs();sched();inb();ap();setInterval(ap,15000);clipsLoad();setInterval(clipsLoad,10000);hl();setInterval(hl,30000);unc();setInterval(unc,10000);setInterval(info,20000);setInterval(sched,30000);setInterval(inb,10000);
 api('/api/status').then(s=>{if(s.status==='running'){$('#job').hidden=false;since=0;timer=setInterval(poll,1500);poll()}});
 </script></div></body></html>
