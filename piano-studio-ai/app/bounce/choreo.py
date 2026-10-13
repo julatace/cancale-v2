@@ -14,19 +14,78 @@ class Hit:
     seg: tuple = field(default_factory=tuple)   # (vx, vy0, g) du vol qui PART de cet impact
 
 
-def melody_onsets(notes, min_gap: float = 0.16, max_notes: int = 400):
-    """Une note par attaque : la plus aiguë d'un accord (la mélodie), en écartant celles qui sont trop proches (< min_gap) pour être suivies à l'œil."""
+def _pulse(times, lo=0.2, hi=0.8):
+    """Pulsation dominante (en secondes) et phase : l'intervalle le plus fréquent entre attaques. Sert à préférer les notes « sur le temps »."""
+    iois = [b - a for a, b in zip(times, times[1:]) if lo <= b - a <= hi]
+    if len(iois) < 8:
+        return None, 0.0
+    bins = {}
+    for x in iois:
+        k = round(x / 0.02)
+        bins[k] = bins.get(k, 0) + 1
+    best = max(bins, key=lambda k: bins[k] + 0.5 * (bins.get(k - 1, 0) + bins.get(k + 1, 0)))
+    period = best * 0.02
+    phases = [t % period for t in times]
+    ph = max(phases, key=lambda p: sum(1 for q in phases if min(abs(q - p), period - abs(q - p)) < 0.04))
+    return period, ph
+
+
+def melody_onsets(notes, min_gap: float = 0.16, max_notes: int = 400, max_rate: float = 4.5):
+    """Notes qui feront rebondir la balle : UNE par attaque (la plus aiguë d'un accord = la mélodie), choisies pour que le rebond reste
+    RYTHMÉ : on préfère les notes fortes, longues et « sur le temps » ; si deux notes sont trop proches on garde la plus forte ;
+    jamais plus de `max_rate` rebonds par seconde (au-delà, l'œil ne suit plus)."""
     ns = sorted(notes, key=lambda n: (n.start, -n.pitch))
-    out = []
+    groups = []
     for n in ns:
-        if out and n.start - out[-1][0] < 0.04:               # accord : on garde la plus aiguë (déjà la première grâce au tri)
+        if groups and n.start - groups[-1].start < 0.04:
+            continue                                                  # accord : la plus aiguë est déjà gardée (tri)
+        groups.append(n)
+    times = [g.start for g in groups]
+    vs = sorted(n.velocity for n in groups)
+    vref = vs[int(len(vs) * 0.75)] if vs else 0
+    period, phase = _pulse([n.start for n in groups if n.velocity >= 0.7 * vref])   # la pulsation vient des notes marquées, pas du bruit
+    if not period:
+        period, phase = _pulse(times)
+
+    def strength(n):
+        s = (n.velocity / 127.0) * (0.4 + min(n.end - n.start, 1.0))
+        if period:
+            off = (n.start - phase) % (period / 2)
+            if min(off, period / 2 - off) < 0.03:                   # sur le temps (ou le demi-temps)
+                s += 0.55
+        return s
+    kept = []
+    for n in groups:
+        if kept and n.start - kept[-1].start < min_gap:
+            if strength(n) > strength(kept[-1]) + 1e-6:                  # égalité : on garde la première
+                kept[-1] = n
             continue
-        if out and n.start - out[-1][0] < min_gap:
-            continue
-        out.append((n.start, n.pitch))
-        if len(out) >= max_notes:
-            break
-    return out
+        kept.append(n)
+    if period:                                                        # une pulsation claire existe : les notes faibles HORS temps (bruit, ornements discrets) sont écartées
+        def on_grid(n):
+            off = (n.start - phase) % (period / 2)
+            return min(off, period / 2 - off) < 0.03
+        grid_v = sorted(n.velocity for n in kept if on_grid(n))
+        if len(grid_v) >= 8:
+            med = grid_v[len(grid_v) // 2]
+            kept = [n for n in kept if on_grid(n) or n.velocity >= 0.6 * med]
+    window = 1.0                                                      # débit maximal : on retire les plus faibles dans toute seconde trop chargée
+    changed = True
+    while changed:
+        changed = False
+        i = 0
+        while i < len(kept):
+            j = i
+            while j + 1 < len(kept) and kept[j + 1].start - kept[i].start < window:
+                j += 1
+            if (j - i + 1) > max_rate * window:
+                weakest = min(range(i, j + 1), key=lambda k: strength(kept[k]))
+                del kept[weakest]
+                changed = True
+                break
+            i += 1
+    out = [(n.start, n.pitch) for n in kept]
+    return out[:max_notes]
 
 
 def build(onsets, width: float = 1080, margin: float = 150, h: float = 95, drop: float = 150, lead: float = 1.2, seed: int = 0):

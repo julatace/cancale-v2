@@ -225,3 +225,24 @@ def test_tabs_are_kept_per_profile():
     from app.publisher import tiktok_web as tw
     import inspect
     assert 'f"{PROFILE}|{site}"' in inspect.getsource(tw.open_url)
+
+
+def test_onsets_prefer_beat_and_limit_rate():
+    from app.bounce import choreo
+    # une pulsation régulière toutes les 0,5 s (notes fortes) + du bruit rapide entre les temps (notes faibles)
+    strong = [Note(i * 0.5, i * 0.5 + 0.4, 60 + i % 5, 110, 0) for i in range(40)]
+    noise = [Note(i * 0.5 + 0.21, i * 0.5 + 0.28, 80, 30, 0) for i in range(40)]
+    on = choreo.melody_onsets(strong + noise, min_gap=0.16)
+    on_beat = sum(1 for t, _ in on if abs((t / 0.5) - round(t / 0.5)) < 0.05)
+    assert on_beat >= 38 and len(on) <= 40 + 4                                  # le rythme est gardé, le bruit entre les temps est écarté
+    frantic = [Note(i * 0.17, i * 0.17 + 0.1, 60 + i % 9, 90, 0) for i in range(120)]
+    on2 = choreo.melody_onsets(frantic, min_gap=0.16, max_rate=4.5)
+    for t0, _ in on2:
+        assert sum(1 for t, _ in on2 if t0 <= t < t0 + 1.0) <= 5                  # jamais plus de ~4,5 rebonds par seconde
+
+
+def test_onsets_keep_chord_top_and_order():
+    from app.bounce import choreo
+    ns = [Note(0, 0.5, 60, 90, 0), Note(0.0, 0.5, 72, 90, 0), Note(1.0, 1.5, 65, 90, 0), Note(0.5, 1.0, 67, 90, 0)]
+    on = choreo.melody_onsets(ns)
+    assert [t for t, _ in on] == sorted(t for t, _ in on) and on[0] == (0.0, 72)
