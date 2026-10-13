@@ -40,6 +40,7 @@ publish_to:
   tiktok: true          # où publier (au moins un)
   youtube: true
 bounce:
+  chrome_profile: "compte lola"   # profil Chrome (= autre compte TikTok / YouTube) d'où partent les vidéos de billes ; vide = même compte que le piano
   duration: 50
   supersample: 2
 engine: auto            # auto = Synthesia si le Mac est prêt, sinon rendu intégré | synthesia | builtin

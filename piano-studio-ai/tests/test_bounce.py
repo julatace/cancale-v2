@@ -166,3 +166,62 @@ def test_setting_endpoint_requires_at_least_one(tmp_path, monkeypatch):
         assert post({"key": "produce", "value": {"piano": False, "bounce": True}}) == 200 and saved["produce"] == {"piano": False, "bounce": True}
     finally:
         srv.shutdown()
+
+
+def _pub_db(tmp_path, style):
+    from app.database import db
+    conn = db.connect(tmp_path / "p.db")
+    mp4 = tmp_path / "v.mp4"
+    mp4.write_bytes(b"x")
+    conn.execute("INSERT INTO videos(id,output_path,style,status,title,meta,created_at) VALUES(1,?,?,?,?,?,?)", (str(mp4), style, "READY", "T", "{}", "n"))
+    conn.commit()
+    return conn
+
+
+def test_bounce_videos_use_the_other_chrome_profile(tmp_path, monkeypatch):
+    from app import config
+    from app.scheduler import queue as q
+    seen = []
+
+    class Spy:
+        def __init__(self, platform, profile):
+            self.platform, self.profile = platform, profile
+
+        def publish(self, video, meta, key):
+            from app.publisher.base import Result
+            seen.append((self.platform, self.profile))
+            return Result(self.platform, "SCHEDULED", key, "ok")
+    import app.publisher as pub
+    monkeypatch.setattr(pub, "adapters", lambda s2, fmt=None: [Spy("tiktok", s2["tiktok"].get("chrome_profile")), Spy("youtube", s2["youtube"].get("chrome_profile"))])
+    s = config.load_settings()
+    s["paths"] = {**s["paths"], "data_dir": str(tmp_path)}
+    s["storage"] = {"delete_after_publish": False}
+    s["bounce"] = {"chrome_profile": "compte lola"}
+    q.publish_video(s, _pub_db(tmp_path, "bounce|vertical"), 1)
+    assert seen == [("tiktok", "compte lola"), ("youtube", "compte lola")]
+    seen.clear()
+    q.publish_video(s, _pub_db(tmp_path / "x" if (tmp_path / "x").mkdir() is None else tmp_path, "moyen|vertical"), 1)
+    assert all(p != "compte lola" for _, p in seen)                                  # le piano garde son propre compte
+
+
+def test_youtube_limit_is_per_account(tmp_path):
+    from app import config
+    from app.database import db
+    from app.scheduler import queue as q
+    s = config.load_settings()
+    s["youtube"] = {**s.get("youtube", {}), "max_uploads_per_day": 2}
+    conn = db.connect(tmp_path / "c.db")
+    for vid, style in ((1, "moyen|vertical"), (2, "moyen|vertical"), (3, "bounce|vertical")):
+        conn.execute("INSERT INTO videos(id,style,status,created_at) VALUES(?,?,?,?)", (vid, style, "READY", "n"))
+        conn.execute("INSERT INTO publications(video_id,platform,status,published_at) VALUES(?,?,?,?)", (vid, "youtube", "SCHEDULED", db.now()))
+    conn.commit()
+    s["bounce"] = {"chrome_profile": "compte lola"}
+    assert q.youtube_capacity(s, conn, "main") == 0 and q.youtube_capacity(s, conn, "bounce") == 1       # chaque compte a sa limite
+    s["bounce"] = {}
+    assert q.youtube_capacity(s, conn, "bounce") == 0                                                   # même compte : limite commune
+
+
+def test_tabs_are_kept_per_profile():
+    from app.publisher import tiktok_web as tw
+    import inspect
+    assert 'f"{PROFILE}|{site}"' in inspect.getsource(tw.open_url)

@@ -355,6 +355,9 @@ details.fold>.card{box-shadow:none;border:0;padding:6px 0 16px;margin:0;backgrou
     <li>Ne touche pas à la souris ni au clavier pendant un envoi.</li></ol></div>
 </section>
 <section class="card">
+  <div class="step"><div><h2>Compte des vidéos billes</h2><p>Les vidéos billes partent depuis un AUTRE profil Chrome (donc un autre compte TikTok et YouTube). Laisse vide pour utiliser le même compte que le piano.</p></div></div>
+  <div class="fieldrow"><label class="k" for="bprof">Profil Chrome<small>Nom du profil, ex. « compte lola »</small></label><input type="text" id="bprof" class="sel" placeholder="compte lola" style="max-width:280px"></div>
+  <p class="note" id="bprofmsg" style="margin:0 0 14px"></p>
   <div class="step"><div><h2>Textes des vidéos</h2></div></div>
   <div class="fieldrow"><label class="k" for="lang">Langue des textes<small>Titres, descriptions, hashtags</small></label><select id="lang" class="sel" style="max-width:220px"></select></div>
   <details><summary>Avancé</summary>
@@ -575,8 +578,9 @@ function poll(){api('/api/status?since='+since).then(s=>{
     else if(s.result){$('#now').textContent='Terminé';results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result)}}
 })}
 function chNote(){const p=$('#pp').checked,b=$('#pb').checked;$('#chnote').textContent=(p&&b?'Chaque morceau donne 2 vidéos (piano + billes, même son) : elles prennent 2 créneaux de l\'agenda.':p?'Une vidéo de piano par morceau.':'Une vidéo de billes par morceau.')}
+$('#bprof').onchange=()=>api('/api/setting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:'bounce_profile',value:$('#bprof').value})}).then(r=>{const m=$('#bprofmsg');if(r.error){m.className='note bad';m.textContent=r.error}else{m.className='note';m.textContent=r.bounce_profile?'✓ Les billes partiront depuis « '+r.bounce_profile+' ».':'✓ Les billes partiront du même compte que le piano.'}});
 function saveOpt(key,names,ids){const val={};names.forEach((n,i)=>val[n]=$('#'+ids[i]).checked);
-  api('/api/setting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,value:val})}).then(r=>{if(r.error){alert(r.error);api('/api/options').then(o=>{$('#pp').checked=!!o.produce_piano;$('#pb').checked=!!o.produce_bounce;$('#ptt').checked=!!o.publish_tiktok;$('#pyt').checked=!!o.publish_youtube})}})}
+  api('/api/setting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,value:val})}).then(r=>{if(r.error){alert(r.error);api('/api/options').then(o=>{$('#bprof').value=o.bounce_profile||'';$('#pp').checked=!!o.produce_piano;$('#pb').checked=!!o.produce_bounce;$('#ptt').checked=!!o.publish_tiktok;$('#pyt').checked=!!o.publish_youtube})}})}
 ['pp','pb'].forEach(i=>$('#'+i).onchange=()=>{saveOpt('produce',['piano','bounce'],['pp','pb']);chNote()});
 ['ptt','pyt'].forEach(i=>$('#'+i).onchange=()=>saveOpt('publish_to',['tiktok','youtube'],['ptt','pyt']));
 $('#maxrec').onchange=()=>api('/api/setting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:'max_record_seconds',value:+$('#maxrec').value})}).then(r=>{if(r.error){alert(r.error);api('/api/options').then(o=>$('#maxrec').value=o.max_record_seconds)}else{$('#maxrec').value=r.max_record_seconds;estimate()}});

@@ -348,8 +348,9 @@ def open_url(url: str, say, label: str, site: str = "web") -> None:
     """Ouvre `url` dans le navigateur choisi (et le bon profil Chrome). Pour une même plateforme, le MÊME onglet est réutilisé d'une vidéo à
     l'autre : aucun nouvel onglet à chaque publication."""
     global TARGET
-    if BROWSER != "Safari" and site in TABS and _tab_alive(TABS[site]):
-        TARGET = TABS[site]
+    key = f"{PROFILE}|{site}"                                  # un onglet par profil Chrome ET par site : deux comptes ne se mélangent jamais
+    if BROWSER != "Safari" and key in TABS and _tab_alive(TABS[key]):
+        TARGET = TABS[key]
         say(f"🌐 {label} : même onglet réutilisé")
         try:
             _js("window.onbeforeunload=null; 'ok'")                # évite la fenêtre « Quitter le site ? »
@@ -383,7 +384,7 @@ def open_url(url: str, say, label: str, site: str = "web") -> None:
     _wait("String(1+1==2)", f"{BROWSER} n'a pas ouvert de fenêtre de navigation (vérifie le profil dans chrome_profile)", 25)
     if BROWSER != "Safari" and site != "web":
         try:
-            TABS[site] = TARGET = _front_tab_spec()                # on retient l'onglet pour les vidéos suivantes
+            TABS[key] = TARGET = _front_tab_spec()                 # on retient l'onglet pour les vidéos suivantes
         except RuntimeError:
             pass
 

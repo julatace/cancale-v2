@@ -266,20 +266,37 @@ def cancel_all_pending(conn) -> int:
 COUNTED = ("SCHEDULED", "PUBLISHED", "DRAFT", "UNCERTAIN", "SENDING")
 
 
-def _yt_used(conn):
+def account_of(style: str | None) -> str:
+    """« bounce » = vidéos de billes (compte Chrome à part si bounce.chrome_profile est réglé), « main » = piano."""
+    return "bounce" if (style or "").startswith("bounce|") else "main"
+
+
+def separate_account(s) -> bool:
+    return bool((s.get("bounce") or {}).get("chrome_profile"))
+
+
+def _yt_used(conn, account=None):
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-    return conn.execute(f"SELECT published_at FROM publications WHERE platform='youtube' AND status IN ({','.join('?' * len(COUNTED))}) AND published_at>? ORDER BY published_at",
-                        (*COUNTED, cutoff)).fetchall()
+    q = (f"SELECT p.published_at FROM publications p JOIN videos v ON v.id=p.video_id WHERE p.platform='youtube' AND p.status IN ({','.join('?' * len(COUNTED))}) "
+         "AND p.published_at>?")
+    args = [*COUNTED, cutoff]
+    if account == "bounce":
+        q += " AND v.style LIKE 'bounce|%'"
+    elif account == "main":
+        q += " AND (v.style IS NULL OR v.style NOT LIKE 'bounce|%')"
+    return conn.execute(q + " ORDER BY p.published_at", args).fetchall()
 
 
-def youtube_capacity(s, conn) -> int:
-    """Envois YouTube encore possibles : YouTube limite le nombre de vidéos envoyées par 24 h (réglage youtube.max_uploads_per_day, 4 par défaut)."""
-    return max(int(s.get("youtube", {}).get("max_uploads_per_day", 4)) - len(_yt_used(conn)), 0)
+def youtube_capacity(s, conn, account=None) -> int:
+    """Envois YouTube encore possibles : YouTube limite le nombre de vidéos envoyées par 24 h et PAR CHAÎNE (réglage youtube.max_uploads_per_day, 4 par défaut).
+    Avec un compte à part pour les billes, chaque compte a sa propre limite."""
+    acct = account if separate_account(s) else None
+    return max(int(s.get("youtube", {}).get("max_uploads_per_day", 4)) - len(_yt_used(conn, acct)), 0)
 
 
-def youtube_free_at(s, conn):
+def youtube_free_at(s, conn, account=None):
     """Heure (locale) à laquelle YouTube accepte de nouveau un envoi."""
-    used = _yt_used(conn)
+    used = _yt_used(conn, account if separate_account(s) else None)
     cap = int(s.get("youtube", {}).get("max_uploads_per_day", 4))
     if len(used) < cap or not used:
         return datetime.now().astimezone()
@@ -287,8 +304,13 @@ def youtube_free_at(s, conn):
 
 
 def waiting_youtube(conn) -> list[dict]:
-    rows = conn.execute("SELECT video_id, post_id FROM publications WHERE platform='youtube' AND status='WAITING' ORDER BY video_id").fetchall()
-    return [{"video_id": r["video_id"], "slot": r["post_id"] or None} for r in rows]
+    rows = conn.execute("SELECT p.video_id, p.post_id, v.style FROM publications p JOIN videos v ON v.id=p.video_id WHERE p.platform='youtube' AND p.status='WAITING' ORDER BY p.video_id").fetchall()
+    return [{"video_id": r["video_id"], "slot": r["post_id"] or None, "account": account_of(r["style"])} for r in rows]
+
+
+def can_resume_youtube(s, conn) -> bool:
+    """Au moins une vidéo en attente peut repartir (la limite de SON compte est libre)."""
+    return any(youtube_capacity(s, conn, w["account"]) > 0 for w in waiting_youtube(conn))
 
 
 def uncertain(conn) -> list[dict]:
@@ -324,8 +346,8 @@ def resume_waiting(s, conn, say=log.info) -> int:
     """Envoie à YouTube, dès que sa limite quotidienne le permet, les vidéos qui attendaient (TikTok est déjà fait). Garde la date de mise en ligne prévue."""
     n = 0
     for w in waiting_youtube(conn):
-        if youtube_capacity(s, conn) <= 0:
-            break
+        if youtube_capacity(s, conn, w.get("account")) <= 0:
+            continue                                                   # la limite de CE compte est atteinte ; l'autre compte peut encore repartir
         say(f"▶ YouTube accepte de nouveau un envoi : reprise de la vidéo {w['video_id']}")
         res = publish_video(s, conn, w["video_id"], publish_at=w["slot"])
         n += any(x["platform"] == "youtube" and x["status"] in GOOD for x in res)
@@ -376,6 +398,10 @@ def publish_video(s, conn, video_id: int, publish_at=None) -> list[dict]:
     for plat in ("tiktok", "youtube"):
         if s2[plat].get("mode") == "web":
             s2[plat]["web_publish"] = True                 # « publier » veut dire publier : on clique aussi sur le bouton
+    bprof = (s.get("bounce") or {}).get("chrome_profile")
+    if bprof and account_of(row["style"]) == "bounce":    # les vidéos de billes partent depuis le PROFIL CHROME d'un autre compte (ex. « compte lola »)
+        s2["tiktok"]["chrome_profile"] = bprof
+        s2["youtube"]["chrome_profile"] = bprof
     done = {r["platform"]: r["status"] for r in conn.execute("SELECT platform, status FROM publications WHERE video_id=?", (video_id,))}
     if not SEND_LOCK.acquire(blocking=False):
         return [{"platform": "app", "status": "FAILED", "detail": "un autre envoi est déjà en cours : rien n'a été renvoyé"}]
@@ -394,8 +420,8 @@ def publish_video(s, conn, video_id: int, publish_at=None) -> list[dict]:
                 out.append({"platform": ad.platform, "status": "UNCERTAIN",
                             "detail": f"envoi non confirmé : regarde dans {ad.platform} si la vidéo y est avant de réessayer (renvoyer risquerait un doublon)"})
                 continue
-            if ad.platform == "youtube" and youtube_capacity(s, conn) <= 0:               # limite quotidienne de YouTube atteinte : on garde la vidéo, TikTok part quand même
-                free = youtube_free_at(s, conn)
+            if ad.platform == "youtube" and youtube_capacity(s, conn, account_of(row["style"])) <= 0:               # limite quotidienne de YouTube atteinte : on garde la vidéo, TikTok part quand même
+                free = youtube_free_at(s, conn, account_of(row["style"]))
                 conn.execute("INSERT OR REPLACE INTO publications(video_id,platform,post_id,status,published_at) VALUES(?,?,?,?,?)",
                              (video_id, "youtube", (when.replace(tzinfo=None).isoformat(timespec="minutes") if when else ""), "WAITING", db.now()))
                 conn.commit()

@@ -255,6 +255,8 @@ def cmd_instance_init(s, a):
     if a.profile:
         cur["tiktok"] = {**cur.get("tiktok", {}), "chrome_profile": a.profile}
         cur["youtube"] = {**cur.get("youtube", {}), "chrome_profile": a.profile}
+        if kind == "bounce":
+            cur["bounce"] = {**cur.get("bounce", {}), "chrome_profile": a.profile}
     f.write_text(json.dumps(cur, ensure_ascii=False, indent=1))
     print(f"✅ Agent « {name} » prêt.\n   Dossier de vidéos : {Path(folder).expanduser()}\n   Profil Chrome : {a.profile or '(à choisir : ./p.sh chrome-profiles)'}\n   Page : http://127.0.0.1:{port}")
     print(f"   Lancer : ./p.sh --instance {name} ui")

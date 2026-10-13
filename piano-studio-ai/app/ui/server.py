@@ -284,7 +284,7 @@ def options(s) -> dict:
         "default_formats": s.get("ui_default_formats", [s.get("default_format", "vertical")]),
         "languages": [{"key": "fr", "label": "Français"}, {"key": "en", "label": "English"}, {"key": "es", "label": "Español"}],
         "default_language": s.get("language", "fr"),
-        "max_record_seconds": int(s.get("synthesia", {}).get("max_record_seconds", 90)), "produce_piano": bounce.wanted(s)[0], "produce_bounce": bounce.wanted(s)[1], "publish_tiktok": (s.get("publish_to") or {}).get("tiktok", True) is not False, "publish_youtube": (s.get("publish_to") or {}).get("youtube", True) is not False,
+        "max_record_seconds": int(s.get("synthesia", {}).get("max_record_seconds", 90)), "bounce_profile": (s.get("bounce") or {}).get("chrome_profile", ""), "produce_piano": bounce.wanted(s)[0], "produce_bounce": bounce.wanted(s)[1], "publish_tiktok": (s.get("publish_to") or {}).get("tiktok", True) is not False, "publish_youtube": (s.get("publish_to") or {}).get("youtube", True) is not False,
         "youtube_daily": int(s.get("youtube", {}).get("max_uploads_per_day", 4)),
         "countries": [{"key": k, "label": v} for k, v in mtrends.COUNTRIES.items()],
     }
@@ -457,7 +457,7 @@ def due_runner(settings_loader, every=30, stop=None):
                     inbox.scan(s, import_upload)
                 autopilot_tick(s)
                 cn = db.connect(config.resolve(s, "database"))
-                if squeue.waiting_youtube(cn) and squeue.youtube_capacity(s, cn) > 0:       # la limite quotidienne de YouTube s'est libérée : on reprend
+                if squeue.can_resume_youtube(s, cn):       # la limite quotidienne de YouTube s'est libérée : on reprend
                     JOB.start_task("youtube-reprise", lambda: f"{squeue.resume_waiting(s, db.connect(config.resolve(s, 'database')), say=logging.getLogger('piano').info)} vidéo(s) envoyée(s) à YouTube")
             except Exception as e:
                 logging.getLogger("piano").warning("programmation : %s", e)
@@ -697,6 +697,16 @@ def make_handler(settings_loader):
                 return self._json({"error": "JSON invalide"}, 400)
             s = settings_loader()
             if path == "/api/setting":                         # réglages modifiables depuis la page (liste blanche)
+                if body.get("key") == "bounce_profile":
+                    name = str(body.get("value") or "").strip()[:80]
+                    if name:
+                        from app.publisher import tiktok_web
+                        try:
+                            tiktok_web.resolve_profile(name)
+                        except RuntimeError as e:
+                            return self._json({"error": str(e)}, 400)
+                    config.save_local("bounce", {"chrome_profile": name})
+                    return self._json({"bounce_profile": name})
                 if body.get("key") in ("produce", "publish_to"):
                     val = body.get("value")
                     names = ("piano", "bounce") if body["key"] == "produce" else ("tiktok", "youtube")
