@@ -25,6 +25,16 @@ def is_bounce(s) -> bool:
     return (s.get("agent") or {}).get("kind") == "bounce"
 
 
+def wanted(s) -> tuple[bool, bool]:
+    """(piano, billes) : ce que l'utilisateur veut fabriquer. Au moins un des deux ; l'ancien réglage bounce.with_piano reste compris."""
+    pr = s.get("produce") or {}
+    piano = bool(pr.get("piano", True))
+    bn = bool(pr["bounce"]) if "bounce" in pr else bool((s.get("bounce") or {}).get("with_piano", False))
+    if not piano and not bn:
+        piano = True
+    return piano, bn
+
+
 def conf(s) -> dict:
     return {"duration": 50.0, "min_gap": 0.17, "supersample": 2, **(s.get("bounce") or {})}
 

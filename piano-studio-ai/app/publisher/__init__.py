@@ -21,5 +21,6 @@ def adapters(settings, platforms_cfg=None, fmt=None):
            "facebook": Unavailable("facebook", "une Page + Meta app approuvée")}
     ORDER = ["tiktok", "youtube", "instagram", "facebook"]                              # TikTok puis YouTube, l'un derrière l'autre
     out += [reg[k] for k, v in sorted(cfg.items(), key=lambda kv: ORDER.index(kv[0]) if kv[0] in ORDER else 99) if v.get("enabled") and k in reg and (fmt is None or fmt in v.get("formats", [fmt]))
-            and not (k == "youtube" and fmt == "vertical" and not yt.get("shorts", True))]      # youtube.shorts: false -> la vidéo verticale ne part pas en Short
+            and not (k == "youtube" and fmt == "vertical" and not yt.get("shorts", True))
+            and (settings.get("publish_to") or {}).get(k, True) is not False]      # publish_to : l'utilisateur choisit TikTok et/ou YouTube      # youtube.shorts: false -> la vidéo verticale ne part pas en Short
     return out

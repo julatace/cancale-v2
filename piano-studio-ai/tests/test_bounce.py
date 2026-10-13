@@ -101,3 +101,68 @@ def test_agenda_slots_piano_then_bounce(monkeypatch):
             break
         time.sleep(0.1)
     assert job.state["status"] == "done" and calls == [(1, slots[0]), (2, slots[1])]        # piano au 1er créneau, billes au 2e : un seul morceau, deux créneaux
+
+
+def test_wanted_combinations():
+    from app import bounce
+    assert bounce.wanted({}) == (True, False)
+    assert bounce.wanted({"produce": {"piano": True, "bounce": True}}) == (True, True)
+    assert bounce.wanted({"produce": {"piano": False, "bounce": True}}) == (False, True)
+    assert bounce.wanted({"produce": {"piano": False, "bounce": False}}) == (True, False)       # jamais « rien » : le piano reste
+    assert bounce.wanted({"bounce": {"with_piano": True}}) == (True, True)                       # ancien réglage compris
+
+
+def test_publish_to_filters_platforms(tmp_path):
+    from app import config
+    from app.publisher import adapters
+    s = config.load_settings()
+    s["paths"] = {**s["paths"], "data_dir": str(tmp_path)}
+    names = lambda st: [a.platform for a in adapters(st, fmt="vertical") if a.platform in ("tiktok", "youtube")]
+    both = names({**s, "publish_to": {"tiktok": True, "youtube": True}})
+    assert "tiktok" in both and "youtube" in both
+    assert names({**s, "publish_to": {"tiktok": True, "youtube": False}}) == ["tiktok"]
+    assert names({**s, "publish_to": {"tiktok": False, "youtube": True}}) == ["youtube"]
+
+
+def test_runner_skips_piano_when_only_bounce_wanted(monkeypatch):
+    from app import bounce, config
+    from app.director import pipeline
+    from app.ui import server
+    calls = []
+    monkeypatch.setattr(bounce, "run_one", lambda s, **k: calls.append("bounce") or {})
+    monkeypatch.setattr(pipeline, "run_one", lambda s, **k: calls.append("piano") or {})
+    s = config.load_settings()
+    server._default_runner({**s, "produce": {"piano": False, "bounce": True}})
+    server._default_runner({**s, "produce": {"piano": True, "bounce": True}})
+    assert calls == ["bounce", "piano"]
+
+
+def test_setting_endpoint_requires_at_least_one(tmp_path, monkeypatch):
+    import json
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+    from app import config
+    from app.ui import server
+    saved = {}
+    monkeypatch.setattr(config, "save_local", lambda k, v: saved.update({k: v}))
+    st = config.load_settings()
+    st["paths"] = {**st["paths"], "data_dir": str(tmp_path), "database": str(tmp_path / "d.sqlite3"), "logs_dir": str(tmp_path / "l")}
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(lambda: st))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+
+    def post(body):
+        req = urllib.request.Request(base + "/api/setting", json.dumps(body).encode(), {"Content-Type": "application/json"})
+        try:
+            return urllib.request.urlopen(req).status
+        except urllib.error.HTTPError as e:
+            return e.code
+    try:
+        assert post({"key": "publish_to", "value": {"tiktok": False, "youtube": False}}) == 400
+        assert post({"key": "produce", "value": {"piano": False, "bounce": False}}) == 400
+        assert post({"key": "publish_to", "value": {"tiktok": True, "youtube": False}}) == 200 and saved["publish_to"] == {"tiktok": True, "youtube": False}
+        assert post({"key": "produce", "value": {"piano": False, "bounce": True}}) == 200 and saved["produce"] == {"piano": False, "bounce": True}
+    finally:
+        srv.shutdown()

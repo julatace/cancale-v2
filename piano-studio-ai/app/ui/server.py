@@ -24,7 +24,13 @@ from .page import PAGE
 
 def _default_runner(settings, **k):
     """Piano : fabrique une vidéo. Agent « clips » : fournit la prochaine vidéo déjà prête du dossier."""
-    run = clips.run_one if clips.is_clips(settings) else bounce.run_one if bounce.is_bounce(settings) else pipeline.run_one
+    if clips.is_clips(settings):
+        run = clips.run_one
+    elif bounce.is_bounce(settings):
+        run = bounce.run_one
+    else:
+        piano, billes = bounce.wanted(settings)
+        run = pipeline.run_one if piano else bounce.run_one                  # « billes seulement » : le piano n'est pas fabriqué
     return run(settings, **k)
 
 
@@ -278,7 +284,7 @@ def options(s) -> dict:
         "default_formats": s.get("ui_default_formats", [s.get("default_format", "vertical")]),
         "languages": [{"key": "fr", "label": "Français"}, {"key": "en", "label": "English"}, {"key": "es", "label": "Español"}],
         "default_language": s.get("language", "fr"),
-        "max_record_seconds": int(s.get("synthesia", {}).get("max_record_seconds", 90)), "bounce_with_piano": bool((s.get("bounce") or {}).get("with_piano")),
+        "max_record_seconds": int(s.get("synthesia", {}).get("max_record_seconds", 90)), "produce_piano": bounce.wanted(s)[0], "produce_bounce": bounce.wanted(s)[1], "publish_tiktok": (s.get("publish_to") or {}).get("tiktok", True) is not False, "publish_youtube": (s.get("publish_to") or {}).get("youtube", True) is not False,
         "youtube_daily": int(s.get("youtube", {}).get("max_uploads_per_day", 4)),
         "countries": [{"key": k, "label": v} for k, v in mtrends.COUNTRIES.items()],
     }
@@ -691,10 +697,13 @@ def make_handler(settings_loader):
                 return self._json({"error": "JSON invalide"}, 400)
             s = settings_loader()
             if path == "/api/setting":                         # réglages modifiables depuis la page (liste blanche)
-                if body.get("key") == "bounce_with_piano":
-                    v = bool(body.get("value"))
-                    config.save_local("bounce", {"with_piano": v})
-                    return self._json({"bounce_with_piano": v})
+                if body.get("key") in ("produce", "publish_to"):
+                    val = body.get("value")
+                    names = ("piano", "bounce") if body["key"] == "produce" else ("tiktok", "youtube")
+                    if not isinstance(val, dict) or not any(val.get(n) for n in names):
+                        return self._json({"error": "Choisis au moins une option."}, 400)
+                    config.save_local(body["key"], {n: bool(val.get(n)) for n in names})
+                    return self._json({body["key"]: {n: bool(val.get(n)) for n in names}})
                 if body.get("key") == "max_record_seconds":
                     try:
                         n = int(float(body.get("value")))

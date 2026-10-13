@@ -11,6 +11,7 @@ def _reserve_allowed_in_tests(monkeypatch):
     def load(path=None):
         s = orig(path)
         s.setdefault("songs", {})["only_mine"] = False
+        s["produce"] = {"piano": True, "bounce": False}                  # les tests historiques attendent UNE vidéo de piano (la paire billes est testée à part)
         return s
     monkeypatch.setattr(config, "load_settings", load)
 

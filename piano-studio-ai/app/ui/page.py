@@ -342,7 +342,8 @@ details.fold>.card{box-shadow:none;border:0;padding:6px 0 16px;margin:0;backgrou
 </section>
 <section class="card">
   <div class="step"><div><h2>Vidéos</h2></div></div>
-  <div class="fieldrow"><label class="k" for="bwp">Vidéo « billes »<small>Pour chaque morceau : une vidéo piano ET une vidéo de balle qui rebondit en rythme, avec exactement le même son</small></label><label class="sw"><input type="checkbox" id="bwp"> Faire aussi la vidéo billes</label></div>
+  <div class="fieldrow"><label class="k">Quoi fabriquer<small>Pour chaque morceau (même son pour les deux). Au moins un.</small></label><span style="display:flex;gap:18px;flex-wrap:wrap"><label class="sw"><input type="checkbox" id="pp"> 🎹 Piano</label><label class="sw"><input type="checkbox" id="pb"> 🔵 Billes</label></span></div>
+  <div class="fieldrow"><label class="k">Où publier<small>Les vidéos partent seulement sur ce que tu coches. Au moins un.</small></label><span style="display:flex;gap:18px;flex-wrap:wrap"><label class="sw"><input type="checkbox" id="ptt"> TikTok</label><label class="sw"><input type="checkbox" id="pyt"> YouTube</label></span></div>
   <div class="step" style="margin-top:14px"><div><h2>Textes des vidéos</h2></div></div>
   <div class="fieldrow"><label class="k" for="lang">Langue des textes<small>Titres, descriptions, hashtags</small></label><select id="lang" class="sel" style="max-width:220px"></select></div>
   <details><summary>Avancé</summary>
@@ -562,7 +563,10 @@ function poll(){api('/api/status?since='+since).then(s=>{
     else if(s.result&&s.result.task){$('#now').textContent='Terminé : '+s.result.summary}
     else if(s.result){$('#now').textContent='Terminé';results(Array.isArray(s.result)?{videos:s.result.flatMap(r=>r.videos||[r])}:s.result)}}
 })}
-$('#bwp').onchange=()=>api('/api/setting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:'bounce_with_piano',value:$('#bwp').checked})});
+function saveOpt(key,names,ids){const val={};names.forEach((n,i)=>val[n]=$('#'+ids[i]).checked);
+  api('/api/setting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,value:val})}).then(r=>{if(r.error){alert(r.error);api('/api/options').then(o=>{$('#pp').checked=!!o.produce_piano;$('#pb').checked=!!o.produce_bounce;$('#ptt').checked=!!o.publish_tiktok;$('#pyt').checked=!!o.publish_youtube})}})}
+['pp','pb'].forEach(i=>$('#'+i).onchange=()=>saveOpt('produce',['piano','bounce'],['pp','pb']));
+['ptt','pyt'].forEach(i=>$('#'+i).onchange=()=>saveOpt('publish_to',['tiktok','youtube'],['ptt','pyt']));
 $('#maxrec').onchange=()=>api('/api/setting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:'max_record_seconds',value:+$('#maxrec').value})}).then(r=>{if(r.error){alert(r.error);api('/api/options').then(o=>$('#maxrec').value=o.max_record_seconds)}else{$('#maxrec').value=r.max_record_seconds;estimate()}});
 $('#stoprec').onclick=()=>{$('#stoprec').disabled=true;$('#stoprec').dataset.busy=1;$('#now').textContent='Arrêt de l\'enregistrement… la vidéo sera montée avec ce qui est enregistré';api('/api/stop-recording',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(()=>setTimeout(()=>{delete $('#stoprec').dataset.busy},4000))};
 $('#stop').onclick=()=>{if(!confirm('Arrêter maintenant ? Ce qui est en cours sera interrompu.'))return;$('#stop').disabled=true;$('#now').textContent='Arrêt en cours… (quelques secondes)';api('/api/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})};
@@ -571,7 +575,7 @@ $('#go').onclick=()=>{
   $('#job').scrollIntoView({behavior:'smooth',block:'start'});
   api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({level,formats:[...formats],publish:$('#publish').checked,synthesia:$('#synth').checked,song_id:songId,lang:$('#lang').value})})
    .then(r=>{if(r.error){$('#now').textContent=r.error;return}if(!timer)timer=setInterval(poll,1500);poll()})};
-api('/api/options').then(o=>{opts=o;$('#bwp').checked=!!o.bounce_with_piano;$('#maxrec').value=o.max_record_seconds;YT_DAILY=o.youtube_daily||4;$('#lang').innerHTML=o.languages.map(l=>`<option value="${l.key}"${l.key===o.default_language?' selected':''}>${l.label}</option>`).join('');$('#tc').innerHTML=o.countries.map(c=>`<option value="${c.key}">${c.label}</option>`).join('');level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
+api('/api/options').then(o=>{opts=o;$('#pp').checked=!!o.produce_piano;$('#pb').checked=!!o.produce_bounce;$('#ptt').checked=!!o.publish_tiktok;$('#pyt').checked=!!o.publish_youtube;$('#maxrec').value=o.max_record_seconds;YT_DAILY=o.youtube_daily||4;$('#lang').innerHTML=o.languages.map(l=>`<option value="${l.key}"${l.key===o.default_language?' selected':''}>${l.label}</option>`).join('');$('#tc').innerHTML=o.countries.map(c=>`<option value="${c.key}">${c.label}</option>`).join('');level=(o.levels[1]||o.levels[0]).key;formats=new Set(o.default_formats);render()});
 info();vids();songs();sched();inb();ap();setInterval(ap,15000);clipsLoad();setInterval(clipsLoad,10000);hl();setInterval(hl,30000);unc();setInterval(unc,10000);setInterval(info,20000);setInterval(sched,30000);setInterval(inb,10000);
 api('/api/status').then(s=>{if(s.status==='running'){$('#job').hidden=false;since=0;timer=setInterval(poll,1500);poll()}});
 </script></div></body></html>
