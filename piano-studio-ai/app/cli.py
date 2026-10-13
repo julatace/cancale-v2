@@ -204,6 +204,27 @@ def cmd_shortcuts(s, a):
     return 0
 
 
+def cmd_audit_midi(s, a):
+    """Dit si les fichiers MIDI d'un dossier sont de bonne qualité pour faire des vidéos (et pourquoi)."""
+    from .midi_analyzer import audit
+    from .music_discovery import inbox
+    folders = [a.folder] if a.folder else [str(d) for d in inbox.watched_dirs(s)] or ["~/Desktop/MIDI"]
+    total = 0
+    for fd in folders:
+        res = audit.audit_folder(fd)
+        print(f"\n📁 {Path(fd).expanduser()} : {len(res)} fichier(s)")
+        for r in res:
+            icon = {"très bon": "🟢", "bon": "🟢", "moyen": "🟡", "à éviter": "🔴"}[r["verdict"]]
+            print(f"{icon} {r['score']:>3}/100  {r['file'][:48]:<48} {r['duration']:>5.0f}s  {r['notes']:>4} notes  — {r['verdict']}" + (f" ({'; '.join(r['issues'])})" if r["issues"] else ""))
+        total += len(res)
+        if res:
+            good = sum(1 for r in res if r["score"] >= 65)
+            print(f"\n➡ {good}/{len(res)} fichiers sont bons pour faire des vidéos ; {len(res) - good} à remplacer ou à éviter.")
+    if not total:
+        print("Aucun fichier MIDI trouvé.")
+    return 0
+
+
 def cmd_ui_port(s, a):
     print(int((s.get("ui") or {}).get("port", 8765)))
     return 0
@@ -224,8 +245,12 @@ def cmd_instance_init(s, a):
     folder = a.folder or f"~/Desktop/{name.capitalize()}"
     Path(folder).expanduser().mkdir(parents=True, exist_ok=True)
     port = a.port or 8766 + (sum(map(ord, name)) % 50)
-    cur.update({"agent": {"kind": "clips"}, "clips": {**cur.get("clips", {}), "folder": folder},
-                "inbox": {"watch": []}, "ui": {"port": port}, "songs": {"only_mine": True},
+    kind = a.kind if a.kind in ("clips", "bounce") else "clips"
+    midi_folder = a.midi_folder or f"~/Desktop/MIDI-{name.capitalize()}"
+    if kind == "bounce":
+        Path(midi_folder).expanduser().mkdir(parents=True, exist_ok=True)
+    cur.update({"agent": {"kind": kind}, "clips": {**cur.get("clips", {}), "folder": folder},
+                "inbox": {"watch": [midi_folder] if kind == "bounce" else []}, "ui": {"port": port}, "songs": {"only_mine": True},
                 "autopilot": {"enabled": True, "per_day": 2, "days": 7, **cur.get("autopilot", {})}})      # agent clips : actif d'office, sinon les vidéos déposées ne partent jamais
     if a.profile:
         cur["tiktok"] = {**cur.get("tiktok", {}), "chrome_profile": a.profile}
@@ -455,7 +480,7 @@ def main(argv=None):
     cmds["fetch-midi"] = cmd_fetch_midi
     cmds["mac-rec-test"] = cmd_mac_rec_test
     cmds["ui"] = cmd_ui
-    cmds["ui-port"], cmds["instance-init"], cmds["post"], cmds["shortcuts"] = cmd_ui_port, cmd_instance_init, cmd_post, cmd_shortcuts
+    cmds["ui-port"], cmds["instance-init"], cmds["post"], cmds["shortcuts"], cmds["audit-midi"] = cmd_ui_port, cmd_instance_init, cmd_post, cmd_shortcuts, cmd_audit_midi
     cmds["autostart"] = cmd_autostart
     cmds["youtube-login"] = cmd_youtube_login
     cmds["publish-check"] = cmd_publish_check
@@ -487,11 +512,14 @@ def main(argv=None):
             sp.add_argument("video_id", type=int)
         if n == "ui":
             sp.add_argument("--port", type=int, default=None); sp.add_argument("--no-browser", action="store_true")
+        if n == "audit-midi":
+            sp.add_argument("--folder", default="")
         if n == "post":
             sp.add_argument("video"); sp.add_argument("--title", default=""); sp.add_argument("--description", default=""); sp.add_argument("--hashtags", default="")
             sp.add_argument("--at", default="", help="date et heure de mise en ligne, ex. \"2026-10-12 19:00\""); sp.add_argument("--now", action="store_true", help="publier tout de suite")
         if n == "instance-init":
             sp.add_argument("name"); sp.add_argument("--profile", default=""); sp.add_argument("--folder", default=""); sp.add_argument("--port", type=int, default=0)
+            sp.add_argument("--kind", default="clips", choices=["clips", "bounce"], help="clips = publie des vidéos déposées ; bounce = fabrique des vidéos de balle qui rebondit"); sp.add_argument("--midi-folder", default="")
         if n == "autostart":
             sp.add_argument("--off", action="store_true")
         if n == "analyze":

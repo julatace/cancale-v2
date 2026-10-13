@@ -15,6 +15,7 @@ from app import config, notify
 from app.director import progress
 from app.scheduler import autopilot
 from app import clips
+from app import bounce
 from app.database import db
 from app.director import control, difficulty, pipeline, stock
 from app.music_discovery import importer, inbox, search as msearch, trends as mtrends
@@ -23,7 +24,8 @@ from .page import PAGE
 
 def _default_runner(settings, **k):
     """Piano : fabrique une vidéo. Agent « clips » : fournit la prochaine vidéo déjà prête du dossier."""
-    return (clips.run_one if clips.is_clips(settings) else pipeline.run_one)(settings, **k)
+    run = clips.run_one if clips.is_clips(settings) else bounce.run_one if bounce.is_bounce(settings) else pipeline.run_one
+    return run(settings, **k)
 
 
 NO_SONG_MSG = "Plus aucun morceau disponible. Ajoute des fichiers .mid dans le dossier Bureau/MIDI et coche la case « droits » dans « Mes morceaux »."
@@ -302,7 +304,7 @@ def info(s) -> dict:
     if time.time() - _ENGINE["at"] > 60 and not _ENGINE["busy"]:
         _ENGINE["busy"] = True
         threading.Thread(target=_probe_engine, args=(s,), daemon=True).start()
-    return {"kind": "clips" if clips.is_clips(s) else "piano", "instance": config.instance(), "stock": stock.count(s), "stock_target": s.get("stock", {}).get("target", 3), "engine": _ENGINE["value"], "version": VERSION, "only_mine": bool(s.get("songs", {}).get("only_mine", False)), "to_make": my_songs_waiting(s),
+    return {"kind": "clips" if clips.is_clips(s) else "bounce" if bounce.is_bounce(s) else "piano", "instance": config.instance(), "stock": stock.count(s), "stock_target": s.get("stock", {}).get("target", 3), "engine": _ENGINE["value"], "version": VERSION, "only_mine": bool(s.get("songs", {}).get("only_mine", False)), "to_make": my_songs_waiting(s),
             "youtube": s.get("youtube", {}).get("mode") == "web" or all(os.environ.get(k) for k in ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN")),
             "tiktok": s.get("tiktok", {}).get("mode") == "web" or all(os.environ.get(k) for k in ("TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REFRESH_TOKEN"))}
 
