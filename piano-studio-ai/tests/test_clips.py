@@ -141,7 +141,7 @@ def test_instance_plist_and_init(tmp_path, monkeypatch):
     d = plistlib.loads(p.read_bytes())
     assert d["Label"].endswith(".clips") and d["ProgramArguments"][2:4] == ["--instance", "clips"]
     monkeypatch.setattr(config, "ROOT", tmp_path)
-    args = type("A", (), {"name": "Mes Clips", "profile": "Autre", "folder": str(tmp_path / "F"), "port": 0})()
+    args = type("A", (), {"name": "Mes Clips", "profile": "Autre", "folder": str(tmp_path / "F"), "port": 0, "kind": "clips", "midi_folder": ""})()
     assert cli.cmd_instance_init({}, args) == 0
     cfg = json.loads((tmp_path / "data" / "instances" / "mesclips" / "local_settings.json").read_text())
     assert cfg["agent"]["kind"] == "clips" and cfg["tiktok"]["chrome_profile"] == "Autre" and cfg["youtube"]["chrome_profile"] == "Autre"
@@ -198,3 +198,12 @@ def test_shortcuts_are_executable_and_launch_the_right_agent(tmp_path, monkeypat
     assert os.access(piano, os.X_OK) and os.access(clip, os.X_OK)
     assert "./p.sh ui" in piano.read_text() and "--instance clips ui" in clip.read_text()
     assert subprocess.run(["bash", "-n", str(piano)]).returncode == 0 and subprocess.run(["bash", "-n", str(clip)]).returncode == 0
+
+
+def test_instance_init_bounce_kind_watches_its_own_midi_folder(tmp_path, monkeypatch):
+    from app import cli
+    monkeypatch.setattr(config, "ROOT", tmp_path)
+    args = type("A", (), {"name": "billes", "profile": "", "folder": "", "port": 0, "kind": "bounce", "midi_folder": str(tmp_path / "M")})()
+    assert cli.cmd_instance_init({}, args) == 0
+    cfg = json.loads((tmp_path / "data" / "instances" / "billes" / "local_settings.json").read_text())
+    assert cfg["agent"]["kind"] == "bounce" and cfg["inbox"]["watch"] == [str(tmp_path / "M")] and (tmp_path / "M").is_dir()
