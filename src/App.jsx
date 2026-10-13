@@ -1238,10 +1238,10 @@ function Garage({catalog,garageGrid,setGarageGrid,blockedCells,setBlockedCells,e
 /* ── App ─────────────────────────────────────────────── */
 
 /* ── BackupModal ─────────────────────────────────────── */
-function BackupModal({catalog,sales,garageGrid,blockedCells,onClose,onImport}) {
+function BackupModal({catalog,sales,garageGrid,blockedCells,extraCols,cellColors,onClose,onImport}) {
   const exportData=()=>{
     const data={
-      catalog,sales,garageGrid,blockedCells,
+      catalog,sales,garageGrid,blockedCells,extraCols,cellColors,
       exportedAt:new Date().toISOString(),
       version:'1.0',
     };
@@ -1401,6 +1401,7 @@ export default function App() {
             <span id="sync-indicator" style={{fontSize:11,fontWeight:700}}></span>
             <span style={{color:C.accent,fontWeight:700}}>📦 {Object.values(garageGrid).flatMap(a=>Array.isArray(a)?a:[]).filter(v=>v&&v.trim()!=='').length}</span>
             <span style={{color:C.muted,fontWeight:700}}>💸 {sales.length}</span>
+            <button onClick={()=>setShowBackup(true)} title="Sauvegarde" style={{background:'transparent',border:`1px solid ${C.border}`,borderRadius:8,padding:'3px 8px',cursor:'pointer',fontSize:13}}>💾</button>
           </div>
 
         </div>
@@ -1413,13 +1414,15 @@ export default function App() {
         {tab==='garage'   &&<Garage    catalog={catalog} garageGrid={garageGrid} setGarageGrid={setGarageGrid} blockedCells={blockedCells} setBlockedCells={setBlockedCells} extraCols={extraCols} setExtraCols={setExtraCols} cellColors={cellColors} setCellColors={setCellColors}/>}
       </main>
       {showBackup&&<BackupModal
-        catalog={catalog} sales={sales} garageGrid={garageGrid} blockedCells={blockedCells}
+        catalog={catalog} sales={sales} garageGrid={garageGrid} blockedCells={blockedCells} extraCols={extraCols} cellColors={cellColors}
         onClose={()=>setShowBackup(false)}
         onImport={(data)=>{
           if(Array.isArray(data.catalog)){setCatalog(data.catalog);save('vinted_catalog',data.catalog);}
           if(Array.isArray(data.sales)){setSales(data.sales);save('vinted_sales',data.sales);}
           if(data.garageGrid&&typeof data.garageGrid==='object'&&!Array.isArray(data.garageGrid)){setGarageGrid(data.garageGrid);save('vinted_garage_grid',data.garageGrid);}
           if(data.blockedCells&&typeof data.blockedCells==='object'&&!Array.isArray(data.blockedCells)){setBlockedCells(data.blockedCells);save('vinted_blocked',data.blockedCells);}
+          if(isObj(data.extraCols)){setExtraCols(data.extraCols);save('vinted_extracols',data.extraCols);}
+          if(isObj(data.cellColors)){setCellColors(data.cellColors);save('vinted_colors',data.cellColors);}
           setShowBackup(false);
           alert('✓ Restauration réussie !');
         }}
