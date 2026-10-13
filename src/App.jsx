@@ -129,6 +129,8 @@ async function syncFromSheets() {
 }
 const fmt  = n => isNaN(+n)?'—':Number(n).toFixed(2).replace('.',',')+' €';
 const fmtN = n => isNaN(+n)?'—':Number(n).toFixed(2).replace('.',',');
+// Nombre saisi (virgule ou point) ; null si invalide
+const toNum = v => { const n=parseFloat(String(v).replace(',','.')); return Number.isFinite(n)?n:null; };
 const uid  = () => Math.random().toString(36).slice(2,9);
 const tod  = () => new Date().toLocaleDateString('fr-FR');
 
@@ -454,7 +456,8 @@ function Catalog({catalog,setCatalog}) {
   const clearSearch=()=>{setSearchInput('');setSearch('');setPage(null);};
 
   const update=(id,field,val)=>{
-    const u=catalog.map(p=>p.id===id?{...p,[field]:field==='buyPrice'?+val:val}:p);
+    if(field==='buyPrice'){ val=toNum(val); if(val===null) return; }
+    const u=catalog.map(p=>p.id===id?{...p,[field]:val}:p);
     setCatalog(u); save('vinted_catalog',u);
   };
   const remove=(id)=>{
@@ -630,6 +633,7 @@ function Sales({catalog,setCatalog,sales,setSales}) {
 
 
   const updateSale=(id,field,val)=>{
+    if(field==='sellPrice'||field==='buyPrice'){ val=toNum(val); if(val===null) return; }
     const u=sales.map(s=>{
       if(s.id!==id) return s;
       const ns={...s,[field]:val};
