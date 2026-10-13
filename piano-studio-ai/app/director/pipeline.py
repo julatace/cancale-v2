@@ -319,6 +319,12 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
     _cover_hook(plans, ana["duration"])
     if plans and not dry_run:
         reports = _make_videos(s, conn, sid, level, plans, notes, tempo, meta, lv, publish, kb_lo)
+        if (s.get("bounce") or {}).get("with_piano") and any(r.get("status") in ("READY", "PUBLISHED") for r in reports):
+            vp = next((p for p in plans if p[1].get("duration") != "full"), plans[0])               # même passage que la vidéo de piano courte
+            from app import bounce
+            extra = bounce.make_pair(s, conn, sid, notes, vp[2], meta, lang or s.get("language", "fr"), seed, publish)
+            if extra:
+                reports = list(reports) + [extra]
     if len(reports) == 1:
         return reports[0]
     ok = [r["status"] in ("READY", "PUBLISHED") for r in reports]

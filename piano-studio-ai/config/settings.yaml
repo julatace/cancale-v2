@@ -33,6 +33,10 @@ autopilot:
   per_day: 2
   days: 7
   times: "12:30, 19:00"
+bounce:
+  with_piano: true      # à partir du MÊME morceau (même son) : une vidéo piano ET une vidéo « balle qui rebondit en rythme »
+  duration: 50
+  supersample: 2
 engine: auto            # auto = Synthesia si le Mac est prêt, sinon rendu intégré | synthesia | builtin
 synthesia:
   app_path: /Applications/Synthesia.app

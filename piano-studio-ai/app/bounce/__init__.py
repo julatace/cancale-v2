@@ -59,19 +59,29 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
     else:
         raise RuntimeError("Plus aucun morceau utilisable pour ce format : ajoute des morceaux plus longs dans Bureau/MIDI")
     log.info("✂ Passage retenu : %.0fs → %.0fs (%d rebonds)", sec["start"], sec["end"], len(onsets))
+    if dry_run:
+        n0 = conn.execute("SELECT COUNT(*) FROM videos WHERE style LIKE 'bounce|%'").fetchone()[0] + 1
+        c0 = _content.generate(meta, n0, seed, set(), lang or s.get("language", "fr"))
+        return {"status": "DRY_RUN", "title": c0["title"], "song": meta["title"], "bounces": len(onsets)}
+    result = render_for(s, conn, sid, notes, sec, onsets, meta, lang, seed, publish)
+    return {**result, "videos": [result]}
+
+
+def render_for(s, conn, sid, notes, sec, onsets, meta, lang, seed, publish=False) -> dict:
+    """Fabrique UNE vidéo « rebonds » à partir de notes et d'un passage déjà choisis (même son que la vidéo de piano du même morceau)."""
+    from . import render
+    c = conf(s)
     n = conn.execute("SELECT COUNT(*) FROM videos WHERE style LIKE 'bounce|%'").fetchone()[0] + 1
     used = {r[0] for r in conn.execute("SELECT title FROM videos WHERE title IS NOT NULL")}
     content = _content.generate(meta, n, seed, used, lang or s.get("language", "fr"))
     content["format"] = "vertical"
-    log.info("✍ Titre : %s", content["title"])
-    if dry_run:
-        return {"status": "DRY_RUN", "title": content["title"], "song": meta["title"], "bounces": len(onsets)}
+    log.info("✍ [rebonds] Titre : %s", content["title"])
     out_dir = config.resolve(s, "data_dir") / "rendered"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{sid}_{int(time.time())}_bounce.mp4"
-    last_err = ""
+    last_err, q, res = "", None, {}
     for attempt in range(3):
-        log.info("🎬 Fabrication de la vidéo (tentative %d/3)…", attempt + 1)
+        log.info("🎬 [rebonds] Fabrication de la vidéo (tentative %d/3)…", attempt + 1)
         res = {}
         try:
             duration = onsets[-1][0] + 2.4
@@ -90,10 +100,27 @@ def run_one(s, seed=None, dry_run=False, publish=True, level=None, fmt=None, for
             q = None
             Path(out).unlink(missing_ok=True)
     content["banner_px"] = 0
-    report = {"song": meta["title"], "section": sec, "difficulty": "bounce", "format": "vertical", "title": content["title"], "engine": "bounce"}
+    report = {"song": meta["title"], "section": sec, "difficulty": "bounce", "format": "bounce", "title": content["title"], "engine": "bounce"}
     sec2 = {"duration": round(res.get("duration") or onsets[-1][0] + 2.4, 1), **{k: sec[k] for k in ("start", "end") if k in sec}}
-    result = _finalize(s, conn, sid, out, sec2, content, report, publish, q, last_err)
-    return {**result, "videos": [result]}
+    return _finalize(s, conn, sid, out, sec2, content, report, publish, q, last_err)
+
+
+def make_pair(s, conn, sid, notes, sec, meta, lang=None, seed=0, publish=False):
+    """Vidéo « rebonds » du MÊME morceau que la vidéo de piano : mêmes notes, même passage, donc EXACTEMENT le même son. Retourne le rapport ou None."""
+    c = conf(s)
+    start, end = sec["start"], sec["end"]
+    window = [n for n in notes if n.end > start and n.start < end]
+    onsets = [(t - start, p) for t, p in choreo.melody_onsets(window, c["min_gap"]) if start <= t < end]
+    if len(onsets) < 12:
+        log.info("↷ Vidéo « rebonds » ignorée pour ce morceau (trop peu de notes dans le passage)")
+        return None
+    try:
+        return render_for(s, conn, sid, notes, {"start": start, "end": end}, onsets, meta, lang, seed + 313, publish)
+    except control.Cancelled:
+        raise
+    except Exception as e:
+        log.error("✖ Vidéo « rebonds » non faite : %s [%s]", e, __import__("app.director.progress", fromlist=["where"]).where(e))
+        return None
 
 
 def _finalize(s, conn, sid, out, sec, content, report, publish, q, last_err):

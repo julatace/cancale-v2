@@ -165,9 +165,11 @@ class Job:
         self._fails = []
         self._waiting = []
         squeue.set_last_batch([])                                        # nouvelle fabrication : on repart d'une liste vide
-        while len(good_ids) < count and attempts < max_attempts:
+        used_slots = 0                                                     # créneaux de l'agenda déjà consommés (une vidéo « billes » en prend un en plus de celui du piano)
+        by_slots = bool(plan.get("slots"))
+        while (used_slots if by_slots else len(good_ids)) < count and attempts < max_attempts:
             spent = time.time() - t0
-            done = len(good_ids)
+            done = used_slots if by_slots else len(good_ids)
             if budget and done and spent + (spent / done) * 0.8 > budget:
                 self._add(f"⏱ Temps alloué ({plan['minutes']:g} min) bientôt écoulé : {done} création(s) faite(s).")
                 break
@@ -196,11 +198,16 @@ class Job:
                 continue
             good_ids += [v["video_id"] for v in ok_videos]
             squeue.set_last_batch(good_ids)
-            k = len(done_groups); done_groups.append([v["video_id"] for v in ok_videos])
+            k = used_slots if by_slots else len(done_groups)
+            done_groups.append([v["video_id"] for v in ok_videos])
             conn0 = db.connect(config.resolve(settings, "database"))
             slots = plan.get("slots") or []
-            slot = None if plan.get("immediate") or k >= len(slots) else slots[k]
+            has_main = any(v.get("format") != "bounce" for v in ok_videos)
+            has_bounce = any(v.get("format") == "bounce" for v in ok_videos)
+            used_slots += 1 + (1 if (has_main and has_bounce) else 0)
             for v in ok_videos:                               # dès le montage : envoi aux réseaux, programmé DANS chaque réseau à la date prévue
+                idx = k + (1 if (v.get("format") == "bounce" and has_main) else 0)           # la vidéo « billes » a son propre créneau
+                slot = None if plan.get("immediate") or idx >= len(slots) else slots[idx]
                 nice = f"{slot:%d/%m %H:%M}" if slot else "tout de suite"
                 self._add(f"🚀 « {v.get('title', '')[:50]} » : envoi aux réseaux ({nice})…")
                 try:
@@ -271,7 +278,7 @@ def options(s) -> dict:
         "default_formats": s.get("ui_default_formats", [s.get("default_format", "vertical")]),
         "languages": [{"key": "fr", "label": "Français"}, {"key": "en", "label": "English"}, {"key": "es", "label": "Español"}],
         "default_language": s.get("language", "fr"),
-        "max_record_seconds": int(s.get("synthesia", {}).get("max_record_seconds", 90)),
+        "max_record_seconds": int(s.get("synthesia", {}).get("max_record_seconds", 90)), "bounce_with_piano": bool((s.get("bounce") or {}).get("with_piano")),
         "youtube_daily": int(s.get("youtube", {}).get("max_uploads_per_day", 4)),
         "countries": [{"key": k, "label": v} for k, v in mtrends.COUNTRIES.items()],
     }
@@ -684,6 +691,10 @@ def make_handler(settings_loader):
                 return self._json({"error": "JSON invalide"}, 400)
             s = settings_loader()
             if path == "/api/setting":                         # réglages modifiables depuis la page (liste blanche)
+                if body.get("key") == "bounce_with_piano":
+                    v = bool(body.get("value"))
+                    config.save_local("bounce", {"with_piano": v})
+                    return self._json({"bounce_with_piano": v})
                 if body.get("key") == "max_record_seconds":
                     try:
                         n = int(float(body.get("value")))

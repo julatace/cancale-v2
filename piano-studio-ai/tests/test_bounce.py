@@ -57,3 +57,47 @@ def test_audit_midi_scores_good_and_bad(tmp_path):
     assert res["court.mid"]["verdict"] == "à éviter" and any("court" in i or "peu de notes" in i for i in res["court.mid"]["issues"])
     assert res["casse.mid"]["score"] == 0 and any("illisible" in i for i in res["casse.mid"]["issues"])
     assert list(res)[0] or True
+
+
+def test_pair_uses_same_notes_and_section_as_piano(tmp_path, monkeypatch):
+    """La vidéo « billes » du même morceau reçoit EXACTEMENT les notes et le passage du piano (donc le même son)."""
+    from app import bounce, config
+    from app.database import db
+    seen = {}
+
+    def fake_render_for(s, conn, sid, notes, sec, onsets, meta, lang, seed, publish=False):
+        seen.update(notes=notes, sec=sec, onsets=onsets)
+        return {"status": "READY", "video_id": 9, "format": "bounce", "title": "t"}
+    monkeypatch.setattr(bounce, "render_for", fake_render_for)
+    notes = [Note(i * 0.5, i * 0.5 + 0.4, 55 + i % 12, 90, 0) for i in range(80)]
+    s = config.load_settings()
+    r = bounce.make_pair(s, None, 1, notes, {"start": 5.0, "end": 35.0}, {"title": "X", "artist": "Y"}, "fr", 3)
+    assert r["format"] == "bounce" and seen["notes"] is notes and seen["sec"] == {"start": 5.0, "end": 35.0}
+    assert seen["onsets"][0][0] >= 0 and all(0 <= t < 30 for t, _ in seen["onsets"])
+    assert bounce.make_pair(s, None, 1, notes[:5], {"start": 0.0, "end": 3.0}, {"title": "X"}, "fr", 3) is None        # trop peu de notes : ignorée
+
+
+def test_agenda_slots_piano_then_bounce(monkeypatch):
+    import time
+    from datetime import datetime, timedelta
+    from app.ui import server
+    from app.scheduler import queue as sq
+    calls = []
+    monkeypatch.setattr(sq, "publish_video", lambda s, conn, vid, publish_at=None: calls.append((vid, publish_at)) or [{"platform": "tiktok", "status": "SCHEDULED", "detail": ""}])
+    monkeypatch.setattr(sq, "native_time", lambda t: t)
+
+    def pair(settings, **k):
+        return {"status": "READY", "videos": [{"video_id": 1, "status": "READY", "format": "vertical", "title": "piano"},
+                                              {"video_id": 2, "status": "READY", "format": "bounce", "title": "billes"}]}
+    monkeypatch.setattr(server, "RUNNER", pair)
+    from app import config
+    s = config.load_settings()
+    base = (datetime.now().astimezone() + timedelta(days=1)).replace(hour=12, minute=0, second=0, microsecond=0)
+    slots = [base, base + timedelta(hours=7)]
+    job = server.Job()
+    assert job.start(s, None, ["vertical"], False, 2, None, None, {"slots": slots, "immediate": False, "times": ["12:00"]})
+    for _ in range(100):
+        if job.state["status"] != "running":
+            break
+        time.sleep(0.1)
+    assert job.state["status"] == "done" and calls == [(1, slots[0]), (2, slots[1])]        # piano au 1er créneau, billes au 2e : un seul morceau, deux créneaux
