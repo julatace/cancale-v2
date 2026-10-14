@@ -471,6 +471,28 @@ def not_ready(name):
     return f
 
 
+def cmd_generer_billes(s, args):
+    """Génère UNE vidéo « billes » à partir d'un fichier MIDI (sans publier) et l'enregistre dans le dossier indiqué."""
+    from pathlib import Path
+    from .midi_analyzer.parser import parse_midi
+    from .bounce import choreo, render
+    src = Path(args.midi).expanduser()
+    if not src.exists():
+        print(f"✖ Fichier introuvable : {src}"); return 1
+    notes, _ = parse_midi(src.read_bytes())
+    onsets = list(choreo.melody_onsets(notes))
+    t0 = onsets[0][0] if onsets else 0
+    pairs = onsets
+    pairs = [(t - t0, p) for t, p in pairs if t - t0 < args.duree]
+    if len(pairs) < 12:
+        print("✖ Pas assez de notes dans ce MIDI pour faire rebondir une bille."); return 1
+    out = Path(args.sortie).expanduser(); out.mkdir(parents=True, exist_ok=True)
+    dest = out / f"{src.stem}_billes.mp4"
+    print(f"🎬 Fabrication de {dest} (3 à 5 minutes)…")
+    render.render_video(notes, pairs, dest, src.stem.replace("_", " ").title(), start=t0, duration=pairs[-1][0] + 2.4)
+    print(f"✅ Vidéo prête : {dest}"); return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="piano")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -494,6 +516,7 @@ def main(argv=None):
     cmds["youtube-web"] = cmd_youtube_web
     cmds["schedule"], cmds["publish-due"], cmds["publish-now"] = cmd_schedule, cmd_publish_due, cmd_publish_now
     cmds["mac-setup"] = cmd_mac_setup
+    cmds["generer-billes"] = cmd_generer_billes
     cmds["auto"] = cmds["run"] = cmds["dry-run"] = cmd_run
     for n in cmds:
         sp = sub.add_parser(n)
@@ -514,6 +537,8 @@ def main(argv=None):
             sp.add_argument("video_id", type=int)
         if n == "ui":
             sp.add_argument("--port", type=int, default=None); sp.add_argument("--no-browser", action="store_true")
+        if n == "generer-billes":
+            sp.add_argument("midi"); sp.add_argument("--sortie", default="~/Desktop"); sp.add_argument("--duree", type=float, default=50)
         if n == "audit-midi":
             sp.add_argument("--folder", default="")
         if n == "post":
